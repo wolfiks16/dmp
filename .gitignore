@@ -1,5 +1,7 @@
 # Byte-compiled / optimized / DLL files
+*/__pycache__/
 __pycache__/
+test/unit/__pycache__/
 *.py[codz]
 *$py.class
 media/
