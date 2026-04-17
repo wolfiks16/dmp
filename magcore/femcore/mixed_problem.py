@@ -3,9 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from magcore.femcore.assembly import (
-    assemble_mixed_coulomb_system,
-)
+from magcore.femcore.assembly import assemble_mixed_coulomb_system
 from magcore.femcore.boundary_conditions import (
     apply_zero_mixed_dirichlet_bc,
     find_mixed_boundary_dofs,
@@ -16,30 +14,17 @@ from magcore.femcore.gauge_diagnostics import (
     gauge_residual_vector,
     project_to_gradient_subspace,
 )
-from magcore.femcore.mesh import TetraMesh
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.solver import (
     solve_mixed_coulomb_problem,
     split_mixed_solution,
 )
 from magcore.femcore.spaces import NedelecP1Space
+from magcore.mesh.mesh import TetraMesh
 
 
 @dataclass(frozen=True, slots=True)
 class MixedCoulombProblem:
-    """
-    Высокоуровневое описание bounded mixed A-p задачи Кулона
-    для этапа A1.2.
-
-    Полная дискретная система имеет вид:
-        [ K   G ] [a] = [f]
-        [ G^T 0 ] [p]   [0]
-
-    где:
-    - a — коэффициенты векторного потенциала A_h,
-    - p — коэффициенты множителя калибровки p_h.
-    """
-
     mesh: TetraMesh
     vector_space: NedelecP1Space
     scalar_space: LagrangeP1Space
@@ -47,7 +32,7 @@ class MixedCoulombProblem:
     J_fn: object
     curl_quadrature_order: int = 1
     coupling_quadrature_order: int = 2
-    rhs_quadrature_order: int = 2
+    rhs_quadrature_order: int = 3
 
     def __post_init__(self) -> None:
         if self.vector_space.mesh is not self.mesh:
@@ -58,12 +43,12 @@ class MixedCoulombProblem:
             raise ValueError("nu must be positive.")
         if not callable(self.J_fn):
             raise ValueError("J_fn must be callable.")
-        if self.curl_quadrature_order not in (1, 2):
-            raise ValueError("curl_quadrature_order must be 1 or 2.")
-        if self.coupling_quadrature_order not in (1, 2):
-            raise ValueError("coupling_quadrature_order must be 1 or 2.")
-        if self.rhs_quadrature_order not in (1, 2):
-            raise ValueError("rhs_quadrature_order must be 1 or 2.")
+        if self.curl_quadrature_order not in (1, 2, 3):
+            raise ValueError("curl_quadrature_order must be 1, 2 or 3.")
+        if self.coupling_quadrature_order not in (1, 2, 3):
+            raise ValueError("coupling_quadrature_order must be 1, 2 or 3.")
+        if self.rhs_quadrature_order not in (1, 2, 3):
+            raise ValueError("rhs_quadrature_order must be 1, 2 or 3.")
 
     @classmethod
     def from_mesh(
@@ -73,11 +58,8 @@ class MixedCoulombProblem:
         J_fn,
         curl_quadrature_order: int = 1,
         coupling_quadrature_order: int = 2,
-        rhs_quadrature_order: int = 2,
+        rhs_quadrature_order: int = 3,
     ) -> "MixedCoulombProblem":
-        """
-        Удобный конструктор: автоматически создаёт H(curl)- и P1-пространства.
-        """
         vector_space = NedelecP1Space.from_mesh(mesh)
         scalar_space = LagrangeP1Space(mesh)
 
@@ -105,20 +87,12 @@ class MixedCoulombProblem:
         return self.n_vector_dofs + self.n_scalar_dofs
 
     def boundary_dofs(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
-        """
-        Вернуть граничные DOF для:
-        - векторного блока A_h,
-        - скалярного блока p_h.
-        """
         return find_mixed_boundary_dofs(
             vector_space=self.vector_space,
             scalar_space=self.scalar_space,
         )
 
     def assemble_system(self) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Собрать полную mixed-систему без наложенных граничных условий.
-        """
         return assemble_mixed_coulomb_system(
             mesh=self.mesh,
             vector_space=self.vector_space,
@@ -135,11 +109,6 @@ class MixedCoulombProblem:
         system_matrix: np.ndarray,
         rhs: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """
-        Наложить граничные условия:
-        - n × A = 0,
-        - p = 0.
-        """
         vector_bnd, scalar_bnd = self.boundary_dofs()
 
         return apply_zero_mixed_dirichlet_bc(
@@ -156,13 +125,6 @@ class MixedCoulombProblem:
         compute_gauge_projection: bool = True,
         store_full_system: bool = False,
     ) -> "MixedCoulombSolution":
-        """
-        Полный цикл решения задачи A1.2:
-        1. сборка,
-        2. наложение ГУ,
-        3. решение,
-        4. диагностика калибровки.
-        """
         system_matrix, rhs = self.assemble_system()
         system_matrix_bc, rhs_bc = self.apply_boundary_conditions(system_matrix, rhs)
 
@@ -218,10 +180,6 @@ class MixedCoulombProblem:
 
 @dataclass(frozen=True, slots=True)
 class MixedCoulombSolution:
-    """
-    Результат решения mixed A-p задачи Кулона.
-    """
-
     problem: MixedCoulombProblem
     x: np.ndarray
     a: np.ndarray
@@ -238,10 +196,6 @@ class MixedCoulombSolution:
 
     @property
     def eta_parallel(self) -> float | None:
-        """
-        Относительная продольная составляющая:
-            eta_parallel = ||A_parallel|| / ||A||
-        """
         if self.gauge_projection is None:
             return None
         return float(self.gauge_projection.eta_parallel)
@@ -265,9 +219,6 @@ class MixedCoulombSolution:
         return float(self.gauge_projection.norm_perp)
 
     def summary_dict(self) -> dict[str, float | int | None]:
-        """
-        Краткая сводка по решению в удобном для логирования виде.
-        """
         return {
             "n_vector_dofs": self.problem.n_vector_dofs,
             "n_scalar_dofs": self.problem.n_scalar_dofs,
@@ -288,18 +239,10 @@ def solve_mixed_coulomb_baseline(
     *,
     curl_quadrature_order: int = 1,
     coupling_quadrature_order: int = 2,
-    rhs_quadrature_order: int = 2,
+    rhs_quadrature_order: int = 3,
     compute_gauge_projection: bool = True,
     store_full_system: bool = False,
 ) -> MixedCoulombSolution:
-    """
-    Функциональный интерфейс поверх MixedCoulombProblem.
-
-    Это удобная точка входа для:
-    - тестов,
-    - скриптов,
-    - будущих verification-case сценариев.
-    """
     problem = MixedCoulombProblem.from_mesh(
         mesh=mesh,
         nu=nu,

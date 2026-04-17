@@ -11,20 +11,16 @@ from magcore.femcore.gauge_diagnostics import (
     gauge_residual_vector,
     project_to_gradient_subspace,
 )
-from magcore.femcore.mesh import TetraMesh, oriented_tetra_volume6
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.solver import (
     solve_mixed_coulomb_problem,
     split_mixed_solution,
 )
 from magcore.femcore.spaces import NedelecP1Space
+from magcore.mesh.mesh import TetraMesh, oriented_tetra_volume6
 
 
 def _structured_unit_cube_tet_mesh(n: int) -> TetraMesh:
-    """
-    Построить структурированную тетраэдральную сетку единичного куба [0,1]^3
-    через разбиение каждого кубика на 6 тетраэдров вдоль главной диагонали.
-    """
     if n < 1:
         raise ValueError("n must be at least 1.")
 
@@ -86,9 +82,6 @@ def _free_scalar_dofs(space: LagrangeP1Space) -> np.ndarray:
 
 
 def _nullspace(matrix: np.ndarray, rtol: float = 1e-12) -> np.ndarray:
-    """
-    Построить базис нуль-пространства матрицы через SVD.
-    """
     M = np.asarray(matrix, dtype=float)
     if M.ndim != 2:
         raise ValueError("matrix must be 2D.")
@@ -108,25 +101,13 @@ def _build_exact_discrete_state(
     vector_space: NedelecP1Space,
     scalar_space: LagrangeP1Space,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Построить нетривиальное точное ДИСКРЕТНОЕ состояние (a_exact, p_exact)
-    для mixed A-p системы с уже учтёнными граничными условиями.
-
-    Требование:
-        G_free^T a_free = 0
-    на свободных скалярных DOF.
-    """
     free_vec = _free_vector_dofs(vector_space)
     free_sca = _free_scalar_dofs(scalar_space)
 
     if free_sca.size == 0:
-        raise ValueError(
-            "This test requires at least one free scalar DOF. Use n >= 2."
-        )
+        raise ValueError("This test requires at least one free scalar DOF. Use n >= 2.")
     if free_vec.size == 0:
-        raise ValueError(
-            "This test requires at least one free vector DOF."
-        )
+        raise ValueError("This test requires at least one free vector DOF.")
 
     G = assemble_coulomb_coupling_matrix(
         mesh=mesh,
@@ -137,7 +118,6 @@ def _build_exact_discrete_state(
 
     G_free = G[np.ix_(free_vec, free_sca)]
 
-    # Выбираем a_free из null((G_free)^T)
     null_basis = _nullspace(G_free.T)
     if null_basis.shape[1] == 0:
         raise AssertionError(
@@ -161,10 +141,6 @@ def _build_exact_discrete_state(
 
 
 def _solve_discrete_manufactured_case(n: int) -> dict[str, float | np.ndarray]:
-    """
-    Построить дискретно-точную manufactured-задачу на сетке n
-    и проверить восстановление exact-состояния после решения mixed-системы.
-    """
     mesh = _structured_unit_cube_tet_mesh(n)
     vector_space = NedelecP1Space.from_mesh(mesh)
     scalar_space = LagrangeP1Space(mesh)
@@ -190,9 +166,6 @@ def _solve_discrete_manufactured_case(n: int) -> dict[str, float | np.ndarray]:
         scalar_space=scalar_space,
     )
 
-    # Строим RHS так, чтобы (a_exact, p_exact) было точным решением:
-    #   K a_exact + G p_exact = f_exact
-    #   G^T a_exact = 0 на свободных scalar DOF
     f_exact = K @ a_exact + G @ p_exact
 
     b = np.zeros(nA + scalar_space.ndofs, dtype=float)
@@ -246,17 +219,6 @@ def _solve_discrete_manufactured_case(n: int) -> dict[str, float | np.ndarray]:
 
 
 def test_a12_discrete_manufactured_state_is_recovered_on_refined_meshes() -> None:
-    """
-    Refinement smoke-тест для A1.2.
-
-    Это не тест порядка сходимости непрерывной PDE-задачи.
-    Это тест того, что на последовательности уточняемых сеток:
-    1. mixed-система собирается корректно;
-    2. граничные условия накладываются корректно;
-    3. точное дискретное manufactured-состояние восстанавливается решателем;
-    4. weak/discrete калибровка выполняется;
-    5. продольная часть остаётся пренебрежимо малой.
-    """
     results = [
         _solve_discrete_manufactured_case(2),
         _solve_discrete_manufactured_case(3),

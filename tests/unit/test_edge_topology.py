@@ -9,7 +9,7 @@ from magcore.femcore.edge_topology import (
     build_global_edges,
     interior_edges,
 )
-from magcore.femcore.mesh import TetraMesh
+from magcore.mesh.mesh import TetraMesh
 
 
 def make_single_tetra_mesh() -> TetraMesh:

@@ -7,7 +7,6 @@ from magcore.femcore.local_matrices import (
     local_mass_matrix,
     local_rhs_vector,
 )
-from magcore.femcore.mesh import TetraMesh
 from magcore.femcore.mixed_local_matrices import (
     local_curlcurl_block,
     local_grad_p_coupling_matrix,
@@ -17,6 +16,7 @@ from magcore.femcore.quadrature import get_tetra_quadrature
 from magcore.femcore.reference_tetra import AffineTetraMap
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.spaces import NedelecP1Space
+from magcore.mesh.mesh import TetraMesh
 
 
 def _validate_spaces_same_mesh(
@@ -98,7 +98,7 @@ def assemble_rhs_vector(
     mesh: TetraMesh,
     space: NedelecP1Space,
     f_fn,
-    quadrature_order: int = 2,
+    quadrature_order: int = 3,
 ) -> np.ndarray:
     _validate_spaces_same_mesh(mesh, space)
 
@@ -131,13 +131,8 @@ def assemble_system(
     f_fn,
     curl_quadrature_order: int = 1,
     mass_quadrature_order: int = 2,
-    rhs_quadrature_order: int = 2,
+    rhs_quadrature_order: int = 3,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Стандартная H(curl)-система:
-        A = K + M
-        b = F
-    """
     K = assemble_curlcurl_matrix(
         mesh=mesh,
         space=space,
@@ -164,12 +159,8 @@ def assemble_vector_source_rhs(
     mesh: TetraMesh,
     vector_space: NedelecP1Space,
     J_fn,
-    quadrature_order: int = 2,
+    quadrature_order: int = 3,
 ) -> np.ndarray:
-    """
-    Глобальная правая часть для mixed A-p постановки:
-        f_i = ∫ J_s · w_i
-    """
     _validate_spaces_same_mesh(mesh, vector_space)
 
     ndofs = vector_space.ndofs
@@ -199,10 +190,6 @@ def assemble_coulomb_coupling_matrix(
     scalar_space: LagrangeP1Space,
     quadrature_order: int = 2,
 ) -> np.ndarray:
-    """
-    Глобальный блок связи Кулона:
-        G_ij = ∫ w_i · grad(phi_j)
-    """
     _validate_spaces_same_mesh(mesh, vector_space, scalar_space)
 
     nA = vector_space.ndofs
@@ -235,12 +222,8 @@ def assemble_scalar_stiffness_matrix(
     scalar_space: LagrangeP1Space,
     quadrature_order: int = 1,
 ) -> np.ndarray:
-    """
-    Глобальная скалярная матрица жёсткости:
-        S_ij = ∫ grad(phi_i) · grad(phi_j)
-    """
-    if quadrature_order not in (1, 2):
-        raise ValueError("Supported quadrature orders are 1 and 2.")
+    if quadrature_order not in (1, 2, 3):
+        raise ValueError("Supported quadrature orders are 1, 2 and 3.")
 
     if scalar_space.mesh is not mesh:
         raise ValueError("scalar_space must be built on the provided mesh.")
@@ -276,12 +259,6 @@ def assemble_discrete_gradient_matrix(
     vector_space: NedelecP1Space,
     scalar_space: LagrangeP1Space,
 ) -> np.ndarray:
-    """
-    Дискретный оператор градиента из узловых коэффициентов в edge-DOF.
-
-    Для глобального ребра (i, j), ориентированного канонически i < j:
-        (D phi)_e = phi_j - phi_i
-    """
     if vector_space.mesh is not scalar_space.mesh:
         raise ValueError("vector_space and scalar_space must be built on the same mesh.")
 
@@ -304,15 +281,8 @@ def assemble_mixed_coulomb_blocks(
     J_fn,
     curl_quadrature_order: int = 1,
     coupling_quadrature_order: int = 2,
-    rhs_quadrature_order: int = 2,
+    rhs_quadrature_order: int = 3,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    Собрать блоки mixed A-p постановки Кулона:
-
-        K_ij = ∫ nu * curl(w_i) · curl(w_j)
-        G_ij = ∫ w_i · grad(phi_j)
-        f_i  = ∫ J_s · w_i
-    """
     _validate_spaces_same_mesh(mesh, vector_space, scalar_space)
 
     K = np.zeros((vector_space.ndofs, vector_space.ndofs), dtype=float)
@@ -368,14 +338,8 @@ def assemble_mixed_coulomb_system(
     J_fn,
     curl_quadrature_order: int = 1,
     coupling_quadrature_order: int = 2,
-    rhs_quadrature_order: int = 2,
+    rhs_quadrature_order: int = 3,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Собрать полную mixed saddle-point систему Кулона:
-
-        [ K   G ] [a] = [f]
-        [ G^T 0 ] [p]   [0]
-    """
     K, G, f = assemble_mixed_coulomb_blocks(
         mesh=mesh,
         vector_space=vector_space,

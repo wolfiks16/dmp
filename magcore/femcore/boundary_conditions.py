@@ -7,18 +7,10 @@ from magcore.femcore.spaces import NedelecP1Space
 
 
 def find_boundary_dofs(space: NedelecP1Space) -> tuple[int, ...]:
-    """
-    Граничные DOF для первого семейства edge-элементов:
-    DOF, принадлежащие граничным рёбрам.
-    """
     return space.boundary_dofs()
 
 
 def find_scalar_boundary_dofs(space: LagrangeP1Space) -> tuple[int, ...]:
-    """
-    Граничные скалярные DOF для P1-пространства:
-    DOF, принадлежащие граничным вершинам.
-    """
     return space.boundary_dofs()
 
 
@@ -26,11 +18,6 @@ def find_mixed_boundary_dofs(
     vector_space: NedelecP1Space,
     scalar_space: LagrangeP1Space,
 ) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """
-    Вернуть пару:
-    - граничные DOF для A
-    - граничные DOF для p
-    """
     return find_boundary_dofs(vector_space), find_scalar_boundary_dofs(scalar_space)
 
 
@@ -39,12 +26,6 @@ def apply_zero_dirichlet_bc(
     b: np.ndarray,
     dofs: tuple[int, ...] | list[int] | np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Наложить однородные условия Дирихле методом зануления строк/столбцов:
-    - занулить строку и столбец,
-    - поставить 1 на диагональ,
-    - занулить правую часть.
-    """
     A = np.asarray(A, dtype=float).copy()
     b = np.asarray(b, dtype=float).copy()
     dofs = np.asarray(dofs, dtype=int)
@@ -74,17 +55,6 @@ def apply_zero_mixed_dirichlet_bc(
     scalar_dofs: tuple[int, ...] | list[int] | np.ndarray,
     n_vector_dofs: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Наложить однородные граничные условия на блочную mixed-систему:
-
-        [K  G][a] = [f]
-        [G^T 0][p]   [0]
-
-    где:
-    - vector_dofs — индексы DOF для A
-    - scalar_dofs — индексы DOF для p (локальные в скалярном блоке)
-    - n_vector_dofs — размер векторного блока
-    """
     A = np.asarray(A, dtype=float)
     b = np.asarray(b, dtype=float)
 

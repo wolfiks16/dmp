@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from magcore.femcore.mesh import TetraMesh
+from magcore.mesh.mesh import TetraMesh, canonical_edge
 
 Edge = tuple[int, int]
 
@@ -15,12 +15,6 @@ LOCAL_EDGE_VERTEX_PAIRS: tuple[tuple[int, int], ...] = (
     (1, 3),
     (2, 3),
 )
-
-
-def canonical_edge(i: int, j: int) -> Edge:
-    a = int(i)
-    b = int(j)
-    return (a, b) if a < b else (b, a)
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +45,7 @@ def build_global_edges(mesh: TetraMesh) -> tuple[Edge, ...]:
     for c_idx in range(mesh.n_cells):
         verts = mesh.cell_vertex_indices(c_idx)
         for i_loc, j_loc in LOCAL_EDGE_VERTEX_PAIRS:
-            edge_set.add(canonical_edge(verts[i_loc], verts[j_loc]))
+            edge_set.add(canonical_edge((verts[i_loc], verts[j_loc])))
     return tuple(sorted(edge_set))
 
 
@@ -60,14 +54,16 @@ def build_edge_topology(mesh: TetraMesh) -> EdgeTopology:
     edge_to_idx = {edge: k for k, edge in enumerate(global_edges)}
     c2e = np.zeros((mesh.n_cells, 6), dtype=int)
     sgn = np.zeros((mesh.n_cells, 6), dtype=int)
+
     for c_idx in range(mesh.n_cells):
         verts = mesh.cell_vertex_indices(c_idx)
         for e_loc, (i_loc, j_loc) in enumerate(LOCAL_EDGE_VERTEX_PAIRS):
             vi = verts[i_loc]
             vj = verts[j_loc]
-            gedge = canonical_edge(vi, vj)
+            gedge = canonical_edge((vi, vj))
             c2e[c_idx, e_loc] = edge_to_idx[gedge]
             sgn[c_idx, e_loc] = +1 if vi < vj else -1
+
     return EdgeTopology(global_edges=global_edges, cell_to_global_edges=c2e, cell_edge_signs=sgn)
 
 
@@ -75,9 +71,9 @@ def boundary_edges(mesh: TetraMesh) -> tuple[Edge, ...]:
     bfaces = mesh.boundary_faces()
     edge_set: set[Edge] = set()
     for i, j, k in bfaces:
-        edge_set.add(canonical_edge(i, j))
-        edge_set.add(canonical_edge(i, k))
-        edge_set.add(canonical_edge(j, k))
+        edge_set.add(canonical_edge((i, j)))
+        edge_set.add(canonical_edge((i, k)))
+        edge_set.add(canonical_edge((j, k)))
     return tuple(sorted(edge_set))
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from magcore.femcore.mesh import TetraMesh
+from magcore.mesh.mesh import TetraMesh
 from magcore.femcore.spaces import NedelecP1Space
 
 

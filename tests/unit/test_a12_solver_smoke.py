@@ -8,13 +8,13 @@ from magcore.femcore.gauge_diagnostics import (
     gauge_residual_vector,
     project_to_gradient_subspace,
 )
-from magcore.femcore.mesh import TetraMesh, oriented_tetra_volume6
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.solver import (
     solve_mixed_coulomb_problem,
     split_mixed_solution,
 )
 from magcore.femcore.spaces import NedelecP1Space
+from magcore.mesh.mesh import TetraMesh, oriented_tetra_volume6
 
 
 def _cube_with_center_mesh() -> TetraMesh:
@@ -34,12 +34,12 @@ def _cube_with_center_mesh() -> TetraMesh:
     )
 
     boundary_tris = [
-        (0, 1, 2), (0, 2, 3),  # z = 0
-        (4, 6, 5), (4, 7, 6),  # z = 1
-        (0, 5, 1), (0, 4, 5),  # y = 0
-        (3, 2, 6), (3, 6, 7),  # y = 1
-        (0, 3, 7), (0, 7, 4),  # x = 0
-        (1, 5, 6), (1, 6, 2),  # x = 1
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 5, 1), (0, 4, 5),
+        (3, 2, 6), (3, 6, 7),
+        (0, 3, 7), (0, 7, 4),
+        (1, 5, 6), (1, 6, 2),
     ]
 
     cells: list[list[int]] = []

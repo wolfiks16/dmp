@@ -10,9 +10,9 @@ from magcore.femcore.assembly import (
     assemble_scalar_stiffness_matrix,
 )
 from magcore.femcore.boundary_conditions import apply_zero_dirichlet_bc
-from magcore.femcore.mesh import TetraMesh
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.spaces import NedelecP1Space
+from magcore.mesh.mesh import TetraMesh
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,10 +27,6 @@ class GaugeProjectionResult:
 
 
 def gauge_residual_vector(coupling_matrix: np.ndarray, a: np.ndarray) -> np.ndarray:
-    """
-    Вектор остатка weak/discrete калибровки:
-        r = G^T a
-    """
     G = np.asarray(coupling_matrix, dtype=float)
     a = np.asarray(a, dtype=float)
 
@@ -47,9 +43,6 @@ def gauge_residual_vector(coupling_matrix: np.ndarray, a: np.ndarray) -> np.ndar
 
 
 def gauge_residual_norm(coupling_matrix: np.ndarray, a: np.ndarray) -> float:
-    """
-    Евклидова норма остатка weak/discrete калибровки.
-    """
     r = gauge_residual_vector(coupling_matrix, a)
     return float(np.linalg.norm(r))
 
@@ -77,24 +70,6 @@ def project_to_gradient_subspace(
     scalar_stiffness_quadrature_order: int = 1,
     vector_mass_quadrature_order: int = 2,
 ) -> GaugeProjectionResult:
-    """
-    Разложить дискретный потенциал на:
-        a = a_parallel + a_perp
-
-    где:
-    - a_parallel — дискретная градиентная часть,
-    - a_perp     — оставшаяся поперечная часть.
-
-    Для этого решается задача проекции:
-        S phi = c,
-    где
-        S_ij = ∫ grad(phi_i) · grad(phi_j),
-        c_j  = ∫ A_h · grad(phi_j).
-
-    После этого:
-        a_parallel = D phi,
-    где D — дискретный оператор градиента "узлы -> рёбра".
-    """
     if vector_space.mesh is not mesh or scalar_space.mesh is not mesh:
         raise ValueError("Both spaces must be built on the provided mesh.")
 
