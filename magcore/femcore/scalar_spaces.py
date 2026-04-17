@@ -22,16 +22,10 @@ class LagrangeP1Space:
         return np.asarray(self.mesh.cells[int(cell_idx)], dtype=int)
 
     def boundary_vertex_indices(self) -> tuple[int, ...]:
-        """
-        Граничные узлы = вершины, принадлежащие хотя бы одной граничной грани.
-        """
         verts: set[int] = set()
         for face in self.mesh.boundary_faces():
             verts.update(int(v) for v in face)
         return tuple(sorted(verts))
 
     def boundary_dofs(self) -> tuple[int, ...]:
-        """
-        Для P1-пространства DOF совпадают с вершинами.
-        """
         return self.boundary_vertex_indices()

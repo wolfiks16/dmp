@@ -3,11 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-from magcore.femcore.edge_topology import (
-    EdgeTopology,
-    boundary_edges,
-    build_edge_topology,
-)
+from magcore.femcore.edge_topology import EdgeTopology, boundary_edges, build_edge_topology
 from magcore.femcore.mesh import TetraMesh
 
 

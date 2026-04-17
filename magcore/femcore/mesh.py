@@ -10,35 +10,16 @@ Cell = tuple[int, int, int, int]
 
 
 def oriented_tetra_volume6(vertices4: np.ndarray) -> float:
-    """
-    Six times the oriented tetrahedron volume.
-
-    Parameters
-    ----------
-    vertices4:
-        Array of shape (4, 3) with tetrahedron vertices ordered as (v0, v1, v2, v3).
-
-    Returns
-    -------
-    float
-        det([v1-v0, v2-v0, v3-v0]).
-    """
     v0, v1, v2, v3 = np.asarray(vertices4, dtype=float)
     J = np.column_stack((v1 - v0, v2 - v0, v3 - v0))
     return float(np.linalg.det(J))
 
 
 def tetra_volume(vertices4: np.ndarray) -> float:
-    """
-    Positive tetrahedron volume.
-    """
     return abs(oriented_tetra_volume6(vertices4)) / 6.0
 
 
 def canonical_face(face: tuple[int, int, int]) -> Face:
-    """
-    Canonical face representation independent of local ordering.
-    """
     return tuple(sorted(int(i) for i in face))
 
 
@@ -50,16 +31,13 @@ class TetraMesh:
     def __post_init__(self) -> None:
         verts = np.asarray(self.vertices, dtype=float)
         cells = np.asarray(self.cells, dtype=int)
-
         object.__setattr__(self, "vertices", verts)
         object.__setattr__(self, "cells", cells)
-
         self.validate()
 
     def validate(self) -> None:
         verts = self.vertices
         cells = self.cells
-
         if verts.ndim != 2 or verts.shape[1] != 3:
             raise ValueError("vertices must have shape (N, 3).")
         if cells.ndim != 2 or cells.shape[1] != 4:
@@ -76,7 +54,6 @@ class TetraMesh:
         for c_idx, cell in enumerate(cells):
             if len(set(int(v) for v in cell)) != 4:
                 raise ValueError(f"Cell {c_idx} has repeated vertex indices.")
-
             vol6 = oriented_tetra_volume6(self.cell_vertices(c_idx))
             if vol6 <= 0.0:
                 raise ValueError(
@@ -106,13 +83,6 @@ class TetraMesh:
         return self.cell_vertices(cell_idx).mean(axis=0)
 
     def cell_faces(self, cell_idx: int) -> tuple[Face, Face, Face, Face]:
-        """
-        Return the four faces of a tetrahedron in canonical ordering.
-
-        Local face set for cell (v0, v1, v2, v3):
-            (1,2,3), (0,3,2), (0,1,3), (0,2,1)
-        then canonically sorted.
-        """
         v0, v1, v2, v3 = self.cell_vertex_indices(cell_idx)
         return (
             canonical_face((v1, v2, v3)),
@@ -128,9 +98,6 @@ class TetraMesh:
         return tuple(faces)
 
     def boundary_faces(self) -> tuple[Face, ...]:
-        """
-        Return canonical triangular faces that belong to exactly one tetrahedron.
-        """
         counts = Counter(self.all_faces())
         bfaces = [face for face, cnt in counts.items() if cnt == 1]
         return tuple(sorted(bfaces))

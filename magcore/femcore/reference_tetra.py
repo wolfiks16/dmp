@@ -3,62 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
 
-
 REFERENCE_TETRA_VERTICES = np.array(
-    [
-        [0.0, 0.0, 0.0],  # v0
-        [1.0, 0.0, 0.0],  # v1
-        [0.0, 1.0, 0.0],  # v2
-        [0.0, 0.0, 1.0],  # v3
-    ],
-    dtype=float,
+    [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=float
 )
 
 
 def reference_barycentric(point: np.ndarray) -> np.ndarray:
-    """
-    Barycentric coordinates on the reference tetrahedron.
-
-    Reference tetra:
-        lambda0 = 1 - x - y - z
-        lambda1 = x
-        lambda2 = y
-        lambda3 = z
-    """
     p = np.asarray(point, dtype=float)
     if p.shape != (3,):
         raise ValueError("point must have shape (3,).")
-
     x, y, z = float(p[0]), float(p[1]), float(p[2])
-    return np.array(
-        [
-            1.0 - x - y - z,
-            x,
-            y,
-            z,
-        ],
-        dtype=float,
-    )
+    return np.array([1.0 - x - y - z, x, y, z], dtype=float)
 
 
 def reference_barycentric_gradients() -> np.ndarray:
-    """
-    Constant gradients of barycentric coordinates on the reference tetrahedron.
-
-    Returns
-    -------
-    grads:
-        Array of shape (4, 3), where grads[i] = grad(lambda_i).
-    """
-    return np.array(
-        [
-            [-1.0, -1.0, -1.0],
-            [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            [0.0, 0.0, 1.0],
-        ],
-        dtype=float,
-    )
+    return np.array([[-1.0, -1.0, -1.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=float)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,12 +27,10 @@ class AffineTetraMap:
     def __post_init__(self) -> None:
         verts = np.asarray(self.physical_vertices, dtype=float)
         object.__setattr__(self, "physical_vertices", verts)
-
         if verts.shape != (4, 3):
             raise ValueError("physical_vertices must have shape (4, 3).")
         if not np.isfinite(verts).all():
             raise ValueError("physical_vertices must be finite.")
-
         if self.jacobian_determinant() <= 0.0:
             raise ValueError("Affine tetra map requires positively oriented physical tetrahedron.")
 
@@ -98,9 +55,6 @@ class AffineTetraMap:
         return self.jacobian_determinant() / 6.0
 
     def map_to_physical(self, ref_point: np.ndarray) -> np.ndarray:
-        """
-        x = v0 + J * xi
-        """
         xi = np.asarray(ref_point, dtype=float)
         if xi.shape != (3,):
             raise ValueError("ref_point must have shape (3,).")
@@ -117,10 +71,6 @@ class AffineTetraMap:
         return reference_barycentric(xi)
 
     def physical_barycentric_gradients(self) -> np.ndarray:
-        """
-        Transform reference barycentric gradients to physical tetrahedron:
-            grad_x lambda_i = J^{-T} grad_ref lambda_i
-        """
         grads_ref = reference_barycentric_gradients()
         JTinv = self.inverse_transpose_jacobian()
         return grads_ref @ JTinv.T
