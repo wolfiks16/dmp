@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from magcore.femcore.basis_nedelec import physical_nedelec_basis
+from magcore.femcore.basis_nedelec import physical_nedelec_basis, physical_nedelec_curl
 from magcore.femcore.local_matrices import local_curlcurl_matrix
 from magcore.femcore.quadrature import get_tetra_quadrature
 from magcore.femcore.reference_tetra import AffineTetraMap
@@ -98,3 +98,39 @@ def local_curlcurl_block(
         nu=nu,
         quadrature_order=quadrature_order,
     )
+
+
+def local_magnetization_rhs(
+    mesh: TetraMesh,
+    cell_idx: int,
+    nu_br: np.ndarray,
+    quadrature_order: int = 1,
+) -> np.ndarray:
+    """
+    Локальный RHS-вклад от намагниченности (задача A-3, см. docs/math/formulation_bounded.md):
+
+        F_i = ∫_T (ν B_r) · curl w_i dV.
+
+    nu_br — постоянный на ячейке вектор ν·B_r (магнитный источник). Поскольку для
+    элементов Неделека 1-го рода curl w_i постоянен на ячейке, интеграл точен:
+        F_i = (ν B_r · curl w_i) · |T|.
+    Знак (+) согласован с сильной формой curl(ν curl A) = J + curl(ν B_r).
+    """
+    g = np.asarray(nu_br, dtype=float)
+    if g.shape != (3,):
+        raise ValueError("nu_br must have shape (3,).")
+    if not np.isfinite(g).all():
+        raise ValueError("nu_br must be finite.")
+
+    q = get_tetra_quadrature(quadrature_order)
+    amap = AffineTetraMap(mesh.cell_vertices(cell_idx))
+    detJ = amap.jacobian_determinant()
+
+    curls = [physical_nedelec_curl(amap, i) for i in range(6)]
+
+    F = np.zeros(6, dtype=float)
+    for w in q.weights:
+        for i in range(6):
+            F[i] += float(np.dot(g, curls[i])) * w * detJ
+
+    return F

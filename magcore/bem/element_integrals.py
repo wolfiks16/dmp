@@ -169,6 +169,9 @@ def single_layer_point_potential_regular(
     )
 
 
+_FOUR_PI = 4.0 * np.pi
+
+
 def single_layer_face_face_regular(
     target_tri: np.ndarray,
     source_tri: np.ndarray,
@@ -179,16 +182,24 @@ def single_layer_face_face_regular(
     Compute the regular P0-P0 single-layer interaction between two disjoint,
     sufficiently separated triangles:
 
-        ∫_{T_i} ∫_{T_j} G(x, y) dS_y dS_x
+        ∫_{T_i} ∫_{T_j} G(x, y) dS_y dS_x,   G = 1/(4π|x−y|).
+
+    Векторизовано по полной сетке квадратур (Qt×Qs) — без python-циклов.
     """
     jac_t = triangle_jacobian_scale(target_tri)
     jac_s = triangle_jacobian_scale(source_tri)
 
-    acc = 0.0
-    for qp_t, wt in zip(target_quadrature.points, target_quadrature.weights, strict=False):
-        x = map_reference_triangle_to_physical(target_tri, qp_t)
-        for qp_s, ws in zip(source_quadrature.points, source_quadrature.weights, strict=False):
-            y = map_reference_triangle_to_physical(source_tri, qp_s)
-            acc += float(wt) * float(ws) * laplace_green_3d(x, y)
+    qt = np.asarray(target_quadrature.points, dtype=float)
+    wt = np.asarray(target_quadrature.weights, dtype=float)
+    qs = np.asarray(source_quadrature.points, dtype=float)
+    ws = np.asarray(source_quadrature.weights, dtype=float)
 
-    return jac_t * jac_s * acc
+    et1, et2 = target_tri[1] - target_tri[0], target_tri[2] - target_tri[0]
+    es1, es2 = source_tri[1] - source_tri[0], source_tri[2] - source_tri[0]
+    xt = target_tri[0] + np.outer(qt[:, 0], et1) + np.outer(qt[:, 1], et2)  # (Qt,3)
+    ys = source_tri[0] + np.outer(qs[:, 0], es1) + np.outer(qs[:, 1], es2)  # (Qs,3)
+
+    rv = xt[:, None, :] - ys[None, :, :]  # (Qt,Qs,3)
+    r = np.sqrt(np.einsum("tsj,tsj->ts", rv, rv))
+    g = 1.0 / (_FOUR_PI * r)
+    return float(jac_t * jac_s * (wt[:, None] * ws[None, :] * g).sum())

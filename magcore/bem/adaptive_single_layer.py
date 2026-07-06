@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from collections import Counter
 import numpy as np
 
+from magcore.bem import singular_quadrature as _ssq
 from magcore.bem.element_integrals import (
     single_layer_face_face_regular,
     triangle_area,
@@ -11,8 +12,8 @@ from magcore.bem.element_integrals import (
     triangle_diameter,
     triangle_vertices,
 )
-from magcore.bem.pair_classification import FacePairRelation, face_pair_relation
-from magcore.bem.quadrature import get_triangle_quadrature
+from magcore.bem.pair_classification import FacePairRelation, face_pair_relation, shared_vertices
+from magcore.bem.quadrature import get_triangle_quadrature, triangle_collapsed_gauss
 from magcore.bem.triangle_subdivision import (
     subdivide_triangle_4,
     triangle_pair_is_regular,
@@ -28,6 +29,15 @@ class AdaptiveIntegrationConfig:
     self_max_depth: int = 8
     min_triangle_area: float = 1.0e-16
     terminal_regularization_factor: float = 0.25
+    # Полусейминалитическая сингулярная квадратура Заутера–Шваба для касающихся пар
+    # (self/общее ребро/общая вершина). Включена по умолчанию: O(1) на пару и
+    # экспоненциальная сходимость вместо наивного рекурсивного подразбиения.
+    # use_sauter_schwab=False восстанавливает прежнее адаптивное поведение.
+    use_sauter_schwab: bool = True
+    ss_order: int = 6
+    # Порядок регулярного тензорного правила для ДАЛЬНИХ/near непланарных пар
+    # (несингулярных): высокий порядок без подразбиения. 0 → прежний адаптивный путь.
+    regular_order: int = 6
 
 
 def terminal_pair_approximation(
@@ -168,6 +178,32 @@ def single_layer_triangle_self_adaptive(
     return 2.0 * offdiag_sum
 
 
+def _single_layer_face_face_sauter_schwab(
+    mesh: SurfaceMesh,
+    face_i: int,
+    face_j: int,
+    tri_i: np.ndarray,
+    tri_j: np.ndarray,
+    relation: FacePairRelation,
+    config: AdaptiveIntegrationConfig,
+) -> float:
+    """Сингулярная пара (self/общее ребро/общая вершина) — квадратура Заутера–Шваба."""
+    if relation == FacePairRelation.SELF:
+        return _ssq.single_layer_pair(tri_i, tri_i, _ssq.FACE, config.ss_order)
+
+    if relation == FacePairRelation.SHARED_EDGE:
+        sg = shared_vertices(mesh, face_i, face_j)  # 2 общие глобальные вершины
+        tx, _gx = _ssq.reorder_common_edge(tri_i, mesh.faces[face_i], sg)
+        ty, _gy = _ssq.reorder_common_edge(tri_j, mesh.faces[face_j], sg)
+        return _ssq.single_layer_pair(tx, ty, _ssq.EDGE, config.ss_order)
+
+    # SHARED_VERTEX
+    sg = shared_vertices(mesh, face_i, face_j)[0]
+    tx, _gx = _ssq.reorder_common_vertex(tri_i, mesh.faces[face_i], sg)
+    ty, _gy = _ssq.reorder_common_vertex(tri_j, mesh.faces[face_j], sg)
+    return _ssq.single_layer_pair(tx, ty, _ssq.VERTEX, config.ss_order)
+
+
 def single_layer_face_face_full(
     mesh: SurfaceMesh,
     face_i: int,
@@ -177,6 +213,10 @@ def single_layer_face_face_full(
     """
     Complete P0-P0 single-layer interaction between two mesh faces,
     including self / shared-edge / shared-vertex / near / regular cases.
+
+    Касающиеся пары (self/edge/vertex) при config.use_sauter_schwab=True считаются
+    полусейминалитической квадратурой Заутера–Шваба; иначе — прежним адаптивным
+    подразбиением. NEAR/REGULAR — без изменений (регуляр./адаптивная квадратура).
     """
     tri_i = triangle_vertices(mesh, face_i)
     tri_j = triangle_vertices(mesh, face_j)
@@ -188,8 +228,25 @@ def single_layer_face_face_full(
         near_factor=config.near_factor,
     )
 
+    if config.use_sauter_schwab and relation in (
+        FacePairRelation.SELF,
+        FacePairRelation.SHARED_EDGE,
+        FacePairRelation.SHARED_VERTEX,
+    ):
+        return _single_layer_face_face_sauter_schwab(
+            mesh, face_i, face_j, tri_i, tri_j, relation, config
+        )
+
     if relation == FacePairRelation.SELF:
         return single_layer_triangle_self_adaptive(tri_i, config=config, depth=0)
+
+    # Дальние/near непланарные пары (ядро ограничено) — регулярное тензорное
+    # правило высокого порядка без подразбиения (regular_order>0).
+    if relation in (FacePairRelation.REGULAR, FacePairRelation.NEAR) and config.regular_order > 0:
+        rr = triangle_collapsed_gauss(config.regular_order)
+        return single_layer_face_face_regular(
+            target_tri=tri_i, source_tri=tri_j, target_quadrature=rr, source_quadrature=rr
+        )
 
     if relation == FacePairRelation.REGULAR:
         q = get_triangle_quadrature(config.quadrature_order)
@@ -200,7 +257,7 @@ def single_layer_face_face_full(
             source_quadrature=q,
         )
 
-    # shared-edge / shared-vertex / near
+    # shared-edge / shared-vertex / near (когда use_sauter_schwab=False или regular_order=0)
     return single_layer_triangle_pair_adaptive(
         tri_i,
         tri_j,

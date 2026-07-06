@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+
 import numpy as np
+
+from magcore.constants import MU0
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,5 +142,93 @@ def demag_curve_from_br_hcb_hcj(
         name=name,
         H_values=H,
         B_values=B,
+        temperature_c=temperature_c,
+    )
+
+
+# 1 Oe = 1e6/(4*pi) A/m  (т.е. 1 кЭ = 79577.47 А/м); 1 Гс = 1e-4 Тл.
+_KOE_TO_A_PER_M: float = 1.0e6 / (4.0 * np.pi)
+_GAUSS_TO_TESLA: float = 1.0e-4
+
+
+def demag_curve_from_datasheet(
+    curve_id: str,
+    name: str,
+    Br: float,
+    Hcb: float,
+    Hk: float,
+    Hcj: float,
+    n_below: int = 33,
+    n_above: int = 33,
+    temperature_c: float | None = None,
+) -> DemagnetizationCurveBH:
+    """
+    НОРМАЛЬНАЯ кривая размагничивания B(H) (2-й квадрант) из 4 даташит-параметров (СИ):
+    Br [Тл], |H_cB|, |H_k|, |H_cJ| [А/м] (положительные модули).
+
+    Форма C¹ (см. docs/math/nonlinear_materials.md §4):
+      mu_rec = Br/(mu0*Hcb);  s_J = mu0*(mu_rec-1)  (интринзик-наклон);
+      интринзик J(H): прямая J=Br+s_J*H выше колена H_k=-|H_k|; ниже — парабола
+        a*H^2+b*H+c, КАСАТЕЛЬНАЯ к прямой в колене (C^1) и J(-|H_cJ|)=0;
+      нормальная кривая B(H)=J(H)+mu0*H  (выше колена даёт recoil Br+mu0*mu_rec*H,
+      ноль при H=-|H_cB|; ниже колена уходит в минус — это нормально для нормальной
+      кривой высококоэрцитивных магнитов).
+
+    Совпадает с независимой инженерной Excel-методикой (прямая + касательная парабола,
+    2 температурных коэффициента). Чистый NumPy.
+    """
+    if not (Br > 0.0):
+        raise ValueError("Br must be positive.")
+    if not (Hcb > 0.0 and Hk > 0.0 and Hcj > 0.0):
+        raise ValueError("Hcb, Hk, Hcj must be positive magnitudes [A/m].")
+    if not (Hk < Hcj):
+        raise ValueError("Knee |H_k| must be below intrinsic coercivity |H_cJ|.")
+
+    mu_rec = Br / (MU0 * Hcb)
+    s_J = MU0 * (mu_rec - 1.0)
+    Hk_s = -Hk
+    Hcj_s = -Hcj
+    J_k = Br + s_J * Hk_s
+    d = Hk_s - Hcj_s  # = Hcj - Hk > 0
+    a = -(J_k - s_J * d) / (d * d)
+    b = s_J - 2.0 * a * Hk_s
+    c = J_k - a * Hk_s * Hk_s - b * Hk_s
+
+    H_below = np.linspace(Hcj_s, Hk_s, n_below)
+    H_above = np.linspace(Hk_s, 0.0, n_above)
+    H = np.concatenate([H_below[:-1], H_above])
+    J = np.where(H >= Hk_s, Br + s_J * H, a * H * H + b * H + c)
+    B = J + MU0 * H
+    B = np.maximum.accumulate(B)  # страховка от микро-немонотонности у краёв
+
+    return DemagnetizationCurveBH(
+        curve_id=curve_id,
+        name=name,
+        H_values=H,
+        B_values=B,
+        temperature_c=temperature_c,
+    )
+
+
+def demag_curve_from_datasheet_cgs(
+    curve_id: str,
+    name: str,
+    Br_gauss: float,
+    Hcb_kOe: float,
+    Hk_kOe: float,
+    Hcj_kOe: float,
+    temperature_c: float | None = None,
+) -> DemagnetizationCurveBH:
+    """
+    Как `demag_curve_from_datasheet`, но даташит в CGS (Гс, кЭ) — удобно для ввода
+    с паспортов магнитов. 1 Гс = 1e-4 Тл, 1 кЭ = 1e6/(4*pi) А/м.
+    """
+    return demag_curve_from_datasheet(
+        curve_id,
+        name,
+        Br=Br_gauss * _GAUSS_TO_TESLA,
+        Hcb=Hcb_kOe * _KOE_TO_A_PER_M,
+        Hk=Hk_kOe * _KOE_TO_A_PER_M,
+        Hcj=Hcj_kOe * _KOE_TO_A_PER_M,
         temperature_c=temperature_c,
     )

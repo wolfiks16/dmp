@@ -10,6 +10,7 @@ from magcore.femcore.local_matrices import (
 from magcore.femcore.mixed_local_matrices import (
     local_curlcurl_block,
     local_grad_p_coupling_matrix,
+    local_magnetization_rhs,
     local_vector_source_rhs,
 )
 from magcore.femcore.quadrature import get_tetra_quadrature
@@ -30,14 +31,25 @@ def _validate_spaces_same_mesh(
         raise ValueError("scalar_space must be built on the provided mesh.")
 
 
+def _nu_per_cell(nu, n_cells: int) -> np.ndarray:
+    """Резолв ν: скаляр → постоянный массив (n_cells,); либо уже (n_cells,) поячеечно."""
+    arr = np.asarray(nu, dtype=float)
+    if arr.ndim == 0:
+        return np.full(n_cells, float(arr))
+    if arr.shape != (n_cells,):
+        raise ValueError("nu must be a scalar or an array of shape (n_cells,).")
+    return arr
+
+
 def assemble_curlcurl_matrix(
     mesh: TetraMesh,
     space: NedelecP1Space,
-    nu: float,
+    nu,
     quadrature_order: int = 1,
 ) -> np.ndarray:
     _validate_spaces_same_mesh(mesh, space)
 
+    nu_cells = _nu_per_cell(nu, mesh.n_cells)
     ndofs = space.ndofs
     A = np.zeros((ndofs, ndofs), dtype=float)
 
@@ -45,7 +57,7 @@ def assemble_curlcurl_matrix(
         Ke = local_curlcurl_matrix(
             mesh=mesh,
             cell_idx=cell_idx,
-            nu=nu,
+            nu=float(nu_cells[cell_idx]),
             quadrature_order=quadrature_order,
         )
         gdofs = space.cell_dof_indices(cell_idx)
@@ -184,6 +196,52 @@ def assemble_vector_source_rhs(
     return f
 
 
+def assemble_magnetization_rhs(
+    mesh: TetraMesh,
+    vector_space: NedelecP1Space,
+    nu_br_per_cell,
+    quadrature_order: int = 1,
+) -> np.ndarray:
+    """
+    Сборка RHS от намагниченности (задача A-3; магнит = FEM-объёмный источник):
+
+        f_α = Σ_T s_i ∫_T (ν B_r) · curl w_i dV,
+
+    что дискретизирует слабый член ∫_Ω ν B_r · curl v.
+
+    nu_br_per_cell — поячеечный вектор ν·B_r: либо ndarray формы (n_cells, 3),
+    либо callable(cell_idx) -> (3,). Для немагнитных ячеек — нулевой вектор.
+    Складывается с токовым RHS (assemble_vector_source_rhs) в общий источник.
+    """
+    _validate_spaces_same_mesh(mesh, vector_space)
+
+    use_callable = callable(nu_br_per_cell)
+    if not use_callable:
+        nu_br_arr = np.asarray(nu_br_per_cell, dtype=float)
+        if nu_br_arr.shape != (mesh.n_cells, 3):
+            raise ValueError("nu_br_per_cell array must have shape (n_cells, 3).")
+
+    ndofs = vector_space.ndofs
+    f = np.zeros(ndofs, dtype=float)
+
+    for cell_idx in range(mesh.n_cells):
+        nu_br = nu_br_per_cell(cell_idx) if use_callable else nu_br_arr[cell_idx]
+
+        Fe = local_magnetization_rhs(
+            mesh=mesh,
+            cell_idx=cell_idx,
+            nu_br=nu_br,
+            quadrature_order=quadrature_order,
+        )
+        gdofs = vector_space.cell_dof_indices(cell_idx)
+        sgn = vector_space.cell_dof_signs(cell_idx)
+
+        for i in range(6):
+            f[gdofs[i]] += sgn[i] * Fe[i]
+
+    return f
+
+
 def assemble_coulomb_coupling_matrix(
     mesh: TetraMesh,
     vector_space: NedelecP1Space,
@@ -285,6 +343,7 @@ def assemble_mixed_coulomb_blocks(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     _validate_spaces_same_mesh(mesh, vector_space, scalar_space)
 
+    nu_cells = _nu_per_cell(nu, mesh.n_cells)
     K = np.zeros((vector_space.ndofs, vector_space.ndofs), dtype=float)
     G = np.zeros((vector_space.ndofs, scalar_space.ndofs), dtype=float)
     f = np.zeros(vector_space.ndofs, dtype=float)
@@ -293,7 +352,7 @@ def assemble_mixed_coulomb_blocks(
         Ke = local_curlcurl_block(
             mesh=mesh,
             cell_idx=cell_idx,
-            nu=nu,
+            nu=float(nu_cells[cell_idx]),
             quadrature_order=curl_quadrature_order,
         )
         Ge = local_grad_p_coupling_matrix(
@@ -336,6 +395,7 @@ def assemble_mixed_coulomb_system(
     scalar_space: LagrangeP1Space,
     nu: float,
     J_fn,
+    extra_vector_rhs: np.ndarray | None = None,
     curl_quadrature_order: int = 1,
     coupling_quadrature_order: int = 2,
     rhs_quadrature_order: int = 3,
@@ -362,5 +422,12 @@ def assemble_mixed_coulomb_system(
     A[nA:, :nA] = G.T
 
     b[:nA] = f
+    # Доп. объёмный источник по A-дофам (напр. намагниченность (νB_r,curl v) из
+    # assemble_magnetization_rhs) — складывается с токовым RHS (как в связанной сборке).
+    if extra_vector_rhs is not None:
+        extra = np.asarray(extra_vector_rhs, dtype=float)
+        if extra.shape != (nA,):
+            raise ValueError("extra_vector_rhs must have shape (vector_space.ndofs,).")
+        b[:nA] += extra
 
     return A, b
