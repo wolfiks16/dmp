@@ -13,6 +13,7 @@ from magcore.femcore.post import evaluate_curl_on_cell
 from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.spaces import NedelecP1Space
 from magcore.mesh.mesh import TetraMesh
+from magcore.nonlinear.picard import resolve_magnetization, run_picard_fixed_point
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,37 +81,29 @@ def solve_periodic_nonlinear_mixed_picard(
     j_eff = _zero_j if j_fn is None else j_fn
     dir_idx = np.asarray(list(dirichlet_reduced_dofs), dtype=int)
 
-    if magnetization is None:
-        def mag_fn(_B, _H, _nu):
-            return np.zeros((n_cells, 3), dtype=float)
-    elif callable(magnetization):
-        mag_fn = magnetization
-    else:
-        static_mag = np.asarray(magnetization, dtype=float)
-        if static_mag.shape != (n_cells, 3):
-            raise ValueError("static magnetization must have shape (n_cells, 3).")
-        def mag_fn(_B, _H, _nu):
-            return static_mag
+    # Источник намагниченности → функция состояния mag_fn(B,H,ν)->(n_cells,3) (общий helper).
+    mag_fn = resolve_magnetization(magnetization, n_cells, dim=3)
 
-    B_cells = np.zeros((n_cells, 3), dtype=float)
-    H_cells = np.zeros((n_cells, 3), dtype=float)
-    nu_br_cells = np.zeros((n_cells, 3), dtype=float)
-    a = np.zeros(nA, dtype=float)
-    p = np.zeros(scalar_space.ndofs, dtype=float)
-    B_prev: np.ndarray | None = None
-    history: list[float] = []
-    converged = False
-    it = 0
+    # Backend-шаг: заморозить источник намагниченности → собрать ограниченную смешанную
+    # систему → редуцировать (TᵀMT) → Dirichlet → solve → expand → B=curl A, H=νB−νB_r.
+    # Состояние (a,p,H,νB_r) в замыкании; общий цикл владеет релаксацией ν и сходимостью.
+    state: dict[str, object] = {
+        "a": np.zeros(nA, dtype=float),
+        "p": np.zeros(scalar_space.ndofs, dtype=float),
+        "B": np.zeros((n_cells, 3), dtype=float),
+        "H": np.zeros((n_cells, 3), dtype=float),
+        "nu_br": np.zeros((n_cells, 3), dtype=float),
+    }
 
-    for it in range(1, max_iter + 1):
-        nu_br_cells = np.asarray(mag_fn(B_cells, H_cells, nu_cells), dtype=float)
+    def step(nu_frozen: np.ndarray) -> np.ndarray:
+        nu_br_cells = np.asarray(mag_fn(state["B"], state["H"], nu_frozen), dtype=float)
         if nu_br_cells.shape != (n_cells, 3):
             raise ValueError("magnetization callable must return shape (n_cells, 3).")
         f_br = assemble_magnetization_rhs(
             mesh, vector_space, nu_br_cells, quadrature_order=magnetization_quadrature_order
         )
         M, b = assemble_mixed_coulomb_system(
-            mesh, vector_space, scalar_space, nu=nu_cells, J_fn=j_eff,
+            mesh, vector_space, scalar_space, nu=nu_frozen, J_fn=j_eff,
             extra_vector_rhs=f_br,
             curl_quadrature_order=curl_quadrature_order,
             coupling_quadrature_order=coupling_quadrature_order,
@@ -133,24 +126,22 @@ def solve_periodic_nonlinear_mixed_picard(
         B_cells = np.array(
             [evaluate_curl_on_cell(vector_space, a, c) for c in range(n_cells)], dtype=float
         )
-        H_cells = nu_cells[:, None] * B_cells - nu_br_cells
+        H_cells = nu_frozen[:, None] * B_cells - nu_br_cells
+        state.update(a=a, p=p, B=B_cells, H=H_cells, nu_br=nu_br_cells)
+        return B_cells
 
-        if B_prev is not None:
-            denom = float(np.linalg.norm(B_prev))
-            rel = float(np.linalg.norm(B_cells - B_prev)) / max(denom, 1.0e-30)
-            history.append(rel)
-            if rel < tol:
-                converged = True
-                break
-        B_prev = B_cells
-
-        nu_new = np.asarray(nu_of_B(B_cells), dtype=float)
-        if nu_new.shape != (n_cells,):
-            raise ValueError("nu_of_B must return an array of shape (n_cells,).")
-        nu_cells = (1.0 - relaxation) * nu_cells + relaxation * nu_new
+    loop = run_picard_fixed_point(
+        nu_init=nu_cells,
+        nu_of_B=nu_of_B,
+        step=step,
+        max_iter=max_iter,
+        tol=tol,
+        relaxation=relaxation,
+    )
 
     return PeriodicPicardResult(
-        a=a, p=p, B_cells=B_cells, H_cells=H_cells,
-        nu_cells=nu_cells, nu_br_cells=nu_br_cells,
-        n_iterations=it, converged=converged, rel_change_history=tuple(history),
+        a=state["a"], p=state["p"], B_cells=loop.B_cells, H_cells=state["H"],
+        nu_cells=loop.nu_cells, nu_br_cells=state["nu_br"],
+        n_iterations=loop.n_iterations, converged=loop.converged,
+        rel_change_history=loop.rel_change_history,
     )

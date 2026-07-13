@@ -14,6 +14,7 @@ from magcore.hybrid.assembly import (
 )
 from magcore.hybrid.interface import CouplingInterface
 from magcore.hybrid.solver import solve_coupled_block_system
+from magcore.nonlinear.picard import resolve_magnetization, run_picard_fixed_point
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,27 +98,8 @@ def solve_coupled_nonlinear_picard(
 
     j_eff = _zero_j if j_fn is None else j_fn
 
-    # Разрешаем источник намагниченности в функцию состояния mag_fn(B,H,nu)->(n_cells,3).
-    if magnetization is None:
-        def mag_fn(_B, _H, _nu):
-            return np.zeros((n_cells, 3), dtype=float)
-    elif callable(magnetization):
-        mag_fn = magnetization
-    else:
-        static_mag = np.asarray(magnetization, dtype=float)
-        if static_mag.shape != (n_cells, 3):
-            raise ValueError("static magnetization must have shape (n_cells, 3).")
-        def mag_fn(_B, _H, _nu):
-            return static_mag
-
-    B_cells = np.zeros((n_cells, 3), dtype=float)
-    H_cells = np.zeros((n_cells, 3), dtype=float)
-    nu_br_cells = np.zeros((n_cells, 3), dtype=float)
-    a = np.zeros(vector_space.ndofs, dtype=float)
-    p = np.zeros(scalar_space.ndofs, dtype=float)
-    psi = np.zeros(interface.n_phi_dofs, dtype=float)
-    lam = np.zeros(interface.n_flux_dofs, dtype=float)
-    residual_norm = float("nan")
+    # Источник намагниченности → функция состояния mag_fn(B,H,ν)->(n_cells,3) (общий helper).
+    mag_fn = resolve_magnetization(magnetization, n_cells, dim=3)
 
     # Линейный BEM-экстерьер + B_FΓ не зависят от ν/намагниченности ⇒ собираем ОДИН РАЗ
     # и переиспользуем на всех итерациях (точная оптимизация, не приближение).
@@ -125,13 +107,23 @@ def solve_coupled_nonlinear_picard(
         interface, vector_space, mu0=mu0, config=config
     )
 
-    B_prev: np.ndarray | None = None
-    history: list[float] = []
-    converged = False
-    it = 0
+    # Backend-шаг: заморозить источник намагниченности (по прошлым B,H) → собрать связанную
+    # блок-систему → решить → B=curl A, H=νB−νB_r. Состояние (a,p,ψ,λ,H,νB_r,невязка)
+    # сохраняем в замыкании; общий цикл владеет только релаксацией ν и сходимостью.
+    # На 1-й итерации mag_fn вызывается при B=H=0 (номинальный магнит) — исходная семантика.
+    state: dict[str, object] = {
+        "a": np.zeros(vector_space.ndofs, dtype=float),
+        "p": np.zeros(scalar_space.ndofs, dtype=float),
+        "psi": np.zeros(interface.n_phi_dofs, dtype=float),
+        "lam": np.zeros(interface.n_flux_dofs, dtype=float),
+        "B": np.zeros((n_cells, 3), dtype=float),
+        "H": np.zeros((n_cells, 3), dtype=float),
+        "nu_br": np.zeros((n_cells, 3), dtype=float),
+        "residual": float("nan"),
+    }
 
-    for it in range(1, max_iter + 1):
-        nu_br_cells = np.asarray(mag_fn(B_cells, H_cells, nu_cells), dtype=float)
+    def step(nu_frozen: np.ndarray) -> np.ndarray:
+        nu_br_cells = np.asarray(mag_fn(state["B"], state["H"], nu_frozen), dtype=float)
         if nu_br_cells.shape != (n_cells, 3):
             raise ValueError("magnetization callable must return shape (n_cells, 3).")
 
@@ -141,7 +133,7 @@ def solve_coupled_nonlinear_picard(
         )
         coupled = assemble_coupled_block_system(
             interface, vector_space, scalar_space,
-            nu=nu_cells, j_fn=j_eff, extra_vector_rhs=f_br,
+            nu=nu_frozen, j_fn=j_eff, extra_vector_rhs=f_br,
             applied_field_h0=applied_field_h0, mu0=mu0, config=config,
             exterior=exterior_cache,
             curl_quadrature_order=curl_quadrature_order,
@@ -149,35 +141,33 @@ def solve_coupled_nonlinear_picard(
             rhs_quadrature_order=rhs_quadrature_order,
         )
         sol = solve_coupled_block_system(coupled, scalar_space)
-        a, p, psi, lam = sol.a, sol.p, sol.psi, sol.lam
-        residual_norm = sol.residual_norm
-
         B_cells = np.array(
-            [evaluate_curl_on_cell(vector_space, a, c) for c in range(n_cells)],
+            [evaluate_curl_on_cell(vector_space, sol.a, c) for c in range(n_cells)],
             dtype=float,
         )
         # H = ν(B − B_r) = ν B − (νB_r): источник νB_r уже поячеечный.
-        H_cells = nu_cells[:, None] * B_cells - nu_br_cells
+        H_cells = nu_frozen[:, None] * B_cells - nu_br_cells
+        state.update(
+            a=sol.a, p=sol.p, psi=sol.psi, lam=sol.lam,
+            B=B_cells, H=H_cells, nu_br=nu_br_cells,
+            residual=sol.residual_norm,
+        )
+        return B_cells
 
-        if B_prev is not None:
-            denom = float(np.linalg.norm(B_prev))
-            rel = float(np.linalg.norm(B_cells - B_prev)) / max(denom, 1.0e-30)
-            history.append(rel)
-            if rel < tol:
-                converged = True
-                break
-        B_prev = B_cells
-
-        nu_new = np.asarray(nu_of_B(B_cells), dtype=float)
-        if nu_new.shape != (n_cells,):
-            raise ValueError("nu_of_B must return an array of shape (n_cells,).")
-        nu_cells = (1.0 - relaxation) * nu_cells + relaxation * nu_new
+    loop = run_picard_fixed_point(
+        nu_init=nu_cells,
+        nu_of_B=nu_of_B,
+        step=step,
+        max_iter=max_iter,
+        tol=tol,
+        relaxation=relaxation,
+    )
 
     return CoupledPicardResult(
-        a=a, p=p, psi=psi, lam=lam,
-        B_cells=B_cells, H_cells=H_cells,
-        nu_cells=nu_cells, nu_br_cells=nu_br_cells,
-        n_iterations=it, converged=converged,
-        residual_norm=residual_norm,
-        rel_change_history=tuple(history),
+        a=state["a"], p=state["p"], psi=state["psi"], lam=state["lam"],
+        B_cells=loop.B_cells, H_cells=state["H"],
+        nu_cells=loop.nu_cells, nu_br_cells=state["nu_br"],
+        n_iterations=loop.n_iterations, converged=loop.converged,
+        residual_norm=state["residual"],
+        rel_change_history=loop.rel_change_history,
     )

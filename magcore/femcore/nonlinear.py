@@ -14,6 +14,7 @@ from magcore.femcore.scalar_spaces import LagrangeP1Space
 from magcore.femcore.solver import solve_mixed_coulomb_problem, split_mixed_solution
 from magcore.femcore.spaces import NedelecP1Space
 from magcore.mesh.mesh import TetraMesh
+from magcore.nonlinear.picard import run_picard_fixed_point
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,20 +75,19 @@ def solve_nonlinear_mixed_picard(
     )
     nA = vector_space.ndofs
 
-    B_prev: np.ndarray | None = None
-    history: list[float] = []
-    converged = False
-    a = np.zeros(nA, dtype=float)
-    p = np.zeros(scalar_space.ndofs, dtype=float)
-    B_cells = np.zeros((n_cells, 3), dtype=float)
-    it = 0
+    # Backend-шаг: собрать с замороженной ν → BC → решить → B=curl A. a, p сохраняем
+    # в замыкании; общий цикл владеет только релаксацией ν и критерием сходимости.
+    state: dict[str, np.ndarray] = {
+        "a": np.zeros(nA, dtype=float),
+        "p": np.zeros(scalar_space.ndofs, dtype=float),
+    }
 
-    for it in range(1, max_iter + 1):
+    def step(nu_frozen: np.ndarray) -> np.ndarray:
         system_matrix, rhs = assemble_mixed_coulomb_system(
             mesh=mesh,
             vector_space=vector_space,
             scalar_space=scalar_space,
-            nu=nu_cells,
+            nu=nu_frozen,
             J_fn=J_fn,
             curl_quadrature_order=curl_quadrature_order,
             coupling_quadrature_order=coupling_quadrature_order,
@@ -102,34 +102,30 @@ def solve_nonlinear_mixed_picard(
         )
         x = solve_mixed_coulomb_problem(A_bc, b_bc)
         a, p = split_mixed_solution(x, nA)
-        B_cells = np.array(
+        state["a"], state["p"] = a, p
+        return np.array(
             [evaluate_curl_on_cell(vector_space, a, c) for c in range(n_cells)],
             dtype=float,
         )
 
-        if B_prev is not None:
-            denom = float(np.linalg.norm(B_prev))
-            rel = float(np.linalg.norm(B_cells - B_prev)) / max(denom, 1.0e-30)
-            history.append(rel)
-            if rel < tol:
-                converged = True
-                break
-        B_prev = B_cells
-
-        nu_new = np.asarray(nu_of_B(B_cells), dtype=float)
-        if nu_new.shape != (n_cells,):
-            raise ValueError("nu_of_B must return an array of shape (n_cells,).")
-        nu_cells = (1.0 - relaxation) * nu_cells + relaxation * nu_new
+    loop = run_picard_fixed_point(
+        nu_init=nu_cells,
+        nu_of_B=nu_of_B,
+        step=step,
+        max_iter=max_iter,
+        tol=tol,
+        relaxation=relaxation,
+    )
 
     # Самосогласованная релуктивность при найденном B (для отчёта/диагностики).
-    nu_self = np.asarray(nu_of_B(B_cells), dtype=float)
+    nu_self = np.asarray(nu_of_B(loop.B_cells), dtype=float)
 
     return PicardResult(
-        a=a,
-        p=p,
-        B_cells=B_cells,
+        a=state["a"],
+        p=state["p"],
+        B_cells=loop.B_cells,
         nu_cells=nu_self,
-        n_iterations=it,
-        converged=converged,
-        rel_change_history=tuple(history),
+        n_iterations=loop.n_iterations,
+        converged=loop.converged,
+        rel_change_history=loop.rel_change_history,
     )

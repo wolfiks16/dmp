@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
-from magcore.hybrid.nonlinear import CoupledPicardResult
+
+if TYPE_CHECKING:  # только для аннотаций: не тянуть 3D-драйвер в runtime (переиспользуемо в 2D)
+    from magcore.hybrid.nonlinear import CoupledPicardResult
 
 
 class MagnetDemagPolicy:
