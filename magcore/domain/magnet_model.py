@@ -118,6 +118,17 @@ class AnisotropicBHTMagnet:
         """Поле колена со знаком (< 0)."""
         return -self.Hk(T)
 
+    def temperature_limit(self) -> float:
+        """
+        Верхняя температура валидности модели [°C]: где множитель _b(T) или _h(T)
+        обращается в 0 (Br или Hc масштабируется в ≤0). Выше неё магнит вне диапазона
+        модели (перегрет/разрушен) — `curve_at` бросит исключение. = T0 + 100/max(коэфф.).
+        """
+        slopes = [s for s in (self.alpha_Br, self.gamma_Hc) if s > 0.0]
+        if not slopes:
+            return float("inf")
+        return self.T0 + 100.0 / max(slopes)
+
     # --- кривая при температуре ---
     def curve_at(self, T) -> DemagnetizationCurveBH:
         """C¹ кривая размагничивания при T (параметры масштабированы, mu_rec сохранён)."""

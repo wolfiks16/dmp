@@ -15,7 +15,10 @@ import numpy as np
 
 from magcore.domain.magnet_model import n42sh_magnet, sm2co17_magnet
 from magcore.fem2d.kelvin import solve_kelvin_magnetostatic
-from magcore.fem2d.magneto_thermal import solve_magneto_thermal_demag
+from magcore.fem2d.magneto_thermal import (
+    MagnetOverheatedError,
+    solve_magneto_thermal_demag,
+)
 from magcore.fem2d.mesh_generators import (
     build_disk_tri_mesh,
     build_structured_rectangle_tri_mesh,
@@ -52,13 +55,25 @@ def run(cfg: RunConfig) -> dict:
     if not mask.any():
         raise ValueError("Магнит пуст: magnet_radius слишком мал для сетки — увеличьте n или радиус.")
     q = np.where(mask, cfg.heat_load, 0.0)
+    tag = cfg.material_name
 
-    res = solve_magneto_thermal_demag(
-        space, cfg.magnet, mask, heat_source_cells=q, k_cells=np.full(nc, 1.0),
-        h=cfg.cooling_h, T_amb=cfg.T_ambient, applied_B0=cfg.applied_B0, em_max_iter=200,
+    # Сравнение материалов не зависит от связки — рисуем всегда.
+    viz.plot_material_comparison(
+        [("NdFeB", n42sh_magnet([1, 0, 0])), ("SmCo", sm2co17_magnet([1, 0, 0]))],
+        H_op=-6.0e5, save_path=out / "material_comparison.png",
     )
 
-    tag = cfg.material_name
+    try:
+        res = solve_magneto_thermal_demag(
+            space, cfg.magnet, mask, heat_source_cells=q, k_cells=np.full(nc, 1.0),
+            h=cfg.cooling_h, T_amb=cfg.T_ambient, applied_B0=cfg.applied_B0, em_max_iter=200,
+        )
+    except MagnetOverheatedError as e:
+        # Перегрев: показываем температуру и даём понятную рекомендацию (не трейсбек).
+        viz.plot_node_scalar(mesh, e.T_field, title="Температура, °C (ПЕРЕГРЕВ)", label="T, °C",
+                             save_path=out / "temperature.png")
+        return _report_overheat(cfg, tag, e, out)
+
     viz.plot_B_field(mesh, res.B_cells, title="Поле B (%s)" % tag,
                      save_path=out / "B_field.png")
     viz.plot_node_scalar(mesh, res.T_field, title="Температура, °C", label="T, °C",
@@ -67,10 +82,6 @@ def run(cfg: RunConfig) -> dict:
                         title="%s: T=%.0f°C, за коленом %d/%d" % (
                             tag, res.T_magnet, res.risk.n_demagnetized, res.risk.cell_indices.size),
                         save_path=out / "demag_risk.png")
-    viz.plot_material_comparison(
-        [("NdFeB", n42sh_magnet([1, 0, 0])), ("SmCo", sm2co17_magnet([1, 0, 0]))],
-        H_op=-6.0e5, save_path=out / "material_comparison.png",
-    )
 
     h_in = _oracle_cylinder()
     lines = [
@@ -88,17 +99,45 @@ def run(cfg: RunConfig) -> dict:
         % ("ЧАСТИЧНО РАЗМАГНИЧЕН" if res.risk.n_demagnetized else "ЦЕЛ",
            "снизьте нагрузку/усильте охлаждение или возьмите SmCo"
            if res.risk.n_demagnetized else "запас по демагу есть"),
-        "Графики и отчёт: %s" % out,
     ]
-    report = "\n".join(lines)
+    if not res.em_converged:
+        lines.append("ВНИМАНИЕ: решатель НЕ сошёлся — вероятен каскадный демаг; "
+                     "результат ненадёжен, ужесточите параметры (охлаждение/поле/нагрузка).")
+    lines.append("Графики и отчёт: %s" % out)
+    _print_report("\n".join(lines), out)
+    return {"T_magnet": res.T_magnet, "n_demagnetized": res.risk.n_demagnetized,
+            "converged": res.em_converged}
+
+
+def _print_report(report: str, out: Path) -> None:
     (out / "report.txt").write_text(report + "\n", encoding="utf-8")
-    try:
+    try:  # cp1251-консоль Windows не всегда печатает UTF-8 — не роняем расчёт из-за печати
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except Exception:
         pass
     print(report)
-    return {"T_magnet": res.T_magnet, "n_demagnetized": res.risk.n_demagnetized,
-            "converged": res.em_converged}
+
+
+def _report_overheat(cfg: RunConfig, tag: str, e, out: Path) -> dict:
+    lines = [
+        "=" * 68,
+        "ПИЛОТ: расчёт по конфигу — материал=%s" % tag,
+        "=" * 68,
+        "[ПЕРЕГРЕВ] Магнит вышел за диапазон валидности модели.",
+        "  T_магнита (max) = %.0f C" % e.T_magnet,
+        "  предел модели   = %.0f C" % e.limit,
+        "-" * 68,
+        "Это тепловой разгон / потеря свойств: при этих параметрах магнит перегревается.",
+        "Что сделать:",
+        "  - снизить heat_load (тепловыделение),",
+        "  - увеличить cooling_h (охлаждение),",
+        "  - уменьшить магнит/область или взять термостойкий магнит (SmCo).",
+        "NB: тепловые величины пока БЕЗРАЗМЕРНЫЕ — при увеличении геометрии",
+        "    пропорционально уменьшайте heat_load.",
+        "Температурное поле сохранено: %s" % (out / "temperature.png"),
+    ]
+    _print_report("\n".join(lines), out)
+    return {"overheated": True, "T_magnet": e.T_magnet, "limit": e.limit}
 
 
 def main(argv: list[str]) -> None:

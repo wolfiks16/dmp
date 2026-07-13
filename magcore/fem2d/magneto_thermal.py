@@ -17,6 +17,20 @@ from magcore.hybrid.magnet_demag import DemagRiskMap, MagnetDemagPolicy, compute
 # при данной тепловой нагрузке материал (NdFeB vs SmCo) определяет судьбу магнита.
 
 
+class MagnetOverheatedError(ValueError):
+    """
+    Рабочая температура магнита вышла за предел валидности модели (перегрев/разгон).
+    Несёт T_magnet, limit и уже посчитанное T_field — чтобы вызывающий (пилот) мог
+    показать температурное поле и дать рекомендацию, не пересчитывая тепло.
+    """
+
+    def __init__(self, message: str, *, T_magnet: float, limit: float, T_field):
+        super().__init__(message)
+        self.T_magnet = float(T_magnet)
+        self.limit = float(limit)
+        self.T_field = T_field
+
+
 @dataclass(frozen=True, slots=True)
 class MagnetoThermalResult:
     T_field: np.ndarray           # (ndofs,) тепловое поле
@@ -66,6 +80,17 @@ def solve_magneto_thermal_demag(
                             h=h, T_amb=T_amb)
     magnet_nodes = np.unique(mesh.cells[mask].reshape(-1))
     T_mag = float(T_field[magnet_nodes].max())
+
+    # Защита: T_mag за пределом валидности модели магнита ⇒ понятная ошибка вместо
+    # криптичного отказа в curve_at (магнит «сварен» — тепловой разгон / потеря свойств).
+    limit = magnet.temperature_limit()
+    if T_mag >= limit:
+        raise MagnetOverheatedError(
+            "Магнит перегрет: T=%.0f C >= предел модели %.0f C (тепловой разгон / "
+            "потеря свойств). Снизьте тепловую нагрузку или усильте охлаждение."
+            % (T_mag, limit),
+            T_magnet=T_mag, limit=limit, T_field=T_field,
+        )
 
     # 2) EM в приложенном демаг-поле, магнит при T_mag.
     bdofs, app_vals = _applied_potential_on_boundary(space, applied_B0)

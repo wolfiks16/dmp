@@ -30,15 +30,21 @@ def test_material_comparison_png(tmp_path):
     assert out.exists() and out.stat().st_size > 0
 
 
-def test_example_config_parses():
-    from pathlib import Path
-
+def test_config_parses(tmp_path):
+    # Независимо от пользовательского example.toml — свой временный конфиг.
     from pilot.config import load_config
 
-    cfg = load_config(Path(__file__).resolve().parents[1] / "configs" / "example.toml")
+    p = tmp_path / "c.toml"
+    p.write_text(
+        '[magnet]\nmaterial="ndfeb"\n[geometry]\nbox_half=2.0\nmagnet_radius=0.8\n'
+        '[operating]\nheat_load=100.0\ncooling_h=3.0\nT_ambient=25.0\n[mesh]\nn=12\n',
+        encoding="utf-8",
+    )
+    cfg = load_config(p)
     assert cfg.material_name == "NdFeB"
     assert cfg.magnet_radius < cfg.box_half
-    assert cfg.n >= 1
+    assert cfg.T_ambient == 25.0
+    assert cfg.n == 12
 
 
 def test_build_custom_and_named_materials():

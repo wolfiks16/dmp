@@ -84,3 +84,34 @@ def test_pipeline_smco_safe_where_ndfeb_demagnetizes():
     assert nd.T_magnet == sm.T_magnet                 # тепловая сторона от материала не зависит
     assert nd.risk.n_demagnetized > 0                 # NdFeB частично за коленом
     assert sm.risk.n_demagnetized == 0                # SmCo безопасен при той же T
+
+
+def test_magnet_temperature_limit():
+    # Предел валидности модели = T0 + 100/max(коэфф.); выше — Br/Hc масштабируется в ≤0.
+    nd = n42sh_magnet([1.0, 0.0, 0.0])
+    sm = sm2co17_magnet([1.0, 0.0, 0.0])
+    assert nd.temperature_limit() == pytest.approx(20.0 + 100.0 / 0.55, abs=1e-6)
+    assert sm.temperature_limit() == pytest.approx(20.0 + 100.0 / 0.20, abs=1e-6)
+    assert sm.temperature_limit() > nd.temperature_limit()   # SmCo валиден до бóльших T
+
+
+def test_overheat_raises_clear_error():
+    # Перегрев за предел модели ⇒ понятное MagnetOverheatedError (не криптичный отказ в curve_at).
+    from magcore.fem2d.magneto_thermal import (
+        MagnetOverheatedError,
+        solve_magneto_thermal_demag,
+    )
+
+    magnet = n42sh_magnet([1.0, 0.0, 0.0])
+    mesh = build_structured_rectangle_tri_mesh(12, 12, x0=-10, x1=10, y0=-10, y1=10)
+    space = LagrangeP1Space2D(mesh)
+    nc = mesh.n_cells
+    mask = np.array([np.linalg.norm(mesh.cell_centroid(c)) < 5.0 for c in range(nc)], dtype=bool)
+    q = np.where(mask, 50.0, 0.0)                    # огромная нагрузка на большой магнит
+    with pytest.raises(MagnetOverheatedError) as ei:
+        solve_magneto_thermal_demag(
+            space, magnet, mask, heat_source_cells=q, k_cells=np.full(nc, 1.0),
+            h=1.0, T_amb=20.0, applied_B0=(0.0, 0.0),
+        )
+    assert ei.value.T_magnet > ei.value.limit
+    assert ei.value.T_field is not None             # температурное поле доступно для показа
