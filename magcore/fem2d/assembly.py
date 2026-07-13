@@ -38,6 +38,22 @@ def assemble_stiffness(space: LagrangeP1Space2D, nu) -> np.ndarray:
     return K
 
 
+def assemble_mass(space: LagrangeP1Space2D) -> np.ndarray:
+    """Матрица масс P1: M_ij = ∫ φ_i φ_j dx. Локально (A/12)·[[2,1,1],[1,2,1],[1,1,2]]."""
+    mesh = space.mesh
+    n = space.ndofs
+    M = np.zeros((n, n), dtype=float)
+    local = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 1.0, 2.0]], dtype=float)
+    for c in range(mesh.n_cells):
+        area = triangle_area(mesh.cell_vertices(c))
+        idx = mesh.cell_vertex_indices(c)
+        Me = (area / 12.0) * local
+        for a in range(3):
+            for b in range(3):
+                M[idx[a], idx[b]] += Me[a, b]
+    return M
+
+
 def assemble_current_rhs(
     space: LagrangeP1Space2D, J_fn, *, quadrature_order: int = 5
 ) -> np.ndarray:
