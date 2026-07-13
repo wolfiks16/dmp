@@ -28,3 +28,30 @@ def test_material_comparison_png(tmp_path):
         H_op=-6.0e5, save_path=tmp_path / "cmp.png",
     )
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_example_config_parses():
+    from pathlib import Path
+
+    from pilot.config import load_config
+
+    cfg = load_config(Path(__file__).resolve().parents[1] / "configs" / "example.toml")
+    assert cfg.material_name == "NdFeB"
+    assert cfg.magnet_radius < cfg.box_half
+    assert cfg.n >= 1
+
+
+def test_build_custom_and_named_materials():
+    from pilot.config import build_magnet
+
+    nd, nd_name = build_magnet({"material": "ndfeb"})
+    sm, sm_name = build_magnet({"material": "smco"})
+    assert nd_name == "NdFeB" and sm_name == "SmCo"
+    assert sm.Br(20.0) < nd.Br(20.0)              # SmCo — ниже остаточная индукция
+
+    custom, name = build_magnet({
+        "material": "custom", "name": "мой", "Br": 1.2, "Hcb": 9.0e5,
+        "Hk": 1.0e6, "Hcj": 1.3e6, "alpha_Br": 0.1, "gamma_Hc": 0.5,
+    })
+    assert name == "мой"
+    assert custom.Br(20.0) == 1.2

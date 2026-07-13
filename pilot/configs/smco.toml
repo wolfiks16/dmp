@@ -1,0 +1,23 @@
+# То же, что example.toml, но материал SmCo (КС25ДЦ) — при той же тепловой нагрузке
+# ожидается, что магнит ЦЕЛ (SmCo термостоек). Запуск:
+#     python -m pilot.run pilot/configs/smco.toml
+
+[magnet]
+material = "smco"
+
+[geometry]
+box_half      = 2.0
+magnet_radius = 0.8
+
+[operating]
+applied_B0_x = -0.20
+applied_B0_y = 0.0
+heat_load    = 110.0
+cooling_h    = 2.0
+T_ambient    = 20.0
+
+[mesh]
+n = 24
+
+[output]
+dir = "pilot/output"
