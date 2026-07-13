@@ -256,3 +256,19 @@ def n42sh_magnet(easy_axis, T0: float = 20.0) -> AnisotropicBHTMagnet:
         Br_gauss=12900.0, Hcb_kOe=11.6, Hk_kOe=17.0, Hcj_kOe=20.0,
         alpha_Br=0.115, gamma_Hc=0.55, T0=T0,
     )
+
+
+def sm2co17_magnet(easy_axis, T0: float = 20.0) -> AnisotropicBHTMagnet:
+    """
+    Представительный Sm2Co17 (тип КС25ДЦ, отечественное производство) — магнит для
+    ТЕПЛОНАГРУЖЕННЫХ двигателей БПЛА. Ключевое отличие от NdFeB — высокая
+    температурная стабильность: |alpha_Br|≈0.03 и |gamma_Hc|≈0.20 %/°C (против
+    0.115 и 0.55 у NdFeB) + высокая собственная коэрцитивность ⇒ колено «держится»
+    при нагреве. ⚠ данные ПРЕДСТАВИТЕЛЬНЫЕ (ориентир ГОСТ 21559-76 КС25ДЦ: Br 0.90–1.10 Тл,
+    HcB 690–780 кА/м) — сверить с datasheet/собственными измерениями производителя.
+    """
+    return magnet_from_datasheet(
+        "KS25DС-representative", "Sm2Co17 (representative КС25ДЦ)", easy_axis,
+        Br=1.05, Hcb=780.0e3, Hk=1100.0e3, Hcj=1600.0e3,
+        alpha_Br=0.030, gamma_Hc=0.20, T0=T0,
+    )
