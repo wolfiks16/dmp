@@ -42,6 +42,7 @@ class MagnetDemagPolicy:
         mu0: float = MU0,
         relaxation: float = 0.5,
         track_worst_point: bool = False,
+        axis=None,
     ) -> None:
         mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
         if mask.shape != (n_cells,):
@@ -56,13 +57,20 @@ class MagnetDemagPolicy:
         self.mu0 = float(mu0)
         self.omega = float(relaxation)
         self.track = bool(track_worst_point)
-        self.axis = np.asarray(magnet.easy_axis, dtype=float)
+        # Ось проекции: по умолчанию — 3D easy_axis магнита; для 2D-backend передаётся
+        # плоскостная ось (напр. (1,0)). Размерность источника наследуется из axis.
+        self.axis = (
+            np.asarray(magnet.easy_axis, dtype=float)
+            if axis is None
+            else np.asarray(axis, dtype=float).reshape(-1)
+        )
+        self.dim = int(self.axis.shape[0])
         self.nu_rec = 1.0 / magnet.mu_rec
         self.h_worst = np.zeros(n_cells, dtype=float)
         self._br_prev: np.ndarray | None = None
 
     def __call__(self, B_cells: np.ndarray, H_cells: np.ndarray, nu_cells: np.ndarray) -> np.ndarray:
-        out = np.zeros((self.n_cells, 3), dtype=float)
+        out = np.zeros((self.n_cells, self.dim), dtype=float)
         if self.idx.size == 0:
             return out
 
@@ -114,22 +122,26 @@ class DemagRiskMap:
 
 def compute_demag_risk_map(
     magnet: AnisotropicBHTMagnet,
-    result: CoupledPicardResult,
+    result: "CoupledPicardResult",
     magnet_mask: np.ndarray,
     T: float,
     *,
     mu0: float = MU0,
+    axis=None,
 ) -> DemagRiskMap:
     """
     Построить карту риска из сошедшегося решения: на каждой ячейке магнита взять
     рабочее поле H_par (мост H_solver/μ₀), маржу к колену, эффективную ремнантность
     и необратимую потерю. См. docs/math/nonlinear_materials.md §7.
+
+    `result` — любой объект с полем `.H_cells` (3D CoupledPicardResult или 2D-результат).
+    `axis` — ось проекции (по умолчанию 3D easy_axis; для 2D передаётся плоскостная).
     """
     mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
     idx = np.where(mask)[0]
-    axis = np.asarray(magnet.easy_axis, dtype=float)
+    ax = np.asarray(magnet.easy_axis if axis is None else axis, dtype=float).reshape(-1)
 
-    h_par = (result.H_cells[idx] @ axis) / float(mu0)            # А/м
+    h_par = (result.H_cells[idx] @ ax) / float(mu0)             # А/м
     margin = np.asarray(magnet.risk_margin(h_par, T), dtype=float)
     br_eff = np.asarray(magnet.effective_Br(h_par, T), dtype=float)
     br_nom = float(magnet.Br(T))
