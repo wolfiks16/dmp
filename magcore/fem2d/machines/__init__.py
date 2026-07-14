@@ -31,6 +31,13 @@ from magcore.fem2d.machines.static_solver import (
     solve_machine_static,
     worst_case_gamma_sweep,
 )
+from magcore.fem2d.machines.loss import (
+    DemagImpact,
+    MagnetLossAggregate,
+    evaluate_demag_impact,
+    magnet_loss_aggregate,
+    phase_flux_linkage,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -50,4 +57,9 @@ __all__ = [
     "machine_reluctivity",
     "solve_machine_static",
     "worst_case_gamma_sweep",
+    "DemagImpact",
+    "MagnetLossAggregate",
+    "evaluate_demag_impact",
+    "magnet_loss_aggregate",
+    "phase_flux_linkage",
 ]
