@@ -12,10 +12,20 @@ from magcore.fem2d.machines.pmsm_outrunner import (
     Region,
     build_outrunner_spm_pmsm,
 )
+from magcore.fem2d.machines.winding import (
+    PHASE_NAMES,
+    WindingLayout,
+    cell_phase_sign,
+    star_of_slots_layout,
+)
 
 __all__ = [
     "MachineGeometry",
     "OutrunnerPMSMParams",
     "Region",
     "build_outrunner_spm_pmsm",
+    "PHASE_NAMES",
+    "WindingLayout",
+    "cell_phase_sign",
+    "star_of_slots_layout",
 ]

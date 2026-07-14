@@ -82,6 +82,7 @@ class MachineGeometry:
     mesh: TriangleMesh
     region: np.ndarray             # (n_cells,) коды Region
     magnet_easy_axis: np.ndarray   # (n_cells,2) радиальная ось·знак в магните, иначе 0
+    slot_id: np.ndarray            # (n_cells,) номер паза 0..n_slots-1 для ячеек паза, иначе -1
     params: OutrunnerPMSMParams
 
     def mask(self, region: Region) -> np.ndarray:
@@ -211,11 +212,16 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
 
     region = np.empty(mesh.n_cells, dtype=int)
     axis = np.zeros((mesh.n_cells, 2), dtype=float)
+    slot_id = np.full(mesh.n_cells, -1, dtype=int)
     for c in range(mesh.n_cells):
         cx, cy = mesh.cell_centroid(c)
+        th = math.atan2(cy, cx) % (2.0 * math.pi)
         code, sign = _classify(cx, cy, p, slot_pitch, tooth_ang, pole_pitch, mag_ang)
         region[c] = code
         if code == int(Region.MAGNET):
-            th = math.atan2(cy, cx)
             axis[c] = sign * np.array([math.cos(th), math.sin(th)])
-    return MachineGeometry(mesh=mesh, region=region, magnet_easy_axis=axis, params=p)
+        elif code == int(Region.SLOT):
+            slot_id[c] = int(th // slot_pitch) % p.n_slots
+    return MachineGeometry(
+        mesh=mesh, region=region, magnet_easy_axis=axis, slot_id=slot_id, params=p
+    )
