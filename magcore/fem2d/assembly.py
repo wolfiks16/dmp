@@ -76,6 +76,30 @@ def assemble_current_rhs(
     return f
 
 
+def assemble_current_rhs_piecewise(
+    space: LagrangeP1Space2D, jz_cells: np.ndarray
+) -> np.ndarray:
+    """
+    Вектор нагрузки от КУСОЧНО-ПОСТОЯННОГО внеплоскостного тока (J_z константа в ячейке —
+    как ток в пазу обмотки): f_i = ∫ J_z φ_i dx = Σ_c J_z^c · ∫_c φ_i = Σ_c J_z^c·area_c/3
+    (точно для P1: ∫_c φ_i = area/3). `jz_cells`:(n_cells,) — плотность тока А/м² по ячейкам
+    (0 вне источника). Быстрее и естественнее квадратурного `assemble_current_rhs`, когда
+    источник задан поячеечно (P3: обмотка → J_z).
+    """
+    mesh = space.mesh
+    jz = np.asarray(jz_cells, dtype=float)
+    if jz.shape != (mesh.n_cells,):
+        raise ValueError("jz_cells must have shape (n_cells,).")
+    f = np.zeros(space.ndofs, dtype=float)
+    for c in range(mesh.n_cells):
+        if jz[c] == 0.0:
+            continue
+        area = triangle_area(mesh.cell_vertices(c))
+        idx = mesh.cell_vertex_indices(c)
+        f[list(idx)] += jz[c] * area / 3.0
+    return f
+
+
 def assemble_magnetization_rhs(
     space: LagrangeP1Space2D, nu_br_cells: np.ndarray
 ) -> np.ndarray:

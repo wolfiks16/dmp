@@ -18,6 +18,13 @@ from magcore.fem2d.machines.winding import (
     cell_phase_sign,
     star_of_slots_layout,
 )
+from magcore.fem2d.machines.excitation import (
+    phase_currents,
+    slot_areas,
+    slot_current_density,
+    winding_current_density,
+    worst_case_d_axis_currents,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -28,4 +35,9 @@ __all__ = [
     "WindingLayout",
     "cell_phase_sign",
     "star_of_slots_layout",
+    "phase_currents",
+    "slot_areas",
+    "slot_current_density",
+    "winding_current_density",
+    "worst_case_d_axis_currents",
 ]
