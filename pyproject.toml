@@ -7,6 +7,12 @@ name = "magnet-platform"
 version = "0.1.0"
 requires-python = ">=3.11"
 
+# gmsh нужен ТОЛЬКО для генерации геометрии (magcore/fem2d/machines); решатель ядра его
+# не импортирует. Изолирован как опциональная зависимость — легко снять при переходе на
+# собственный мешер (план: перед оптимизацией, docs/plan_full_2026-07-14.md).
+[project.optional-dependencies]
+geometry = ["gmsh"]
+
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["magcore*"]
