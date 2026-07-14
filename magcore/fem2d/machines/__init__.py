@@ -48,6 +48,12 @@ from magcore.fem2d.machines.operating_point import (
     MagnetOperatingPoint,
     magnet_operating_point,
 )
+from magcore.fem2d.machines.problem import (
+    MachineProblem,
+    MachineSolution,
+    Scenario,
+    solve_machine_problem,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -78,4 +84,8 @@ __all__ = [
     "flux_linkage_amplitude",
     "MagnetOperatingPoint",
     "magnet_operating_point",
+    "MachineProblem",
+    "MachineSolution",
+    "Scenario",
+    "solve_machine_problem",
 ]
