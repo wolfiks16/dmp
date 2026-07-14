@@ -44,6 +44,10 @@ from magcore.fem2d.machines.postproc import (
     back_emf_constant,
     flux_linkage_amplitude,
 )
+from magcore.fem2d.machines.operating_point import (
+    MagnetOperatingPoint,
+    magnet_operating_point,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -72,4 +76,6 @@ __all__ = [
     "airgap_torque_arkkio",
     "back_emf_constant",
     "flux_linkage_amplitude",
+    "MagnetOperatingPoint",
+    "magnet_operating_point",
 ]
