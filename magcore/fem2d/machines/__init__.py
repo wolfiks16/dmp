@@ -38,6 +38,12 @@ from magcore.fem2d.machines.loss import (
     magnet_loss_aggregate,
     phase_flux_linkage,
 )
+from magcore.fem2d.machines.postproc import (
+    airgap_cell_mask,
+    airgap_torque_arkkio,
+    back_emf_constant,
+    flux_linkage_amplitude,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -62,4 +68,8 @@ __all__ = [
     "evaluate_demag_impact",
     "magnet_loss_aggregate",
     "phase_flux_linkage",
+    "airgap_cell_mask",
+    "airgap_torque_arkkio",
+    "back_emf_constant",
+    "flux_linkage_amplitude",
 ]
