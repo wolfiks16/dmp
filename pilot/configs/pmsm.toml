@@ -1,0 +1,41 @@
+# Конфиг статической задачи outrunner SPM PMSM (интерфейс машины, P7-схема).
+# Запуск:  python -m pilot.machine_run pilot/configs/pmsm.toml
+# Правьте ТОЛЬКО этот файл — Python трогать не нужно.
+
+[geometry]              # сечение (СИ: метры), толщины по радиусу наружу
+n_slots        = 12
+n_poles        = 14
+R_bore         = 0.010
+h_stator_yoke  = 0.004
+h_tooth        = 0.008
+air_gap        = 0.001
+h_magnet       = 0.003
+h_rotor_yoke   = 0.003
+tooth_width_frac = 0.5
+magnet_embrace = 0.83
+axial_length   = 0.030
+mesh_size      = 0.004
+
+[magnet]                # материал как ДАННЫЕ: ndfeb | smco | custom
+material = "ndfeb"
+# для custom: Br, Hcb, Hk, Hcj [СИ], alpha_Br, gamma_Hc [%/°C], name
+
+[steel]
+material = "m270"
+
+[winding]
+turns_per_slot = 40     # проводников (витков) в пазу
+
+[regime]                # режим расчёта
+scenario = "S3"         # S1 (20 °C) | S3 (заданная T)
+T = 140.0               # °C (для S3)
+i_peak = 30.0           # амплитуда тока, А (0 = холостой ход)
+gamma_deg = 180.0       # эл. угол вектора тока (worst-case d-ось ~ ищется свипом)
+assess_impact = true    # считать падение ЭДС/момента из-за демага (доп. решения)
+
+[solver]
+relaxation = 0.1
+max_iter   = 200
+
+[output]
+dir = "pilot/output"

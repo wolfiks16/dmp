@@ -93,6 +93,24 @@ def plot_demag_risk(mesh, magnet_mask, risk, *, title=None, save_path=None):
     return _save(fig, save_path)
 
 
+def plot_magnet_cell_field(mesh, cell_indices, values, *, title="", label="",
+                           cmap="plasma", save_path=None):
+    """
+    Поле по ячейкам МАГНИТА (напр. рабочая точка H_op или коэфф. проницаемости P_c по всему
+    объёму): окрашивает только ячейки магнита `cell_indices` значениями `values`, остальное —
+    бледным фоном. Прямая визуализация рабочей точки по объёму магнита.
+    """
+    facec = np.full(mesh.n_cells, np.nan)
+    facec[np.asarray(cell_indices, dtype=int)] = np.asarray(values, dtype=float)
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.tripcolor(_triang(mesh), facecolors=np.ones(mesh.n_cells),
+                 cmap="Greys", vmin=0, vmax=6, shading="flat")
+    tpc = ax.tripcolor(_triang(mesh), facecolors=facec, cmap=cmap, shading="flat")
+    fig.colorbar(tpc, ax=ax, label=label)
+    ax.set_aspect("equal"); ax.set_title(title); ax.set_xlabel("x"); ax.set_ylabel("y")
+    return _save(fig, save_path)
+
+
 def plot_material_comparison(magnets_named, H_op, *, T_range=(20, 300), save_path=None):
     """
     Сравнение материалов: маржа к колену vs температура при фиксированном демаг-поле H_op.
