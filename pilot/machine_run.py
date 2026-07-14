@@ -50,8 +50,11 @@ def _report(run, sol) -> str:
         L.append(f"    ПАДЕНИЕ ЭДС/момента из-за демага: {sol.impact.flux_linkage_drop_frac*100:.2f}%")
     L.append("-" * 66)
     L.append("  РАБОЧАЯ ТОЧКА МАГНИТА (по объёму):")
-    L.append(f"    H_op: среднее(объёмн.) {op.volume_weighted_mean_H_op()/1e3:.0f} кА/м, "
-             f"худшая {op.worst_H_op()/1e3:.0f} кА/м")
+    Bd = float(np.average(op.B_op, weights=op.cell_volume))
+    L.append(f"    B_d (индукция, Тл): среднее(объёмн.) {Bd:.3f}, "
+             f"мин по кромке {op.B_op.min():.3f}")
+    L.append(f"    H_d (поле, кА/м):   среднее(объёмн.) {op.volume_weighted_mean_H_op()/1e3:.0f}, "
+             f"худшая {op.worst_H_op()/1e3:.0f}")
     L.append(f"    коэфф. проницаемости P_c (объёмн. среднее): {op.volume_weighted_mean_permeance():.2f}")
     L.append(f"    колено H_knee(T) = {op.knee_field/1e3:.0f} кА/м; "
              f"за коленом {op.volume_fraction_below(op.knee_field)*100:.1f}% объёма")
