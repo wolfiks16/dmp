@@ -25,6 +25,12 @@ from magcore.fem2d.machines.excitation import (
     winding_current_density,
     worst_case_d_axis_currents,
 )
+from magcore.fem2d.machines.static_solver import (
+    MachineStaticResult,
+    machine_reluctivity,
+    solve_machine_static,
+    worst_case_gamma_sweep,
+)
 
 __all__ = [
     "MachineGeometry",
@@ -40,4 +46,8 @@ __all__ = [
     "slot_current_density",
     "winding_current_density",
     "worst_case_d_axis_currents",
+    "MachineStaticResult",
+    "machine_reluctivity",
+    "solve_machine_static",
+    "worst_case_gamma_sweep",
 ]

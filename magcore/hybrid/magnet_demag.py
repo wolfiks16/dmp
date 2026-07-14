@@ -57,25 +57,46 @@ class MagnetDemagPolicy:
         self.mu0 = float(mu0)
         self.omega = float(relaxation)
         self.track = bool(track_worst_point)
-        # Ось проекции: по умолчанию — 3D easy_axis магнита; для 2D-backend передаётся
-        # плоскостная ось (напр. (1,0)). Размерность источника наследуется из axis.
-        self.axis = (
+        # Ось проекции. Два режима:
+        #   * (dim,)          — ОДНА ось на все ячейки магнита (3D easy_axis / плоская (1,0));
+        #   * (n_cells, dim)  — ПОЯЧЕЕЧНАЯ ось (реальная машина: радиальная ось·полярность,
+        #                       своя у каждой ячейки — geometry.magnet_easy_axis).
+        # Размерность источника наследуется из axis. Вне магнита строки не используются (idx).
+        ax = (
             np.asarray(magnet.easy_axis, dtype=float)
             if axis is None
-            else np.asarray(axis, dtype=float).reshape(-1)
+            else np.asarray(axis, dtype=float)
         )
-        self.dim = int(self.axis.shape[0])
+        if ax.ndim == 1:
+            self.per_cell = False
+            self.axis = ax
+            self.dim = int(ax.shape[0])
+        elif ax.ndim == 2:
+            if ax.shape[0] != n_cells:
+                raise ValueError("поячеечная axis должна иметь форму (n_cells, dim).")
+            self.per_cell = True
+            self.axis = ax
+            self.dim = int(ax.shape[1])
+        else:
+            raise ValueError("axis must be (dim,) or (n_cells, dim).")
         self.nu_rec = 1.0 / magnet.mu_rec
         self.h_worst = np.zeros(n_cells, dtype=float)
         self._br_prev: np.ndarray | None = None
+
+    def _axes_at_idx(self) -> np.ndarray:
+        """Оси лёгкого намагничивания в ячейках магнита, (n_mag, dim)."""
+        if self.per_cell:
+            return self.axis[self.idx]
+        return np.broadcast_to(self.axis, (self.idx.size, self.dim))
 
     def __call__(self, B_cells: np.ndarray, H_cells: np.ndarray, nu_cells: np.ndarray) -> np.ndarray:
         out = np.zeros((self.n_cells, self.dim), dtype=float)
         if self.idx.size == 0:
             return out
 
-        # Рабочее поле вдоль лёгкой оси: H_solver[Тл] · e, затем мост в А/м.
-        h_par_phys = (H_cells[self.idx] @ self.axis) / self.mu0  # (n_mag,)
+        axes = self._axes_at_idx()  # (n_mag, dim), поячеечная ось (или broadcast одной)
+        # Рабочее поле вдоль лёгкой оси: H_solver[Тл] · e (построчно), затем мост в А/м.
+        h_par_phys = np.einsum("ij,ij->i", H_cells[self.idx], axes) / self.mu0  # (n_mag,)
         if self.track:
             self.h_worst[self.idx] = np.minimum(self.h_worst[self.idx], h_par_phys)
             h_eval = self.h_worst[self.idx]
@@ -89,7 +110,7 @@ class MagnetDemagPolicy:
             br = (1.0 - self.omega) * self._br_prev + self.omega * br_eff
         self._br_prev = br
 
-        out[self.idx] = (self.nu_rec * br)[:, None] * self.axis  # ν·B_r_eff·e [Тл]
+        out[self.idx] = (self.nu_rec * br)[:, None] * axes  # ν·B_r_eff·e [Тл]
         return out
 
 
@@ -139,9 +160,10 @@ def compute_demag_risk_map(
     """
     mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
     idx = np.where(mask)[0]
-    ax = np.asarray(magnet.easy_axis if axis is None else axis, dtype=float).reshape(-1)
+    ax = np.asarray(magnet.easy_axis if axis is None else axis, dtype=float)
+    axes = ax[idx] if ax.ndim == 2 else np.broadcast_to(ax.reshape(-1), (idx.size, ax.shape[-1]))
 
-    h_par = (result.H_cells[idx] @ ax) / float(mu0)             # А/м
+    h_par = np.einsum("ij,ij->i", result.H_cells[idx], axes) / float(mu0)   # А/м
     margin = np.asarray(magnet.risk_margin(h_par, T), dtype=float)
     br_eff = np.asarray(magnet.effective_Br(h_par, T), dtype=float)
     br_nom = float(magnet.Br(T))

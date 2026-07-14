@@ -208,6 +208,15 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
             tri = tri[[0, 2, 1]]
         fixed.append(tri)
     cells = np.asarray(fixed, dtype=int)
+    # Убрать orphan-узлы: gmsh возвращает узлы вне треугольной сетки (точки/кривые OCC) —
+    # они дают нулевые строки в матрице жёсткости ⇒ вырожденная система. Оставляем только
+    # узлы, входящие хотя бы в один треугольник, и перенумеровываем ячейки.
+    used = np.unique(cells.reshape(-1))
+    if used.size != verts.shape[0]:
+        remap = np.full(verts.shape[0], -1, dtype=int)
+        remap[used] = np.arange(used.size)
+        verts = np.ascontiguousarray(verts[used])
+        cells = remap[cells]
     mesh = TriangleMesh(vertices=verts, cells=cells)
 
     region = np.empty(mesh.n_cells, dtype=int)

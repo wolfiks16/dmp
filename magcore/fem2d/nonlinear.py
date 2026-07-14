@@ -6,6 +6,7 @@ import numpy as np
 
 from magcore.fem2d.assembly import (
     assemble_current_rhs,
+    assemble_current_rhs_piecewise,
     assemble_magnetization_rhs,
     assemble_stiffness,
 )
@@ -33,6 +34,7 @@ def solve_nonlinear_2d_picard(
     *,
     nu_init,
     j_fn=None,
+    j_cells=None,
     magnetization=None,
     dirichlet_dofs=None,
     dirichlet_values=0.0,
@@ -51,9 +53,14 @@ def solve_nonlinear_2d_picard(
 
     nu_of_B : callable(B_cells:(n_cells,2)) -> (n_cells,)  хордовая ν(|B|) (воздух/сталь/магнит).
     j_fn : callable(x:(2,))->float  внеплоскостной ток (RHS собирается ОДИН раз, ν-независим).
+    j_cells : (n_cells,) КУСОЧНО-ПОСТОЯННЫЙ ток по ячейкам (альтернатива j_fn, для обмотки
+              из P3; ровно один из j_fn/j_cells). RHS в единицах решателя (масштаб μ₀ — на
+              вызывающем; см. machines/static_solver).
     magnetization : None | (n_cells,2) ν·B_r | callable(B,H,ν)->(n_cells,2) (магнит с коленом).
     dirichlet_dofs : узлы Dirichlet (по умолчанию — граница сетки).
     """
+    if j_fn is not None and j_cells is not None:
+        raise ValueError("задайте только один источник тока: j_fn ИЛИ j_cells.")
     if not (0.0 < relaxation <= 1.0):
         raise ValueError("relaxation must be in (0, 1].")
     n_cells = space.mesh.n_cells
@@ -64,12 +71,14 @@ def solve_nonlinear_2d_picard(
     ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
     mag_fn = resolve_magnetization(magnetization, n_cells, dim=2)
 
-    # Токовый RHS линеен и ν-независим ⇒ собираем один раз.
-    f_current = (
-        np.zeros(space.ndofs, dtype=float)
-        if j_fn is None
-        else assemble_current_rhs(space, j_fn, quadrature_order=quadrature_order)
-    )
+    # Токовый RHS линеен и ν-независим ⇒ собираем один раз (непрерывный j_fn или
+    # кусочно-постоянный j_cells обмотки).
+    if j_fn is not None:
+        f_current = assemble_current_rhs(space, j_fn, quadrature_order=quadrature_order)
+    elif j_cells is not None:
+        f_current = assemble_current_rhs_piecewise(space, j_cells)
+    else:
+        f_current = np.zeros(space.ndofs, dtype=float)
 
     state: dict[str, object] = {
         "a": np.zeros(space.ndofs, dtype=float),
