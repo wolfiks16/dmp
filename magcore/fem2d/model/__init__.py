@@ -18,6 +18,14 @@ from magcore.fem2d.model.problem import (
     Solution2D,
     solve_problem2d,
 )
+from magcore.fem2d.model.postproc import (
+    OperatingPointField,
+    flux_between_points,
+    interpolate_Az,
+    magnetic_energy,
+    operating_point,
+    torque_arkkio,
+)
 
 __all__ = [
     "Air",
@@ -29,4 +37,10 @@ __all__ = [
     "Region2D",
     "Solution2D",
     "solve_problem2d",
+    "OperatingPointField",
+    "flux_between_points",
+    "interpolate_Az",
+    "magnetic_energy",
+    "operating_point",
+    "torque_arkkio",
 ]
