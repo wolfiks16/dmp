@@ -34,7 +34,8 @@ from magcore.fem2d.machines.winding import WindingLayout
 
 class Scenario(str, Enum):
     S1 = "S1"   # статика при 20 °C (поле магнита + опц. ток)
-    S3 = "S3"   # статика при ЗАДАННОЙ температуре T
+    S2 = "S2"   # статика при ЗАДАННОЙ температуре T
+    # S3 = динамика/тепло (переходный, ядро К6′) — отдельный модуль, пока не реализован
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +47,7 @@ class MachineProblem:
     steel: SteelBHCurve
     layout: WindingLayout
     scenario: Scenario = Scenario.S1
-    T: float = 20.0                 # температура [°C]; S1 ⇒ 20, S3 ⇒ задана
+    T: float = 20.0                 # температура [°C]; S1 ⇒ 20, S2 ⇒ задана
     # режим тока (worst-case по-простому: амплитуда + эл. угол; ток включается при i_peak≠0)
     i_peak: float = 0.0
     gamma_elec: float = 0.0
@@ -68,9 +69,9 @@ class MachineProblem:
         if not self.layout.is_balanced():
             p.append("обмотка несбалансирована (разное число пазов на фазу).")
         if not isinstance(self.scenario, Scenario):
-            p.append("scenario должен быть Scenario.S1 | S3.")
+            p.append("scenario должен быть Scenario.S1 | S2.")
         if self.scenario == Scenario.S1 and abs(self.T - 20.0) > 1e-9:
-            p.append("S1 подразумевает T=20 °C; для иной температуры используйте S3.")
+            p.append("S1 подразумевает T=20 °C; для иной температуры используйте S2.")
         limit = self.magnet.temperature_limit()
         if self.T >= limit:
             p.append(f"T={self.T:g} °C >= предел модели магнита {limit:.0f} °C (перегрев).")

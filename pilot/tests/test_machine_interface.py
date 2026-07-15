@@ -7,7 +7,7 @@ def test_load_pmsm_config_valid():
 
     run = load_machine_run("pilot/configs/pmsm.toml")
     assert run.problem.validate() == []          # согласованная постановка
-    assert run.problem.scenario.value == "S3"
+    assert run.problem.scenario.value == "S2"
     assert run.problem.has_current
     assert run.material_name == "NdFeB"
 

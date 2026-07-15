@@ -7,7 +7,7 @@ from magcore.fem2d.machines.winding import star_of_slots_layout
 
 # P7: согласованная модель задачи + один вызов «модель → полный расчёт». Оракулы: валидная
 # постановка проходит; некорректные (несогласованные размеры, T вне диапазона, S1 с T≠20,
-# ток без витков, плохие параметры решателя) отвергаются; сквозной прогон S1 и S3.
+# ток без витков, плохие параметры решателя) отвергаются; сквозной прогон S1 и S2.
 
 
 @pytest.fixture(scope="module")
@@ -54,7 +54,7 @@ def test_rejects_s1_with_nonroom_temperature(base_problem):
 def test_rejects_overheated_temperature(base_problem):
     from magcore.fem2d.machines import Scenario
     limit = base_problem.magnet.temperature_limit()
-    bad = dataclasses.replace(base_problem, scenario=Scenario.S3, T=limit + 50.0)
+    bad = dataclasses.replace(base_problem, scenario=Scenario.S2, T=limit + 50.0)
     assert bad.validate()
     with pytest.raises(ValueError):
         bad.check()
@@ -73,7 +73,7 @@ def test_rejects_bad_solver_params(base_problem):
 
 def test_s3_allows_prescribed_temperature(base_problem):
     from magcore.fem2d.machines import Scenario
-    ok = dataclasses.replace(base_problem, scenario=Scenario.S3, T=120.0)
+    ok = dataclasses.replace(base_problem, scenario=Scenario.S2, T=120.0)
     assert ok.validate() == []
 
 
@@ -91,7 +91,7 @@ def test_solve_s3_with_current_and_impact(machine):
     from magcore.fem2d.machines import MachineProblem, Scenario, solve_machine_problem
     g, magnet, steel, layout = machine
     prob = MachineProblem(geometry=g, magnet=magnet, steel=steel, layout=layout,
-                          scenario=Scenario.S3, T=140.0, i_peak=30.0,
+                          scenario=Scenario.S2, T=140.0, i_peak=30.0,
                           gamma_elec=np.pi, turns_per_slot=40.0)
     sol = solve_machine_problem(prob, assess_impact=True)
     assert sol.field.converged
