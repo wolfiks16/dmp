@@ -79,7 +79,8 @@ def api_solve(body: dict = Body(default={})) -> dict:
     return {
         "converged": bool(sol.converged),
         "iters": int(sol.field.n_iterations),
-        "Bmag": np.round(Bmag, 4).tolist(),
+        "Bx": np.round(B[:, 0], 4).tolist(),      # компоненты поля по ячейкам (для проб/карт)
+        "By": np.round(B[:, 1], 4).tolist(),
         "Bmax": round(float(Bmag.max()), 3),
         "Bmean": round(float(Bmag.mean()), 3),
         "torque": round(float(scen.torque(sol)), 4),
