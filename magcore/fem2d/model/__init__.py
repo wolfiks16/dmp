@@ -27,6 +27,12 @@ from magcore.fem2d.model.postproc import (
     operating_point,
     torque_arkkio,
 )
+from magcore.fem2d.model.object_geometry import (
+    GeoObject,
+    auto_domain,
+    build_object_problem,
+    contains,
+)
 from magcore.fem2d.model.scene import problem_to_scene, write_scene_json
 
 __all__ = [
@@ -48,4 +54,8 @@ __all__ = [
     "torque_arkkio",
     "problem_to_scene",
     "write_scene_json",
+    "GeoObject",
+    "auto_domain",
+    "build_object_problem",
+    "contains",
 ]
