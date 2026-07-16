@@ -3,12 +3,13 @@ from __future__ import annotations
 import numpy as np
 
 from magcore.fem2d.assembly import (
+    _scatter_local,
     assemble_current_rhs,
     assemble_current_rhs_piecewise,
     assemble_magnetization_rhs,
-    assemble_stiffness,
+    assemble_stiffness_sparse,
+    p1_cell_geometry,
 )
-from magcore.fem2d.mesh import p1_gradients, triangle_area
 from magcore.fem2d.nonlinear import Fem2DPicardResult
 from magcore.fem2d.post import reconstruct_B_on_cells
 from magcore.fem2d.solver import apply_dirichlet, solve_scalar
@@ -27,25 +28,21 @@ from magcore.nonlinear.picard import resolve_magnetization
 # Для воздуха/магнита ν=const ⇒ dν/d|B|²=0 ⇒ линейно (точно).
 
 
-def assemble_newton_tangent(space, nu_cells, dnu_dB2_cells, a) -> np.ndarray:
-    """Касательная матрица T_ij = ∫ ν ∇φ_i·∇φ_j + 2·(dν/d|B|²)·(∇A·∇φ_i)(∇A·∇φ_j)."""
-    mesh = space.mesh
-    n = space.ndofs
+def assemble_newton_tangent(space, nu_cells, dnu_dB2_cells, a):
+    """
+    РАЗРЕЖЁННАЯ касательная T_ij = ∫ ν ∇φ_i·∇φ_j + 2·(dν/d|B|²)·(∇A·∇φ_i)(∇A·∇φ_j).
+    Векторизовано + CSR (плотная (n,n) на реальных сетках не помещается в память).
+    """
     nu = np.asarray(nu_cells, dtype=float)
     dnu = np.asarray(dnu_dB2_cells, dtype=float)
-    T = np.zeros((n, n), dtype=float)
-    for c in range(mesh.n_cells):
-        verts = mesh.cell_vertices(c)
-        area = triangle_area(verts)
-        grads = p1_gradients(verts)               # (3,2)
-        idx = mesh.cell_vertex_indices(c)
-        gradA = grads.T @ a[list(idx)]            # (2,) ∇A на ячейке
-        w = grads @ gradA                         # (3,) w_i = ∇A·g_i
-        local = area * (nu[c] * (grads @ grads.T) + 2.0 * dnu[c] * np.outer(w, w))
-        for i in range(3):
-            for j in range(3):
-                T[idx[i], idx[j]] += local[i, j]
-    return T
+    cells, grad, area = p1_cell_geometry(space.mesh)      # (nc,3),(nc,3,2),(nc,)
+    a_cell = np.asarray(a, dtype=float)[cells]            # (nc,3)
+    gradA = np.einsum("ca,cad->cd", a_cell, grad)         # (nc,2) ∇A на ячейке
+    w = np.einsum("cd,cad->ca", gradA, grad)              # (nc,3) w_a = ∇A·∇φ_a
+    gg = np.einsum("cad,cbd->cab", grad, grad)            # (nc,3,3)
+    ww = w[:, :, None] * w[:, None, :]                    # (nc,3,3)
+    local = area[:, None, None] * (nu[:, None, None] * gg + 2.0 * dnu[:, None, None] * ww)
+    return _scatter_local(cells, local, space.ndofs)
 
 
 def solve_nonlinear_2d_newton(
@@ -96,7 +93,7 @@ def solve_nonlinear_2d_newton(
         nu = np.asarray(nu, dtype=float)
         H = nu[:, None] * B - nu_br
         f = f_cur + assemble_magnetization_rhs(space, nu_br)
-        K = assemble_stiffness(space, nu)
+        K = assemble_stiffness_sparse(space, nu)
         R = K @ a_vec - f
         R[ddofs] = 0.0
         return B, nu, np.asarray(dnu, dtype=float), H, R

@@ -8,7 +8,7 @@ from magcore.fem2d.assembly import (
     assemble_current_rhs,
     assemble_current_rhs_piecewise,
     assemble_magnetization_rhs,
-    assemble_stiffness,
+    assemble_stiffness_sparse,
 )
 from magcore.fem2d.post import reconstruct_B_on_cells
 from magcore.fem2d.solver import apply_dirichlet, solve_scalar
@@ -91,7 +91,7 @@ def solve_nonlinear_2d_picard(
         nu_br = np.asarray(mag_fn(state["B"], state["H"], nu_frozen), dtype=float)
         if nu_br.shape != (n_cells, 2):
             raise ValueError("magnetization callable must return shape (n_cells, 2).")
-        K = assemble_stiffness(space, nu_frozen)
+        K = assemble_stiffness_sparse(space, nu_frozen)
         f = f_current + assemble_magnetization_rhs(space, nu_br)
         K_bc, f_bc = apply_dirichlet(K, f, ddofs, dirichlet_values)
         a = solve_scalar(K_bc, f_bc)

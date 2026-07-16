@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import numpy as np
+import scipy.sparse as sp
 
 from magcore.fem2d.mesh import p1_gradients, triangle_area
 from magcore.fem2d.quadrature import triangle_quadrature
@@ -15,6 +16,51 @@ def _nu_per_cell(nu, n_cells: int) -> np.ndarray:
     if arr.shape != (n_cells,):
         raise ValueError("nu must be a scalar or an array of shape (n_cells,).")
     return arr
+
+
+def p1_cell_geometry(mesh) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    ВЕКТОРИЗОВАННАЯ геометрия P1 для всей сетки за раз (для разрежённой сборки):
+      cells (n_cells,3) индексы вершин, grad (n_cells,3,2) ∇φ_i (const по ячейке),
+      area (n_cells,).
+    Та же формула, что `p1_gradients`: ∇φ_i=(1/2A)·(y_{i+1}−y_{i+2}, x_{i+2}−x_{i+1}),
+    где 2A — ЗНАКОВАЯ площадь (сетка CCW ⇒ >0). Проверяется тестом на совпадение с
+    поэлементным `p1_gradients`/`triangle_area`.
+    """
+    cells = np.asarray(mesh.cells, dtype=int)
+    v = np.asarray(mesh.vertices, dtype=float)
+    tri = v[cells]                                   # (nc,3,2)
+    x, y = tri[:, :, 0], tri[:, :, 1]                # (nc,3)
+    area2 = ((x[:, 1] - x[:, 0]) * (y[:, 2] - y[:, 0])
+             - (x[:, 2] - x[:, 0]) * (y[:, 1] - y[:, 0]))    # знаковая 2·площадь
+    if np.any(area2 == 0.0):
+        raise ValueError("Degenerate triangle: zero area.")
+    j, k = [1, 2, 0], [2, 0, 1]                      # циклические соседи
+    gx = (y[:, j] - y[:, k]) / area2[:, None]        # (nc,3)
+    gy = (x[:, k] - x[:, j]) / area2[:, None]
+    grad = np.stack([gx, gy], axis=2)                # (nc,3,2)
+    return cells, grad, np.abs(area2) / 2.0
+
+
+def _scatter_local(cells: np.ndarray, local: np.ndarray, n: int) -> sp.csr_matrix:
+    """Собрать (n_cells,3,3) локальные блоки в разрежённую (n,n) через COO (дубли суммируются)."""
+    rows = np.broadcast_to(cells[:, :, None], local.shape).ravel()
+    cols = np.broadcast_to(cells[:, None, :], local.shape).ravel()
+    return sp.coo_matrix((local.ravel(), (rows, cols)), shape=(n, n)).tocsr()
+
+
+def assemble_stiffness_sparse(space: LagrangeP1Space2D, nu) -> sp.csr_matrix:
+    """
+    РАЗРЕЖЁННАЯ матрица жёсткости K_ij=∫ ν ∇φ_i·∇φ_j dx (для реальных сеток — плотная
+    (n,n) не помещается в память: P1 даёт ~7 ненулей в строке). Численно идентична
+    `assemble_stiffness` (тот же локальный блок ν·A·(∇φ·∇φ)), но CSR + векторизовано.
+    """
+    mesh = space.mesh
+    nu_cells = _nu_per_cell(nu, mesh.n_cells)
+    cells, grad, area = p1_cell_geometry(mesh)
+    gg = np.einsum("cad,cbd->cab", grad, grad)                   # (nc,3,3) ∇φ_a·∇φ_b
+    local = (nu_cells * area)[:, None, None] * gg
+    return _scatter_local(cells, local, space.ndofs)
 
 
 def assemble_stiffness(space: LagrangeP1Space2D, nu) -> np.ndarray:
