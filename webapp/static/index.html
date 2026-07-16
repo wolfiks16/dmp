@@ -1,0 +1,135 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MagField — 2D</title>
+<style>
+:root{--bg:#0e1420;--bg2:#0a0f18;--panel:#131b28;--panel2:#18212f;--panel3:#1e2838;--line:#25314a;--line2:#31405d;
+  --text:#dce4f2;--muted:#8494ae;--dim:#5d6d8a;--accent:#2fd39c;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;
+  --mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;--ui:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+*{box-sizing:border-box}html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;display:flex;flex-direction:column;overflow:hidden}
+.topbar{display:flex;align-items:center;gap:12px;height:46px;flex:0 0 46px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.logo{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#1f9f76);color:#04140e;font-weight:900}
+.brand{font-weight:700}.sub{color:var(--dim);font:600 11px/1 var(--mono);border:1px solid var(--line2);padding:3px 7px;border-radius:5px}
+.spacer{flex:1}.status{font:600 11px/1 var(--mono);color:var(--muted)}.status b{color:var(--accent)}
+.body{flex:1;min-height:0;display:grid;grid-template-columns:1fr 300px}
+.viewport{position:relative;background:#0a0f18;overflow:hidden}
+.viewport canvas{width:100%;height:100%;display:block;cursor:grab}.viewport canvas.pan{cursor:grabbing}
+.vp-lbl{position:absolute;left:12px;top:10px;font:600 12px/1.4 var(--mono);color:var(--muted);pointer-events:none}.vp-lbl b{color:var(--text)}
+.coord{position:absolute;right:12px;top:10px;font:600 11px/1 var(--mono);color:var(--dim);pointer-events:none}
+.cbar{position:absolute;left:12px;bottom:12px;display:none;align-items:center;gap:8px;background:#0d1420cc;padding:6px 9px;border:1px solid var(--line);border-radius:7px}
+.cbar.on{display:flex}.cbar .scale{width:130px;height:11px;border-radius:3px}.cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
+.zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
+.zbtn{width:28px;height:26px;border:1px solid var(--line2);background:rgba(20,28,42,.92);color:var(--muted);border-radius:6px;cursor:pointer;font-size:14px}.zbtn:hover{color:var(--text)}
+.side{background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:14px}
+.side h4{margin:2px 0 10px;font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
+.side hr{border:0;border-top:1px solid var(--line);margin:16px 0}
+.field{margin-bottom:11px}.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+.select,.num{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 9px;border-radius:6px;font:500 12px/1 var(--ui)}
+.num{font-family:var(--mono);text-align:right}.row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.calc{width:100%;background:var(--accent);border:0;color:#04140e;padding:11px;border-radius:7px;font:700 13px/1 var(--ui);cursor:pointer;margin-top:4px}
+.calc:disabled{opacity:.6;cursor:wait}
+.res{list-style:none;margin:8px 0 0;padding:0}
+.res li{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--line);font-size:12px}
+.res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums}
+.res .crit .v{color:var(--crit)}.res .ok .v{color:var(--good)}
+.chk{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;margin-bottom:8px}.chk input{accent-color:var(--accent);width:15px;height:15px}
+.err{color:var(--crit);font-size:12px;margin-top:8px;display:none}
+.hint{color:var(--dim);font-size:11px;margin-top:8px}
+</style></head>
+<body>
+<div class="topbar"><div class="logo">M</div><span class="brand">MagField</span><span class="sub">2D · магнитостатика</span>
+  <span class="spacer"></span><span class="status" id="status">загрузка…</span></div>
+<div class="body">
+  <div class="viewport">
+    <canvas id="cv"></canvas>
+    <div class="vp-lbl" id="vplbl"><b>Геометрия модели</b></div>
+    <div class="coord" id="coord">x —  y — мм</div>
+    <div class="cbar" id="cbar"><span class="lab">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" style="color:var(--dim)">Тл</span></div>
+    <div class="zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit">⤢</button></div>
+  </div>
+  <aside class="side">
+    <h4>Режим расчёта</h4>
+    <div class="field"><label>Материал магнита</label><select class="select" id="material"><option value="ndfeb">NdFeB (N42SH)</option><option value="smco">SmCo (КС25ДЦ)</option></select></div>
+    <div class="row2"><div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div></div>
+    <div class="row2"><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div><div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div></div>
+    <button class="calc" id="calc">Рассчитать</button>
+    <div class="err" id="err"></div>
+    <div class="hint">i_peak=0 — холостой ход (только магнит). γ≈180° ≈ демаг-d-ось.</div>
+    <hr>
+    <h4>Отображение</h4>
+    <label class="chk"><input type="checkbox" id="showfield"> Показать поле |B|</label>
+    <hr>
+    <h4>Результаты</h4>
+    <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
+  </aside>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function rainbow(t){t=clamp(t,0,1);return[clamp(1.5-Math.abs(4*t-3),0,1)*255,clamp(1.5-Math.abs(4*t-2),0,1)*255,clamp(1.5-Math.abs(4*t-1),0,1)*255];}
+function regColor(rid){const r=(SCENE.regions[rid])||{},n=r.name||'',k=r.kind||'';
+  if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';
+  if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
+let SCENE=null, FIELD=null, VMAX=2.0;
+const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
+const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
+function resize(){const vp=cv.parentElement,w=vp.clientWidth|0,h=vp.clientHeight|0;if(w>20&&h>20){cv.width=w;cv.height=h;W=w;H=h;}}
+function fit(){if(!SCENE)return;const b=SCENE.bounds,span=Math.max(b.xmax-b.xmin,b.ymax-b.ymin),cxw=(b.xmin+b.xmax)/2,cyw=(b.ymin+b.ymax)/2;
+  scale=(Math.min(W,H)*0.9)/span;base=scale;ox=W/2-cxw*scale;oy=H/2+cyw*scale;draw();}
+function niceStep(){const t=64,c=[1,2,5,10,20,50];let bs=c[0],bd=1e9;c.forEach(s=>{const d=Math.abs(scale*s-t);if(d<bd){bd=d;bs=s;}});return bs;}
+function grid(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep();ctx.lineWidth=1;ctx.strokeStyle='#172032';
+  for(let x=Math.ceil(tl[0]/step)*step;x<=br[0];x+=step){const s=w2s(x,0)[0];ctx.beginPath();ctx.moveTo(s,0);ctx.lineTo(s,H);ctx.stroke();}
+  for(let y=Math.ceil(br[1]/step)*step;y<=tl[1];y+=step){const s=w2s(0,y)[1];ctx.beginPath();ctx.moveTo(0,s);ctx.lineTo(W,s);ctx.stroke();}
+  const ax=w2s(0,0);ctx.strokeStyle='#54658a';ctx.fillStyle='#93a2bd';ctx.font='10px ui-monospace,monospace';
+  ctx.beginPath();ctx.moveTo(0,ax[1]);ctx.lineTo(W,ax[1]);ctx.moveTo(ax[0],0);ctx.lineTo(ax[0],H);ctx.stroke();
+  ctx.textAlign='center';for(let x=Math.ceil(tl[0]/step)*step;x<=br[0];x+=step){if(!x)continue;ctx.fillText(x,w2s(x,0)[0],ax[1]+15);}
+  ctx.textAlign='right';for(let y=Math.ceil(br[1]/step)*step;y<=tl[1];y+=step){if(!y)continue;ctx.fillText(y,ax[0]-7,w2s(0,y)[1]+4);}}
+function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE)return;grid();
+  const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=$('showfield').checked&&FIELD;
+  for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
+    if(showF){const col=rainbow(FIELD[i]/VMAX);ctx.fillStyle='rgb('+col[0]+','+col[1]+','+col[2]+')';}
+    else ctx.fillStyle=regColor(''+REG[i]);ctx.fill();}}
+$('cbar').classList.toggle('on',false);
+
+let drag=false,last=[0,0];
+const pos=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H];};
+cv.addEventListener('wheel',e=>{e.preventDefault();const p=pos(e),wx=(p[0]-ox)/scale,wy=(oy-p[1])/scale,f=Math.exp(-e.deltaY*0.0016);
+  scale=clamp(scale*f,base*0.3,base*40);ox=p[0]-wx*scale;oy=p[1]+wy*scale;draw();},{passive:false});
+cv.addEventListener('mousedown',e=>{drag=true;last=pos(e);cv.classList.add('pan');});
+window.addEventListener('mouseup',()=>{drag=false;cv.classList.remove('pan');});
+window.addEventListener('mousemove',e=>{const p=pos(e);if(p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
+  if(!drag)return;ox+=p[0]-last[0];oy+=p[1]-last[1];last=p;draw();});
+$('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};
+$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};
+$('zfit').onclick=fit;
+$('showfield').addEventListener('change',()=>{updView();draw();});
+window.addEventListener('resize',()=>{resize();fit();});
+
+function updView(){const sf=$('showfield').checked&&FIELD;
+  $('vplbl').innerHTML=sf?'<b>Поле |B|</b> · Тл':'<b>Геометрия модели</b>';
+  $('cbar').classList.toggle('on',!!sf);
+  if(sf){$('cscale').style.background='linear-gradient(90deg,'+[0,.25,.5,.75,1].map(t=>{const c=rainbow(t);return'rgb('+c.join(',')+') '+(t*100)+'%';}).join(',')+')';$('cmax').textContent=VMAX.toFixed(1);}}
+
+async function loadScene(){const r=await fetch('/api/scene');SCENE=await r.json();
+  $('status').innerHTML='ячеек <b>'+SCENE.cells.length+'</b>';resize();fit();}
+function res(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
+async function solve(){const btn=$('calc');btn.disabled=true;btn.textContent='Считаю…';$('err').style.display='none';
+  const body={material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+  try{const r=await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
+    FIELD=d.Bmag;VMAX=Math.max(d.Bmax,0.1);$('showfield').checked=true;updView();draw();
+    res([
+      {k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'},
+      {k:'Момент',v:d.torque.toFixed(3)+' Н·м'},
+      {k:'Энергия поля',v:d.energy.toFixed(3)+' Дж'},
+      {k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'},
+      {k:'Рабочая точка ⟨B_d⟩',v:d.Bd_mean+' Тл'},
+      {k:'B_d мин (кромка)',v:d.Bd_worst+' Тл'},
+      {k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'},
+    ]);
+  }catch(e){$('err').textContent='Ошибка запроса: '+e;$('err').style.display='block';}
+  finally{btn.disabled=false;btn.textContent='Рассчитать';}}
+$('calc').addEventListener('click',solve);
+loadScene();
+</script></body></html>
