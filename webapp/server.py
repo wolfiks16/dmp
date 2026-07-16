@@ -49,6 +49,22 @@ REGION_UI = [
 ]
 DEFAULT_SIZES_MM = {name: mm for name, _, mm in REGION_UI}
 
+# Параметры геометрии outrunner PMSM, задаваемые пользователем: имя поля OutrunnerPMSMParams,
+# подпись, значение по умолчанию, вид (int — счёт; mm — длина в мм→м; frac — доля 0..1).
+GEOM_UI = [
+    ("n_slots", "Пазов (зубцов)", 12, "int"),
+    ("n_poles", "Полюсов (магнитов)", 14, "int"),
+    ("R_bore", "Радиус расточки", 10.0, "mm"),
+    ("h_stator_yoke", "Ярмо статора", 4.0, "mm"),
+    ("h_tooth", "Зубец (длина)", 8.0, "mm"),
+    ("air_gap", "Зазор", 1.0, "mm"),
+    ("h_magnet", "Магнит (толщина)", 3.0, "mm"),
+    ("h_rotor_yoke", "Ярмо ротора", 3.0, "mm"),
+    ("tooth_width_frac", "Доля зубца в шаге", 0.5, "frac"),
+    ("magnet_embrace", "Охват полюса магнитом", 0.83, "frac"),
+    ("axial_length", "Осевая длина", 30.0, "mm"),
+]
+
 _GEOM: dict = {}          # mesh_id -> (MachineGeometry, layout, steel)
 _SCENE: dict = {}         # mesh_id -> сцена (геометрия+регионы для рисования)
 _EXEC = ThreadPoolExecutor(max_workers=1)
@@ -67,20 +83,38 @@ def _spec_from(body: dict) -> dict[str, float]:
     return out
 
 
-def _mesh_id(spec: dict[str, float]) -> str:
-    key = "|".join(f"{k}:{spec[k]:.6g}" for k in sorted(spec))
-    return hashlib.sha1(key.encode()).hexdigest()[:12]
+def _geom_from(body: dict) -> dict[str, float]:
+    """Параметры геометрии из тела запроса (мм→м, доли/счёт как есть), с умолчаниями."""
+    raw = dict(body.get("geom") or {})
+    out: dict[str, float] = {}
+    for name, _, default, kind in GEOM_UI:
+        v = raw.get(name, default)
+        if kind == "int":
+            out[name] = int(v)
+        elif kind == "mm":
+            out[name] = float(v) / 1000.0
+        else:  # frac
+            out[name] = float(v)
+    return out
 
 
-def _build_mesh(spec: dict[str, float]) -> str:
-    """Построить (или взять из кэша) геометрию под посегментный spec. Возвращает mesh_id.
-    ⚠ Вызывать только из главного потока (gmsh)."""
-    mid = _mesh_id(spec)
+def _params_from(body: dict) -> tuple[OutrunnerPMSMParams, str]:
+    """Собрать OutrunnerPMSMParams (геометрия + посегментная сетка) + детерминированный mesh_id."""
+    geom = _geom_from(body)
+    spec = _spec_from(body)
+    params = OutrunnerPMSMParams(
+        mesh_size=max(spec.values()), mesh_size_by_region=dict(spec), **geom
+    )
+    key = ("|".join(f"{k}:{geom[k]:.6g}" for k in sorted(geom))
+           + "#" + "|".join(f"{k}:{spec[k]:.6g}" for k in sorted(spec)))
+    return params, hashlib.sha1(key.encode()).hexdigest()[:12]
+
+
+def _build_mesh(params: OutrunnerPMSMParams, mid: str) -> str:
+    """Построить (или взять из кэша) геометрию+сетку под params. Возвращает mesh_id.
+    ⚠ Вызывать только из главного потока (gmsh). Может бросить ValueError (плохая геометрия)."""
     if mid in _GEOM:
         return mid
-    params = OutrunnerPMSMParams(
-        mesh_size=max(spec.values()), mesh_size_by_region=dict(spec)
-    )
     g = build_outrunner_spm_pmsm(params)
     lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
     _GEOM[mid] = (g, lay, m270_35a_bh_curve())
@@ -106,8 +140,9 @@ def _mesh_payload(mid: str) -> dict:
     }
 
 
-# Прогрев: построить сетку по умолчанию в главном потоке при импорте (быстрый первый показ).
-_DEFAULT_MESH_ID = _build_mesh(_spec_from({}))
+# Прогрев: построить модель по умолчанию в главном потоке при импорте (быстрый первый показ).
+_DEF_PARAMS, _DEF_MID = _params_from({})
+_DEFAULT_MESH_ID = _build_mesh(_DEF_PARAMS, _DEF_MID)
 
 
 def _do_solve(body: dict) -> dict:
@@ -152,18 +187,22 @@ def _do_solve(body: dict) -> dict:
 
 @app.get("/api/mesh_defaults")
 def api_mesh_defaults() -> dict:
-    """Список регионов для посегментной сетки: имя, подпись, размер по умолчанию (мм)."""
-    return {"regions": [{"name": n, "label": lab, "mm": mm} for n, lab, mm in REGION_UI]}
+    """Дефолты для UI: геометрия (поля+вид) и регионы посегментной сетки (размер, мм)."""
+    return {
+        "geometry": [{"name": n, "label": lab, "value": v, "kind": k}
+                     for n, lab, v, k in GEOM_UI],
+        "regions": [{"name": n, "label": lab, "mm": mm} for n, lab, mm in REGION_UI],
+    }
 
 
 @app.post("/api/mesh")
 async def api_mesh(body: dict = Body(default={})) -> dict:
-    """Построить сетку по посегментному spec (gmsh на главном потоке) и вернуть сцену."""
+    """Построить модель (геометрия+сетка, gmsh на главном потоке) и вернуть сцену."""
     try:
-        spec = _spec_from(dict(body))
-    except ValueError as e:
+        params, mid = _params_from(dict(body))
+        mid = _build_mesh(params, mid)   # на потоке event-loop = главный поток (gmsh ОК)
+    except Exception as e:  # noqa: BLE001 — плохая геометрия/сетка → в UI, не 500
         return {"error": str(e)}
-    mid = _build_mesh(spec)   # на потоке event-loop = главный поток (gmsh ОК)
     return _mesh_payload(mid)
 
 
