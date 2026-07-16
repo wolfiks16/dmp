@@ -27,6 +27,7 @@ from magcore.fem2d.model.postproc import (
     operating_point,
     torque_arkkio,
 )
+from magcore.fem2d.model.scene import problem_to_scene, write_scene_json
 
 __all__ = [
     "Air",
@@ -45,4 +46,6 @@ __all__ = [
     "magnetic_energy",
     "operating_point",
     "torque_arkkio",
+    "problem_to_scene",
+    "write_scene_json",
 ]
