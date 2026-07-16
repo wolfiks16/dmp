@@ -94,6 +94,15 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .legend{display:flex;gap:12px;flex-wrap:wrap;font:600 10px/1 var(--mono);color:var(--muted);margin-top:4px}
 .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 .reshead{font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin:12px 0 2px}
+.palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.palette button{flex:1;min-width:70px;background:var(--panel2);border:1px solid var(--line2);color:var(--text);padding:7px 6px;border-radius:6px;font:600 11px/1 var(--ui);cursor:pointer}
+.palette button:hover{border-color:var(--accent2);color:var(--accent)}
+.objrow{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:12px;border:1px solid transparent}
+.objrow:hover{background:var(--panel2)}.objrow.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
+.objrow .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid var(--line2)}
+.objrow .del{margin-left:auto;color:var(--dim);border:0;background:none;cursor:pointer;font-size:13px;padding:0 2px}
+.objrow .del:hover{color:var(--crit)}
+.objedit{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
 .status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
 .status .g{color:var(--good)}.status .c{color:var(--crit)}.status .r{margin-left:auto;display:flex;gap:12px}
 </style></head>
@@ -158,8 +167,17 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     <div class="rp">
       <!-- ГЕОМЕТРИЯ -->
       <div class="rp-stage" data-stage="geom">
-        <p class="hint">Свои размеры мотора. Радиальные толщины считаются наружу от расточки. «Построить модель» пересобирает.</p>
-        <div id="geomfields"></div>
+        <div class="field"><label>Тип модели</label><select class="select" id="modekind"><option value="pmsm">Параметрический PMSM</option><option value="objects">Свободная модель (объекты)</option></select></div>
+        <div id="geom-pmsm">
+          <p class="hint">Свои размеры мотора. Радиальные толщины считаются наружу от расточки.</p>
+          <div id="geomfields"></div>
+        </div>
+        <div id="geom-objects" style="display:none">
+          <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button></div>
+          <div id="objlist2"></div>
+          <div class="objedit" id="objedit"></div>
+          <p class="hint">Домен-воздух строится автоматически вокруг объектов (внешняя граница A_z=0). Порядок в списке = наложение (нижний сверху).</p>
+        </div>
       </div>
       <!-- СЕТКА -->
       <div class="rp-stage" data-stage="mesh">
@@ -174,9 +192,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       </div>
       <!-- РАСЧЁТ -->
       <div class="rp-stage" data-stage="calc">
-        <div class="row2"><div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div></div>
-        <div class="row2"><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div><div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div></div>
-        <p class="hint">i_peak=0 — холостой ход. γ≈180° ≈ демаг-d-ось. Нагрев в статике — заданная T (динамика/тепло — S3).</p>
+        <div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div>
+        <div id="calc-machine">
+          <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div></div>
+          <div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div>
+          <p class="hint">i_peak=0 — холостой ход. γ≈180° ≈ демаг-d-ось.</p>
+        </div>
+        <p class="hint">Нагрев в статике — заданная T (динамика/тепло — S3).</p>
         <div class="reshead">Результаты</div>
         <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
       </div>
@@ -233,6 +255,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
+let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
@@ -315,12 +338,12 @@ function setTool(t){TOOL=t;
   if(STAGE==='result')runProbe();draw();}
 
 function setConv(kind,txt){const e=$('st-conv');e.className=kind;e.textContent=txt;}
-function objTag(r){const n=r.name,k=r.kind;if(k==='magnet'||n==='magnet')return $('material').value==='smco'?'КС25ДЦ':'N42SH';if(k==='steel')return'M270';if(n==='slot')return'Cu/возд.';if(n==='air_gap')return'Воздух';return'—';}
-function populateModel(counts){const seen={};const rs=SCENE.regions;const order=Object.keys(rs);
+function objTag(r){const n=r.name,k=r.kind;if(k==='magnet'||n==='magnet')return $('material').value==='smco'?'КС25ДЦ':'N42SH';if(k==='steel')return'M270';if(n==='slot')return'Cu/возд.';if(n==='air_gap'||n==='domain')return'Воздух';if(k==='air')return'воздух';return'—';}
+function populateModel(){const seen={};const rs=SCENE.regions;const order=Object.keys(rs);
   const items=order.map(id=>rs[id]).filter(r=>{if(seen[r.name])return false;seen[r.name]=1;return true;});
-  const RU={air_gap:'Зазор',magnet:'Магниты',tooth:'Зубцы',slot:'Пазы',stator_yoke:'Ярмо статора',rotor_yoke:'Ярмо ротора'};
+  const RU={air_gap:'Зазор',magnet:'Магниты',tooth:'Зубцы',slot:'Пазы',stator_yoke:'Ярмо статора',rotor_yoke:'Ярмо ротора',domain:'Воздух (домен)'};
   $('objlist').innerHTML=items.map(r=>'<div class="node i1"><span class="ic">▪</span>'+(RU[r.name]||r.name)+'<span class="tag mat">'+objTag(r)+'</span></div>').join('');
-  $('obj-cur').textContent=(+$('i_peak').value||0)+' A';}
+  $('obj-cur').textContent=(MODE==='pmsm'?(+$('i_peak').value||0)+' A':'—');}
 
 async function loadFields(){const r=await(await fetch('/api/mesh_defaults')).json();REGIONS=r.regions;GEOM=r.geometry;
   $('geomfields').innerHTML=GEOM.map(x=>{const u=x.kind==='mm'?'мм':(x.kind==='int'?'шт':'');return '<div class="mrow"><label>'+x.label+'</label><input class="gsz" data-name="'+x.name+'" value="'+x.value+'"><span class="u">'+u+'</span></div>';}).join('');
@@ -329,15 +352,28 @@ function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.
 function geomSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
 
 async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';
-  try{const d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
+  try{let d;
+    if(MODE==='objects'){
+      if(!OBJECTS.length){$('err').textContent='Добавьте хотя бы один объект.';$('err').style.display='block';return;}
+      const objs=OBJECTS.map(o=>({name:o.name,kind:o.kind,params:o.params,material:o.material,
+        magnet_dir:(o.magnet_dir==='x'?[1,0]:o.magnet_dir==='y'?[0,1]:o.magnet_dir),
+        current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined)}));
+      d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objects:objs,default_mesh_mm:2.0,domain_mesh_mm:3.0})})).json();
+    }else{
+      d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
+    }
     if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
-    MESH_ID=d.mesh_id;SCENE=d.scene;
+    MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;
     CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
     BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
-    const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
-    $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
+    if(MODE==='objects'){
+      $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+d.regions.length+' обл.'+(d.has_magnet?' · с магнитом':'');
+    }else{
+      const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
+      $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
+    }
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
-    $('wbsaved').textContent=d.n_cells+' эл.';populateModel(rc);
+    $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
     resize();fit();bars();setTool(TOOL);
   }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
@@ -345,17 +381,22 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
 function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';bars();
   setConv(d.converged?'g':'c',(d.converged?'● Решение сошлось':'● Не сошлось'));$('st-iters').textContent=d.iters+' итераций';
-  summary([{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'},{k:'Момент',v:d.torque.toFixed(3)+' Н·м'},{k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'},{k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'}]);
-  setTool(TOOL);}
+  const rows=[{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'}];
+  if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
+  rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'});
+  if(d.Bd_mean!==undefined)rows.push({k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'});
+  summary(rows);setTool(TOOL);}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
   const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
-  const body={mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
-  try{const {job_id}=await(await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  const url=MODE==='objects'?'/api/object_solve':'/api/solve';
+  const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value}
+    :{mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+  try{const {job_id}=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='running')continue;
-      if(j.status==='done'){applyResult(j.result);$('obj-cur').textContent=(+$('i_peak').value||0)+' A';break;}
+      if(j.status==='done'){applyResult(j.result);break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● Ошибка расчёта');break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Рассчитать';}}
@@ -380,7 +421,57 @@ $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runPro
 $('apply-line').onclick=()=>{P.line={x1:+$('lx1').value,y1:+$('ly1').value,x2:+$('lx2').value,y2:+$('ly2').value,n:+$('ln').value||60};runProbe();draw();};
 $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
 ['lc-mag','lc-bx','lc-by','cc-br','cc-bt','cc-mag'].forEach(id=>$(id).addEventListener('change',runProbe));
-$('material').addEventListener('change',()=>{if(SCENE){const rc={};REGIONS.forEach(x=>rc[x.name]=0);populateModel(rc);}});
+$('material').addEventListener('change',()=>{if(SCENE&&MODE==='pmsm')populateModel();});
+
+// ---- Объектный редактор (свободная модель) ----
+const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90}};
+const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор'};
+const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высота',angle:'Угол',r:'Радиус',r_in:'R внутр.',r_out:'R внешн.',a1:'Угол от',a2:'Угол до'};
+const MAT_SW={air:'#202a3b',steel:'#48586e',ndfeb:'#7e64a6',smco:'#6a6f9a'};
+const MAT_TAG={steel:'M270',ndfeb:'N42SH',smco:'SmCo',air:'возд.'};
+function seedObjects(){OBJECTS=[
+  {name:'Стальная пластина',kind:'rect',params:{cx:-8,cy:0,w:10,h:20,angle:0},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:''},
+  {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9}
+];SEL=1;}
+function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),kind,params:{...OBJDEF[kind]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:''});SEL=OBJECTS.length-1;renderObjects();}
+function delObject(i){OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();}
+function angUnit(k){return(k==='angle'||k==='a1'||k==='a2')?'°':'мм';}
+function renderObjects(){
+  $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+(MAT_SW[o.material]||'#556075')+'"></span>'+o.name+'<button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
+  const o=OBJECTS[SEL];
+  if(!o){$('objedit').innerHTML='';}
+  else{
+    const par=Object.keys(o.params).map(k=>'<div class="mrow"><label>'+(PARAMRU[k]||k)+'</label><input class="num opar" data-k="'+k+'" value="'+o.params[k]+'" style="width:70px"><span class="u">'+angUnit(k)+'</span></div>').join('');
+    let extra='';
+    if(o.material==='ndfeb'||o.material==='smco')extra='<div class="field"><label>Намагничивание</label><select class="select oedit" data-f="magnet_dir"><option value="radial">Радиально наружу</option><option value="radial-in">Радиально внутрь</option><option value="x">По оси +X</option><option value="y">По оси +Y</option></select></div>';
+    else extra='<div class="mrow"><label>Плотн. тока J</label><input class="num oedit" data-f="current" value="'+(o.current?(o.current/1e6):0)+'" style="width:70px"><span class="u">А/мм²</span></div>';
+    extra+='<div class="mrow"><label>Размер сетки</label><input class="num oedit" data-f="mesh_size_mm" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>';
+    $('objedit').innerHTML='<div class="field"><label>Имя объекта</label><input class="oedit" data-f="name" value="'+o.name+'" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>'
+      +'<div class="field"><label>Материал</label><select class="select oedit" data-f="material"><option value="steel">Сталь M270</option><option value="ndfeb">Магнит N42SH</option><option value="smco">Магнит SmCo</option><option value="air">Воздух</option></select></div>'
+      +par+extra;
+    $('objedit').querySelector('[data-f="material"]').value=o.material;
+    const md=$('objedit').querySelector('[data-f="magnet_dir"]');if(md)md.value=(typeof o.magnet_dir==='string'?o.magnet_dir:'x');
+    $('objedit').querySelectorAll('.opar').forEach(inp=>inp.onchange=()=>{OBJECTS[SEL].params[inp.dataset.k]=+inp.value;});
+    $('objedit').querySelectorAll('.oedit').forEach(el=>el.onchange=()=>{const f=el.dataset.f,v=el.value;
+      if(f==='current')OBJECTS[SEL].current=(+v||0)*1e6;
+      else if(f==='mesh_size_mm')OBJECTS[SEL][f]=(v===''?'':+v);
+      else OBJECTS[SEL][f]=v;
+      if(f==='material'||f==='name')renderObjects();});
+  }
+  if(MODE==='objects')$('objlist').innerHTML=OBJECTS.map(o=>'<div class="node i1"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+(MAT_TAG[o.material]||'')+'</span></div>').join('');
+}
+$('geom-objects').addEventListener('click',e=>{
+  const add=e.target.dataset.add;if(add){addObject(add);return;}
+  const del=e.target.dataset.del;if(del!==undefined){e.stopPropagation();delObject(+del);return;}
+  const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();}});
+$('modekind').onchange=e=>{MODE=e.target.value;
+  $('geom-pmsm').style.display=MODE==='pmsm'?'block':'none';
+  $('geom-objects').style.display=MODE==='objects'?'block':'none';
+  $('calc-machine').style.display=MODE==='objects'?'none':'block';
+  if(MODE==='objects'&&!OBJECTS.length)seedObjects();
+  if(MODE==='objects')renderObjects();
+  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';};
+
 $('buildmesh').onclick=buildMesh;$('calc').onclick=solve;
 window.addEventListener('resize',()=>{resize();fit();});
 

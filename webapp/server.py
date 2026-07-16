@@ -16,8 +16,11 @@ FastAPI-бэкенд интерфейса: тонкая обёртка над ma
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -33,7 +36,18 @@ from magcore.fem2d.machines import (
     star_of_slots_layout,
 )
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES
-from magcore.fem2d.model import magnetic_energy, problem_to_scene
+from magcore.fem2d.model import (
+    Air,
+    GeoObject,
+    MagnetMaterial,
+    SteelMaterial,
+    auto_domain,
+    build_object_problem,
+    magnetic_energy,
+    operating_point,
+    problem_to_scene,
+    solve_problem2d,
+)
 
 app = FastAPI(title="MagField web")
 
@@ -67,6 +81,7 @@ GEOM_UI = [
 
 _GEOM: dict = {}          # mesh_id -> (MachineGeometry, layout, steel)
 _SCENE: dict = {}         # mesh_id -> сцена (геометрия+регионы для рисования)
+_OBJ: dict = {}           # model_id -> Problem2D (объектная произвольная модель)
 _EXEC = ThreadPoolExecutor(max_workers=1)
 _JOBS: dict[str, Future] = {}
 
@@ -225,6 +240,112 @@ def api_job(jid: str) -> dict:
         return {"status": "done", "result": fut.result()}
     except Exception as e:  # noqa: BLE001 — перегрев магнита и пр. → в UI
         return {"status": "error", "error": str(e)}
+
+
+# ---- ОБЪЕКТНАЯ ПРОИЗВОЛЬНАЯ ГЕОМЕТРИЯ (свободная модель из примитивов) ----
+
+def _object_material(m: str):
+    if m == "air":
+        return Air()
+    if m == "steel":
+        return SteelMaterial(m270_35a_bh_curve())
+    if m == "ndfeb":
+        return MagnetMaterial(n42sh_magnet((1, 0, 0)))
+    if m == "smco":
+        return MagnetMaterial(sm2co17_magnet((1, 0, 0)))
+    raise ValueError(f"неизвестный материал {m!r}.")
+
+
+def _geo_from(o: dict) -> GeoObject:
+    """UI-объект (мм/градусы) → GeoObject (м/радианы)."""
+    k = str(o.get("kind"))
+    up = dict(o.get("params") or {})
+    mm = lambda v: float(v) / 1000.0                                   # noqa: E731
+    if k == "rect":
+        p = {"cx": mm(up["cx"]), "cy": mm(up["cy"]), "w": mm(up["w"]), "h": mm(up["h"]),
+             "angle": math.radians(float(up.get("angle", 0.0)))}
+    elif k == "circle":
+        p = {"cx": mm(up["cx"]), "cy": mm(up["cy"]), "r": mm(up["r"])}
+    elif k == "ring":
+        p = {"cx": mm(up["cx"]), "cy": mm(up["cy"]), "r_in": mm(up["r_in"]), "r_out": mm(up["r_out"])}
+    elif k == "sector":
+        p = {"cx": mm(up["cx"]), "cy": mm(up["cy"]), "r_in": mm(up["r_in"]), "r_out": mm(up["r_out"]),
+             "a1": math.radians(float(up["a1"])), "a2": math.radians(float(up["a2"]))}
+    elif k == "polygon":
+        p = {"points": [(mm(x), mm(y)) for x, y in up["points"]]}
+    else:
+        raise ValueError(f"неизвестный примитив {k!r}.")
+    md = o.get("magnet_dir")
+    if isinstance(md, (list, tuple)):
+        md = (float(md[0]), float(md[1]))
+    ms = o.get("mesh_size_mm")
+    return GeoObject(name=str(o.get("name", k)), kind=k, params=p,
+                     material=_object_material(str(o.get("material", "air"))),
+                     current_density=float(o.get("current", 0.0)) or 0.0,
+                     magnet_dir=md, mesh_size=(mm(ms) if ms else None))
+
+
+def _build_object_model(body: dict) -> str:
+    """Собрать Problem2D из объектов тела запроса; кэшировать; вернуть model_id. ⚠ главный поток."""
+    objs = [_geo_from(o) for o in (body.get("objects") or [])]
+    if not objs:
+        raise ValueError("добавьте хотя бы один объект.")
+    defm = float(body.get("default_mesh_mm", 2.0)) / 1000.0
+    domm = float(body.get("domain_mesh_mm", 3.0)) / 1000.0
+    dom = auto_domain(objs, material=Air(), margin_frac=float(body.get("margin", 0.4)), mesh_size=domm)
+    prob = build_object_problem(objs, dom, default_mesh_size=defm)
+    mid = "o" + hashlib.sha1(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:11]
+    _OBJ[mid] = prob
+    return mid
+
+
+def _do_object_solve(body: dict) -> dict:
+    """Решить объектную модель (общий solve_problem2d + общий пост). T задаётся на решении."""
+    mid = str(body.get("model_id", ""))
+    prob = _OBJ.get(mid)
+    if prob is None:
+        raise ValueError("модель не найдена — постройте заново.")
+    prob = replace(prob, T=float(body.get("T", 20.0)))     # T применяем без пересборки сетки
+    sol = solve_problem2d(prob, max_iter=60)
+    B = sol.field.B_cells
+    Bmag = np.hypot(B[:, 0], B[:, 1])
+    out = {
+        "converged": bool(sol.converged), "iters": int(sol.field.n_iterations),
+        "Bx": np.round(B[:, 0], 4).tolist(), "By": np.round(B[:, 1], 4).tolist(),
+        "Bmax": round(float(Bmag.max()), 3), "Bmean": round(float(Bmag.mean()), 3),
+        "energy": round(float(magnetic_energy(sol, axial_length=0.03)), 4),
+    }
+    if prob.magnet() is not None and sol.risk is not None:
+        op = operating_point(sol)
+        risk = sol.risk
+        out.update({
+            "Bd_mean": round(float(np.average(op.B_op, weights=op.cell_volume)), 3),
+            "Bd_worst": round(float(op.B_op.min()), 3),
+            "n_demag": int(risk.n_demagnetized), "n_mag": int(risk.cell_indices.size),
+            "demag_frac": round(float(op.volume_fraction_below(op.knee_field)), 4),
+        })
+    return out
+
+
+@app.post("/api/object_model")
+async def api_object_model(body: dict = Body(default={})) -> dict:
+    """Построить свободную объектную модель (gmsh на главном потоке) и вернуть сцену."""
+    try:
+        mid = _build_object_model(dict(body))
+    except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI
+        return {"error": str(e)}
+    prob = _OBJ[mid]
+    return {"mesh_id": mid, "scene": problem_to_scene(prob),
+            "n_cells": int(prob.mesh.n_cells),
+            "regions": [r.name for r in prob.regions.values()],
+            "has_magnet": prob.magnet() is not None}
+
+
+@app.post("/api/object_solve")
+def api_object_solve(body: dict = Body(default={})) -> dict:
+    jid = uuid.uuid4().hex[:12]
+    _JOBS[jid] = _EXEC.submit(_do_object_solve, dict(body))
+    return {"job_id": jid}
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="ui")
