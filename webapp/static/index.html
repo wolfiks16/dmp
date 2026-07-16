@@ -56,14 +56,25 @@ hr{border:0;border-top:1px solid var(--line);margin:15px 0}
 .toggle.on{background:#1f9f76}.toggle.on::after{left:17px;background:#eafff6}
 .togrow{display:flex;align-items:center;gap:9px;margin-bottom:12px}
 .needsolve{color:var(--warn);font-size:11.5px;margin-top:6px}
+.mrow{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.mrow label{flex:1;font-size:12px;color:var(--muted)}
+.mrow .u{font:600 10px/1 var(--mono);color:var(--dim);width:16px}
+.mrow input{width:60px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:6px 7px;border-radius:6px;font:600 12px/1 var(--mono);text-align:right}
+.meshinfo{font:600 11px/1.6 var(--mono);color:var(--dim);margin-top:9px}.meshinfo b{color:var(--muted)}
+.meshinfo .tot{color:var(--accent)}
 </style></head>
 <body>
 <div class="topbar"><div class="logo">M</div><span class="brand">MagField</span><span class="sub">2D · магнитостатика</span>
   <span class="spacer"></span><span class="status" id="status">загрузка…</span></div>
 <div class="body">
   <aside class="col left">
+    <h4>Сетка · посегментно</h4>
+    <p class="hint" style="margin:0 0 9px">Размер элемента по регионам, мм. Мельче — точнее и дольше. Сгущайте зазор/магниты.</p>
+    <div id="meshfields"></div>
+    <button class="applybtn" id="buildmesh">Построить сетку</button>
+    <div class="meshinfo" id="meshinfo"></div>
+    <hr>
     <h4>Режим расчёта</h4>
-    <div class="field"><label>Плотность сетки</label><select class="select" id="mesh"><option value="coarse">грубая · быстро</option><option value="medium">средняя</option><option value="fine">тонкая · точнее, дольше</option></select></div>
     <div class="field"><label>Материал магнита</label><select class="select" id="material"><option value="ndfeb">NdFeB (N42SH)</option><option value="smco">SmCo (КС25ДЦ)</option></select></div>
     <div class="row2"><div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div></div>
     <div class="row2"><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div><div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div></div>
@@ -227,16 +238,28 @@ $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r
 ['lc-mag','lc-bx','lc-by','cc-br','cc-bt','cc-mag'].forEach(id=>$(id).addEventListener('change',runProbe));
 window.addEventListener('resize',()=>{resize();fit();});
 
-async function loadScene(){const r=await fetch('/api/scene?mesh='+$('mesh').value);SCENE=await r.json();
-  CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
-  BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');
-  $('status').innerHTML='ячеек <b>'+SCENE.cells.length+'</b>';resize();fit();bars();setTool();}
+let MESH_ID=null,REGIONS=[];
+async function loadMeshFields(){const r=await(await fetch('/api/mesh_defaults')).json();REGIONS=r.regions;
+  $('meshfields').innerHTML=REGIONS.map(x=>'<div class="mrow"><label>'+x.label+'</label><input class="msz" data-name="'+x.name+'" value="'+x.mm+'"><span class="u">мм</span></div>').join('');}
+function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
+async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю сетку…';$('err').style.display='none';
+  try{const d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sizes_mm:meshSpec()})})).json();
+    if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
+    MESH_ID=d.mesh_id;SCENE=d.scene;
+    CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
+    BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');
+    const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
+    $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
+    $('status').innerHTML='ячеек <b>'+d.n_cells+'</b>';resize();fit();bars();setTool();
+  }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
+  finally{btn.disabled=false;btn.textContent='Построить сетку';}}
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
 function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');bars();setTool();
   summary([{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'},{k:'Момент',v:d.torque.toFixed(3)+' Н·м'},{k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'},{k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'}]);}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function solve(){const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
-  const body={mesh:$('mesh').value,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте сетку.';$('err').style.display='block';return;}
+  const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
+  const body={mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
   try{const {job_id}=await(await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';
       const j=await(await fetch('/api/jobs/'+job_id)).json();
@@ -245,6 +268,6 @@ async function solve(){const btn=$('calc');btn.disabled=true;$('err').style.disp
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Рассчитать';}}
-$('calc').onclick=solve;$('mesh').onchange=loadScene;
-loadScene();
+$('calc').onclick=solve;$('buildmesh').onclick=buildMesh;
+(async()=>{await loadMeshFields();await buildMesh();})();
 </script></body></html>
