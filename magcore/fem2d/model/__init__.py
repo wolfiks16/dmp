@@ -21,6 +21,7 @@ from magcore.fem2d.model.problem import (
 from magcore.fem2d.model.postproc import (
     OperatingPointField,
     flux_between_points,
+    force_maxwell_band,
     interpolate_Az,
     magnetic_energy,
     operating_point,
@@ -39,6 +40,7 @@ __all__ = [
     "solve_problem2d",
     "OperatingPointField",
     "flux_between_points",
+    "force_maxwell_band",
     "interpolate_Az",
     "magnetic_energy",
     "operating_point",

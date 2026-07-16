@@ -1,12 +1,14 @@
 import numpy as np
 import pytest
 
+from magcore.constants import MU0
 from magcore.fem2d.mesh_generators import build_structured_rectangle_tri_mesh
 from magcore.fem2d.model import (
     Air,
     Problem2D,
     Region2D,
     flux_between_points,
+    force_maxwell_band,
     interpolate_Az,
     magnetic_energy,
     operating_point,
@@ -53,26 +55,35 @@ def test_flux_antisymmetric_and_scales():
 
 
 @pytest.fixture(scope="module")
-def pmsm_solution():
+def pmsm_geom():
     pytest.importorskip("gmsh")
     from magcore.domain.magnet_model import n42sh_magnet
     from magcore.domain.steel_curves import m270_35a_bh_curve
     from magcore.fem2d.machines import (
         OutrunnerPMSMParams,
         build_outrunner_spm_pmsm,
-        pmsm_to_problem,
         star_of_slots_layout,
     )
-    from magcore.fem2d.machines.excitation import winding_current_density
-
     g = build_outrunner_spm_pmsm(OutrunnerPMSMParams(mesh_size=0.004))
-    magnet = n42sh_magnet((1, 0, 0))
-    steel = m270_35a_bh_curve()
-    lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
+    return (g, n42sh_magnet((1, 0, 0)), m270_35a_bh_curve(),
+            star_of_slots_layout(g.params.n_slots, g.params.n_poles))
+
+
+@pytest.fixture(scope="module")
+def pmsm_solution(pmsm_geom):
+    from magcore.fem2d.machines import pmsm_to_problem
+    from magcore.fem2d.machines.excitation import winding_current_density
+    g, magnet, steel, lay = pmsm_geom
     jz = winding_current_density(g, lay, i_peak=20.0, gamma_elec=np.deg2rad(45.0), turns_per_slot=40.0)
-    sol = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0, j_cells=jz),
-                          relaxation=0.1, max_iter=300)
-    return g, sol
+    return g, solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0, j_cells=jz),
+                              relaxation=0.1, max_iter=300)
+
+
+@pytest.fixture(scope="module")
+def pmsm_noload(pmsm_geom):
+    from magcore.fem2d.machines import pmsm_to_problem
+    g, magnet, steel, _ = pmsm_geom
+    return g, solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0), relaxation=0.1, max_iter=300)
 
 
 def test_torque_matches_machine_postproc(pmsm_solution):
@@ -91,3 +102,19 @@ def test_operating_point_matches_risk(pmsm_solution):
     assert np.allclose(op.H_op, sol.risk.H_par)               # та же рабочая точка, что risk-map
     assert op.total_volume > 0.0
     assert op.worst_H_op() < 0.0                              # 2-й квадрант
+
+
+def test_force_symmetric_near_zero_and_scales(pmsm_noload):
+    g, sol = pmsm_noload
+    L, ri, ro = g.params.axial_length, g.params.R_s_out, g.params.R_mag_in
+    Fx, Fy = force_maxwell_band(sol, ri, ro, axial_length=L)
+    # Характерный масштаб радиальной тяги в кольце (несокращённая величина).
+    cen = np.array([g.mesh.cell_centroid(c) for c in range(g.mesh.n_cells)])
+    r = np.hypot(cen[:, 0], cen[:, 1])
+    band = np.where((r >= ri) & (r <= ro))[0]
+    B2 = sol.B_cells[band, 0] ** 2 + sol.B_cells[band, 1] ** 2
+    areas = np.array([g.mesh.cell_area(int(c)) for c in band])
+    scale = L / (MU0 * (ro - ri)) * float((0.5 * B2 * areas).sum())
+    assert np.hypot(Fx, Fy) < 0.08 * scale                    # симметрия: вектор гасится
+    Fx2, Fy2 = force_maxwell_band(sol, ri, ro, axial_length=2.0 * L)
+    assert np.isclose(Fx2, 2.0 * Fx) and np.isclose(Fy2, 2.0 * Fy)  # ∝ осевой длине

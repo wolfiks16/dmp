@@ -92,6 +92,39 @@ def torque_arkkio(
     return float(axial_length) / (MU0 * (r_outer - r_inner)) * integral
 
 
+def force_maxwell_band(
+    solution: Solution2D,
+    r_inner: float,
+    r_outer: float,
+    *,
+    center=(0.0, 0.0),
+    axial_length: float = 1.0,
+) -> tuple[float, float]:
+    """
+    Сила [Н] на всё, что ВНУТРИ радиуса r_inner, по тензору Максвелла, усреднённому по
+    кольцу-«скорлупе» r∈[r_inner,r_outer] в воздухе (нормаль контура радиальна). Возвращает
+    (F_x, F_y): F = L/(μ₀(r_o−r_i))·Σ [(B·n̂)·B − ½|B|²·n̂]·area, n̂=r̂. Для машины (кольцо в
+    зазоре) = сила на ротор; для симметричной машины ≈ 0 (радиальные тяги гасятся).
+    """
+    mesh = solution.problem.mesh
+    B = solution.field.B_cells
+    cx, cy = float(center[0]), float(center[1])
+    cen = np.array([mesh.cell_centroid(c) for c in range(mesh.n_cells)]) - np.array([cx, cy])
+    r = np.hypot(cen[:, 0], cen[:, 1])
+    band = np.where((r >= r_inner) & (r <= r_outer))[0]
+    if band.size == 0:
+        return (0.0, 0.0)
+    nhat = cen[band] / r[band][:, None]                       # радиальная нормаль (cosθ, sinθ)
+    Bx, By = B[band, 0], B[band, 1]
+    Bn = Bx * nhat[:, 0] + By * nhat[:, 1]
+    B2 = Bx * Bx + By * By
+    areas = cell_areas(solution)[band]
+    k = float(axial_length) / (MU0 * (r_outer - r_inner))
+    Fx = k * float(np.sum((Bn * Bx - 0.5 * B2 * nhat[:, 0]) * areas))
+    Fy = k * float(np.sum((Bn * By - 0.5 * B2 * nhat[:, 1]) * areas))
+    return (Fx, Fy)
+
+
 @dataclass(frozen=True, slots=True)
 class OperatingPointField:
     """Рабочая точка магнита по объёму (общая, из Problem2D-решения)."""
