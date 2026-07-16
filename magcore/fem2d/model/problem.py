@@ -13,6 +13,7 @@ from magcore.fem2d.model.materials import (
     MagnetMaterial,
     SteelMaterial,
 )
+from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import Fem2DPicardResult, solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.hybrid.magnet_demag import (
@@ -128,6 +129,47 @@ def _reluctivity(problem: Problem2D):
     return nu_of_B, nu_of_B(np.zeros((nc, 2), dtype=float))
 
 
+def _reluctivity_newton(problem: Problem2D):
+    """
+    Как `_reluctivity`, но для Ньютона: возвращает `nu_and_dnu(B) → (ν, dν/d|B|²)`. Для стали
+    dν/d|B|² = (ν_d − ν_chord)/(2|B|²) (относит.; ν_d = μ₀·nu_differential); воздух/линейный/
+    магнит — постоянная ν ⇒ dν=0. Это и есть касательный член метода Ньютона.
+    """
+    nc = problem.mesh.n_cells
+    reg = np.asarray(problem.cell_region)
+    nu_base = np.ones(nc, dtype=float)
+    steel_groups: list[tuple[np.ndarray, object]] = []
+    for rid, region in problem.regions.items():
+        cells = np.where(reg == rid)[0]
+        if cells.size == 0:
+            continue
+        mat = region.material
+        if isinstance(mat, Air):
+            nu_base[cells] = 1.0
+        elif isinstance(mat, LinearMaterial):
+            nu_base[cells] = 1.0 / mat.mu_r
+        elif isinstance(mat, MagnetMaterial):
+            nu_base[cells] = 1.0 / mat.magnet.mu_rec
+        elif isinstance(mat, SteelMaterial):
+            steel_groups.append((cells, mat.curve))
+        else:
+            raise TypeError(f"неизвестный материал региона {rid}: {type(mat)}")
+
+    def nu_and_dnu(B_cells: np.ndarray):
+        nu = nu_base.copy()
+        dnu = np.zeros(nc, dtype=float)
+        for cells, curve in steel_groups:
+            Bmag = np.hypot(B_cells[cells, 0], B_cells[cells, 1])
+            nu_c = MU0 * np.array([curve.nu_chord(float(b)) for b in Bmag])
+            nu_d = MU0 * np.array([curve.nu_differential(float(b)) for b in Bmag])
+            nu[cells] = nu_c
+            b2 = np.maximum(Bmag ** 2, 1e-12)
+            dnu[cells] = np.where(Bmag > 1e-6, (nu_d - nu_c) / (2.0 * b2), 0.0)
+        return nu, dnu
+
+    return nu_and_dnu, nu_and_dnu(np.zeros((nc, 2), dtype=float))[0]
+
+
 @dataclass(frozen=True, slots=True)
 class Solution2D:
     problem: Problem2D
@@ -146,38 +188,53 @@ class Solution2D:
 def solve_problem2d(
     problem: Problem2D,
     *,
+    method: str = "newton",
     relaxation: float = 0.1,
-    max_iter: int = 150,
+    demag_relaxation: float = 0.25,
+    max_iter: int = 100,
     tol: float = 1.0e-6,
     track_worst_point: bool = False,
     demag: bool = True,
 ) -> Solution2D:
     """
     Решить общую 2D-задачу: материалы регионов → поячеечная ν + источники (магнит через
-    MagnetDemagPolicy, ток = μ₀·j) → общий Picard. Возвращает поле + risk-map (если есть магнит).
+    MagnetDemagPolicy, ток = μ₀·j). `method='newton'` (по умолчанию) — метод Ньютона с
+    касательной релуктивностью: квадратичная сходимость, число итераций НЕ зависит от сетки,
+    без подбора релаксации (демаг гасится ФИКСИРОВАННОЙ `demag_relaxation`, не зависящей от
+    сетки). `method='picard'` — хордовый Пикар с `relaxation` (совместимость/эталон).
     Чистая магнитостатика при заданной T (нагрев — динамический модуль S3).
     """
     problem.check()
     space = LagrangeP1Space2D(problem.mesh)
     nc = problem.mesh.n_cells
-    nu_of_B, nu_init = _reluctivity(problem)
-
     j = None if problem.j_cells is None else MU0 * np.asarray(problem.j_cells, dtype=float)
-
     magnet = problem.magnet()
-    policy = None
     mmask = problem.magnet_mask()
-    if magnet is not None and demag:
-        policy = MagnetDemagPolicy(
-            magnet, mmask, T=problem.T, n_cells=nc, axis=problem.magnet_axis,
-            relaxation=relaxation, track_worst_point=track_worst_point,
-        )
 
-    em = solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j, magnetization=policy,
-        dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
-        relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
+    def _policy(relax):
+        if magnet is None or not demag:
+            return None
+        return MagnetDemagPolicy(magnet, mmask, T=problem.T, n_cells=nc,
+                                 axis=problem.magnet_axis, relaxation=relax,
+                                 track_worst_point=track_worst_point)
+
+    if method == "newton":
+        nu_and_dnu, nu_init = _reluctivity_newton(problem)
+        em = solve_nonlinear_2d_newton(
+            space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnetization=_policy(demag_relaxation),
+            dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
+            max_iter=max_iter, tol=tol,
+        )
+    elif method == "picard":
+        nu_of_B, nu_init = _reluctivity(problem)
+        em = solve_nonlinear_2d_picard(
+            space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j, magnetization=_policy(relaxation),
+            dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
+            relaxation=relaxation, max_iter=max_iter, tol=tol,
+        )
+    else:
+        raise ValueError("method должен быть 'newton' | 'picard'.")
+
     risk = None
     if magnet is not None:
         risk = compute_demag_risk_map(magnet, em, mmask, T=problem.T, axis=problem.magnet_axis)

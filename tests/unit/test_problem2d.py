@@ -80,9 +80,11 @@ def test_problem2d_matches_machine_solver():
     magnet = n42sh_magnet((1, 0, 0))
     steel = m270_35a_bh_curve()
 
-    # S1 (магнит-only) — общий путь = машинный путь поячеечно.
+    # S1 (магнит-only) — общий путь = машинный путь поячеечно (тот же решатель Picard: проверка
+    # эквивалентности СБОРКИ Problem2D↔машина, независимо от выбора метода).
     rm = solve_machine_static(g, magnet, steel, T=20.0, relaxation=0.1, max_iter=300)
-    sp = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0), relaxation=0.1, max_iter=300)
+    sp = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0),
+                         method="picard", relaxation=0.1, max_iter=300)
     assert sp.converged
     assert np.allclose(sp.B_cells, rm.B_cells, atol=1e-8)
 
@@ -92,6 +94,12 @@ def test_problem2d_matches_machine_solver():
     rm2 = solve_machine_static(g, magnet, steel, T=140.0, layout=lay, i_peak=30.0,
                                gamma_elec=np.pi, turns_per_slot=40.0, relaxation=0.1, max_iter=300)
     sp2 = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=140.0, j_cells=jz),
-                          relaxation=0.1, max_iter=300)
+                          method="picard", relaxation=0.1, max_iter=300)
     assert np.allclose(sp2.B_cells, rm2.B_cells, atol=1e-8)
     assert sp2.risk.n_demagnetized == rm2.risk.n_demagnetized
+
+    # Ньютон (дефолт) сходится к ТОМУ ЖЕ физическому решению (эталон Picard) — робастно.
+    spn = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=140.0, j_cells=jz), max_iter=60)
+    assert spn.converged
+    assert np.allclose(spn.B_cells, rm2.B_cells, atol=2e-3)
+    assert spn.risk.n_demagnetized == rm2.risk.n_demagnetized

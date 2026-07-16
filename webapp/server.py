@@ -32,10 +32,6 @@ from magcore.fem2d.model import magnetic_energy, problem_to_scene
 app = FastAPI(title="MagField web")
 
 MESHES = {"coarse": 0.0055, "medium": 0.0038, "fine": 0.0026}   # ключ → mesh_size (м)
-# Хордовый Picard по насыщающейся стали: тоньше сетка → нужна меньшая релаксация (иначе
-# предельный цикл). Значения подобраны под сходимость (fine@0.05 сходится ~166 итер).
-RELAX = {"coarse": 0.10, "medium": 0.07, "fine": 0.05}
-MAXIT = {"coarse": 400, "medium": 700, "fine": 1000}
 _GEOM: dict = {}
 _SCENE: dict = {}
 _EXEC = ThreadPoolExecutor(max_workers=1)
@@ -71,13 +67,14 @@ def _do_solve(body: dict) -> dict:
     """Тяжёлый расчёт в фон-потоке (без gmsh). Может бросить ValueError (перегрев магнита)."""
     mesh = _key(str(body.get("mesh", "coarse")))
     scen = _scenario(mesh, str(body.get("material", "ndfeb")))
+    # Метод Ньютона (дефолт solve_problem2d): сходится за ~20 итераций НА ЛЮБОЙ плотности,
+    # без подбора релаксации под сетку. max_iter с запасом.
     sol = scen.solve(
         T=float(body.get("T", 20.0)),
         i_peak=float(body.get("i_peak", 0.0)),
         gamma_elec=np.deg2rad(float(body.get("gamma_deg", 0.0))),
         turns_per_slot=float(body.get("turns", 40.0)),
-        relaxation=RELAX[mesh],
-        max_iter=MAXIT[mesh],
+        max_iter=60,
     )
     B = sol.field.B_cells
     Bmag = np.hypot(B[:, 0], B[:, 1])
