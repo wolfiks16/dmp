@@ -1,161 +1,246 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MagField — 2D</title>
+<title>MagField — 2D workbench</title>
 <style>
 :root{--bg:#0e1420;--bg2:#0a0f18;--panel:#131b28;--panel2:#18212f;--panel3:#1e2838;--line:#25314a;--line2:#31405d;
-  --text:#dce4f2;--muted:#8494ae;--dim:#5d6d8a;--accent:#2fd39c;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;--blue:#4d8bff;
-  --mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;--ui:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
+  --text:#dce4f2;--muted:#8494ae;--dim:#5d6d8a;--accent:#2fd39c;--accent2:#1f9f76;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;--blue:#4d8bff;
+  --radius:8px;--mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;--ui:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
-body{background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;display:flex;flex-direction:column;overflow:hidden}
-.topbar{display:flex;align-items:center;gap:12px;height:46px;flex:0 0 46px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
-.logo{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#1f9f76);color:#04140e;font-weight:900}
-.brand{font-weight:700}.sub{color:var(--dim);font:600 11px/1 var(--mono);border:1px solid var(--line2);padding:3px 7px;border-radius:5px}
-.spacer{flex:1}.status{font:600 11px/1 var(--mono);color:var(--muted)}.status b{color:var(--accent)}
-.body{flex:1;min-height:0;display:grid;grid-template-columns:258px 1fr 290px}
-.col{overflow:auto}.left{background:var(--panel);border-right:1px solid var(--line);padding:13px}
-.right{background:var(--panel);border-left:1px solid var(--line);padding:13px}
-.center{display:flex;flex-direction:column;min-height:0;background:var(--bg)}
-h4{margin:2px 0 10px;font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--muted)}
-hr{border:0;border-top:1px solid var(--line);margin:15px 0}
-.field{margin-bottom:10px}.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
-.select,.num{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 9px;border-radius:6px;font:500 12px/1 var(--ui)}
-.num{font-family:var(--mono);text-align:right}.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.row2 .field{margin-bottom:8px}
-.calc,.applybtn{width:100%;border:0;color:#04140e;background:var(--accent);padding:10px;border-radius:7px;font:700 12px/1 var(--ui);cursor:pointer;margin-top:2px}
-.calc{padding:11px;font-size:13px}.calc:disabled{opacity:.6;cursor:wait}
+body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;line-height:1.45}
+body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:3px}
+.topbar{display:flex;align-items:center;gap:18px;height:46px;flex:0 0 46px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:9px;font-weight:700}
+.brand .logo{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04140e;font-weight:900;font-size:14px}
+.brand .ver{font:600 10px/1 var(--mono);color:var(--dim);border:1px solid var(--line2);padding:2px 5px;border-radius:4px}
+.nav{display:flex;gap:2px;margin-left:6px}
+.nav button{background:none;border:0;color:var(--muted);font:600 12px/1 var(--ui);letter-spacing:.6px;padding:8px 12px;border-radius:6px;cursor:pointer}
+.nav button:hover{color:var(--text);background:var(--panel2)}.nav button.on{color:var(--text);background:var(--panel3);box-shadow:inset 0 -2px 0 var(--accent)}
+.spacer{flex:1}.tools{display:flex;align-items:center;gap:6px}
+.tbtn{background:var(--panel2);border:1px solid var(--line);color:var(--muted);width:30px;height:28px;border-radius:6px;cursor:pointer;display:grid;place-items:center;font-size:13px}
+.tbtn:hover{color:var(--text);border-color:var(--line2)}
+.seg{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.seg button{background:var(--panel2);border:0;color:var(--muted);padding:6px 11px;font:600 11px/1 var(--mono);cursor:pointer}
+.seg button.on{background:var(--accent);color:#04140e}.seg button:disabled{color:var(--dim);cursor:not-allowed}
+.body{flex:1;min-height:0;display:grid;grid-template-columns:250px 1fr 292px}
+.left{background:var(--panel);border-right:1px solid var(--line);overflow:auto}
+.right{background:var(--panel);border-left:1px solid var(--line);overflow:auto}
+.center{overflow:hidden;background:var(--bg);display:flex;flex-direction:column;min-height:0}
+.pane-h{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;font:600 11px/1 var(--ui);letter-spacing:.7px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:1}
+.tree{padding:6px 6px 12px}
+.node{display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:5px;cursor:pointer;color:var(--text);white-space:nowrap;font-size:12.5px}
+.node:hover{background:var(--panel2)}
+.node.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
+.node .ic{width:15px;text-align:center;color:var(--muted);font-size:12px;flex:0 0 15px}
+.node.dis{color:var(--dim);cursor:not-allowed}
+.node .tag{margin-left:auto;font:600 9px/1 var(--mono);padding:2px 5px;border-radius:4px}
+.tag.on{color:var(--accent);border:1px solid var(--accent2)}.tag.off{color:var(--dim);border:1px dashed var(--line2)}.tag.ok{color:var(--good)}
+.tag.mat{color:var(--muted);border:1px solid var(--line2)}
+.i1{padding-left:22px}.i2{padding-left:38px}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px}
+.mtree{border-top:1px solid var(--line)}
+.wb-bar{display:flex;align-items:center;gap:12px;padding:9px 16px;border-bottom:1px solid var(--line);background:var(--panel);flex:0 0 auto}
+.wb-title{font-weight:700}.saved{font:500 11px/1 var(--mono);color:var(--dim)}
+.wb-actions{margin-left:auto;display:flex;gap:8px}
+.btn{border:1px solid var(--line2);background:var(--panel2);color:var(--text);padding:7px 12px;border-radius:6px;font:600 12px/1 var(--ui);cursor:pointer}
+.btn:hover{border-color:var(--accent2)}.btn:disabled{opacity:.55;cursor:wait}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#04140e}
+.tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);background:var(--panel);overflow-x:auto;flex:0 0 auto}
+.tabs button{background:none;border:0;color:var(--muted);padding:10px 13px;font:600 12px/1 var(--ui);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent}
+.tabs button:hover{color:var(--text)}.tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.rtools{display:flex;align-items:center;gap:10px;padding:9px 16px;border-bottom:1px solid var(--line);flex:0 0 auto}
+.rtools .lbl{font:600 10px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--dim)}
+.rseg{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:3px}
+.rseg button{background:none;border:0;color:var(--muted);padding:6px 13px;border-radius:5px;font:600 12px/1 var(--ui);cursor:pointer}
+.rseg button:hover{color:var(--text)}.rseg button.on{background:var(--accent);color:#04140e}
+.toggle{width:34px;height:19px;border-radius:20px;background:var(--panel3);border:1px solid var(--line2);position:relative;cursor:pointer;flex:0 0 34px}
+.toggle::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:.15s}
+.toggle.on{background:var(--accent2)}.toggle.on::after{left:17px;background:#eafff6}
+.center-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 16px}
+.viewport{position:relative;flex:1;min-height:0;background:#0a0f18;border:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
+.viewport canvas{width:100%;height:100%;display:block;cursor:grab}.viewport canvas.pt{cursor:crosshair}.viewport canvas.pan{cursor:grabbing}
+.vp-overlay{position:absolute;left:12px;top:10px;font:600 12px/1.4 var(--mono);color:var(--muted);pointer-events:none}.vp-overlay b{color:var(--text)}
+.vp-coord{position:absolute;right:12px;top:10px;font:600 11px/1 var(--mono);color:var(--dim);pointer-events:none}
+.vp-zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
+.zbtn{width:28px;height:26px;border:1px solid var(--line2);background:rgba(20,28,42,.92);color:var(--muted);border-radius:6px;cursor:pointer;font-size:14px}.zbtn:hover{color:var(--text)}
+.vp-cbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel)}
+.vp-cbar.hide{display:none}.vp-cbar .scale{flex:1;height:12px;border-radius:3px}.vp-cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
+.rp{padding:12px}
+.rp h4{margin:2px 0 10px;font:600 11px/1 var(--ui);letter-spacing:.7px;text-transform:uppercase;color:var(--muted)}
+.rp hr{border:0;border-top:1px solid var(--line);margin:14px 0}
+.field{margin-bottom:11px}.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}
+.select,.num{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)}
+.num{font-family:var(--mono);text-align:right}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.row2 .field{margin-bottom:8px}
+.mrow{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.mrow label{flex:1;font-size:12px;color:var(--muted)}.mrow .u{font:600 10px/1 var(--mono);color:var(--dim);width:16px}
+.mrow input{width:62px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:6px 7px;border-radius:6px;font:600 12px/1 var(--mono);text-align:right}
+.hint{color:var(--dim);font-size:11px;margin:2px 0 10px}
+.meshinfo{font:600 11px/1.6 var(--mono);color:var(--dim);margin-top:9px}.meshinfo .tot{color:var(--accent)}.meshinfo b{color:var(--muted)}
+.err{color:var(--crit);font-size:12px;margin-top:8px;display:none}.needsolve{color:var(--warn);font-size:11.5px;margin-top:6px}
 .res{list-style:none;margin:8px 0 0;padding:0}
 .res li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
 .res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
 .res .crit .v{color:var(--crit)}.res .ok .v{color:var(--good)}
-.err{color:var(--crit);font-size:12px;margin-top:8px;display:none}.hint{color:var(--dim);font-size:11px;margin-top:8px}
-.rtools{display:flex;align-items:center;gap:8px;padding:9px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
-.rtools .lbl{font:600 10px/1 var(--ui);letter-spacing:.5px;text-transform:uppercase;color:var(--dim)}
-.rseg{display:flex;gap:2px;background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:3px}
-.rseg button{background:none;border:0;color:var(--muted);padding:6px 12px;border-radius:5px;font:600 12px/1 var(--ui);cursor:pointer}
-.rseg button.on{background:var(--accent);color:#04140e}.rseg button:hover:not(.on){color:var(--text)}
-.viewport{position:relative;flex:1;min-height:0;background:#0a0f18}
-.viewport canvas{width:100%;height:100%;display:block;cursor:grab}.viewport canvas.pan{cursor:grabbing}.viewport canvas.pt{cursor:crosshair}
-.vp-lbl{position:absolute;left:12px;top:10px;font:600 12px/1.4 var(--mono);color:var(--muted);pointer-events:none}.vp-lbl b{color:var(--text)}
-.coord{position:absolute;right:12px;top:10px;font:600 11px/1 var(--mono);color:var(--dim);pointer-events:none}
-.zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
-.zbtn{width:28px;height:26px;border:1px solid var(--line2);background:rgba(20,28,42,.92);color:var(--muted);border-radius:6px;cursor:pointer;font-size:14px}.zbtn:hover{color:var(--text)}
-.cbar{position:absolute;left:12px;bottom:12px;display:none;align-items:center;gap:8px;background:#0d1420cc;padding:6px 9px;border:1px solid var(--line);border-radius:7px}
-.cbar.on{display:flex}.cbar .scale{width:120px;height:11px;border-radius:3px}.cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
-.presult{flex:0 0 auto;max-height:210px;overflow:auto;border-top:1px solid var(--line);background:var(--panel);padding:10px 14px}
-.presult.hide{display:none}
-.ptable{width:100%;border-collapse:collapse;font-size:12px}.ptable td{padding:6px 4px;border-bottom:1px solid var(--line)}
-.ptable td.k{color:var(--muted)}.ptable td.v{font:700 12px/1 var(--mono);text-align:right}.ptable td.u{color:var(--dim);font-family:var(--mono);width:34px;text-align:right}
-.chartsvg{width:100%;height:150px;display:block}
-.legend{display:flex;gap:12px;flex-wrap:wrap;font:600 10px/1 var(--mono);color:var(--muted);margin-top:4px}
-.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
-.reshead{font:600 11px/1 var(--ui);letter-spacing:.5px;text-transform:uppercase;color:var(--accent);margin:0 0 4px}
-.chk{display:flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;padding:3px 0}.chk input{accent-color:var(--accent);width:14px;height:14px}
-.chks{display:flex;gap:12px;flex-wrap:wrap;margin:6px 0 10px}
+.rp-stage{display:none}.rp-stage.on{display:block}
+.rp-tool{display:none}.rp-tool.on{display:block}
 .rp-cbar{height:110px;width:22px;border-radius:5px;float:right;margin-left:10px}
 .rp-scale{font:600 10px/1.2 var(--mono);color:var(--muted);display:flex;flex-direction:column;justify-content:space-between;height:110px}
-.rp-sec{display:none}.rp-sec.on{display:block}.toggle{width:34px;height:19px;border-radius:20px;background:var(--panel3);border:1px solid var(--line2);position:relative;cursor:pointer;flex:0 0 34px}
-.toggle::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:.15s}
-.toggle.on{background:#1f9f76}.toggle.on::after{left:17px;background:#eafff6}
-.togrow{display:flex;align-items:center;gap:9px;margin-bottom:12px}
-.needsolve{color:var(--warn);font-size:11.5px;margin-top:6px}
-.mrow{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.mrow label{flex:1;font-size:12px;color:var(--muted)}
-.mrow .u{font:600 10px/1 var(--mono);color:var(--dim);width:16px}
-.mrow input{width:60px;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:6px 7px;border-radius:6px;font:600 12px/1 var(--mono);text-align:right}
-.meshinfo{font:600 11px/1.6 var(--mono);color:var(--dim);margin-top:9px}.meshinfo b{color:var(--muted)}
-.meshinfo .tot{color:var(--accent)}
+.applybtn{width:100%;background:var(--accent);border:0;color:#04140e;padding:8px;border-radius:6px;font:700 12px/1 var(--ui);cursor:pointer;margin-top:2px}
+.chks{display:flex;flex-wrap:wrap;gap:12px;margin:0 0 12px}
+.chk{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer}.chk input{accent-color:var(--accent);width:14px;height:14px}
+.ptable{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px}
+.ptable td{padding:6px 4px;border-bottom:1px solid var(--line)}.ptable td.k{color:var(--muted)}
+.ptable td.v{font:700 13px/1 var(--mono);text-align:right;font-variant-numeric:tabular-nums}.ptable td.u{color:var(--dim);font-family:var(--mono);width:34px;text-align:right}
+.chartsvg{width:100%;height:160px;display:block;margin-top:6px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font:600 10px/1 var(--mono);color:var(--muted);margin-top:4px}
+.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
+.reshead{font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin:12px 0 2px}
+.status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
+.status .g{color:var(--good)}.status .c{color:var(--crit)}.status .r{margin-left:auto;display:flex;gap:12px}
 </style></head>
 <body>
-<div class="topbar"><div class="logo">M</div><span class="brand">MagField</span><span class="sub">2D · магнитостатика</span>
-  <span class="spacer"></span><span class="status" id="status">загрузка…</span></div>
+<div class="topbar">
+  <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
+  <nav class="nav" id="nav"><button data-stage="geom">Проект</button><button data-stage="calc">Расчёт</button><button data-stage="result" class="on">Результаты</button><button class="dis" disabled title="позже">Оптимизация</button></nav>
+  <span class="spacer"></span>
+  <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
+</div>
+
 <div class="body">
-  <aside class="col left">
-    <h4>Геометрия · outrunner PMSM</h4>
-    <p class="hint" style="margin:0 0 9px">Свои размеры мотора. Радиальные толщины считаются наружу от расточки.</p>
-    <div id="geomfields"></div>
-    <hr>
-    <h4>Сетка · посегментно</h4>
-    <p class="hint" style="margin:0 0 9px">Размер элемента по регионам, мм. Мельче — точнее и дольше. Сгущайте зазор/магниты.</p>
-    <div id="meshfields"></div>
-    <button class="applybtn" id="buildmesh">Построить модель</button>
-    <div class="meshinfo" id="meshinfo"></div>
-    <hr>
-    <h4>Режим расчёта</h4>
-    <div class="field"><label>Материал магнита</label><select class="select" id="material"><option value="ndfeb">NdFeB (N42SH)</option><option value="smco">SmCo (КС25ДЦ)</option></select></div>
-    <div class="row2"><div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div></div>
-    <div class="row2"><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div><div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div></div>
-    <button class="calc" id="calc">Рассчитать</button>
-    <div class="err" id="err"></div>
-    <div class="hint">i_peak=0 — холостой ход. γ≈180° ≈ демаг-d-ось.</div>
-    <hr>
-    <h4>Результаты</h4>
-    <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
+  <aside class="left">
+    <div class="pane-h">Проект</div>
+    <div class="tree" id="ptree">
+      <div class="node"><span class="ic">▾</span>🖿 Модель · outrunner PMSM</div>
+      <div class="node i1" data-stage="geom"><span class="ic">◧</span>Геометрия</div>
+      <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
+      <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
+      <div class="node i1"><span class="ic">⚛</span>Физика</div>
+      <div class="node i2"><span class="dot" style="background:var(--accent)"></span>Магнитостатика (2D)<span class="tag on">актив</span></div>
+      <div class="node i2 dis"><span class="dot" style="background:var(--dim)"></span>Тепловая связка (S3)<span class="tag off">позже</span></div>
+      <div class="node i1" data-stage="calc"><span class="ic">◵</span>Исследование<span class="tag ok">S1/S2</span></div>
+      <div class="node i1"><span class="ic">▣</span>Результаты</div>
+      <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
+      <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
+      <div class="node i2" data-stage="result" data-tool="circle"><span class="ic">▸</span>Вдоль окружности</div>
+    </div>
+    <div class="mtree"><div class="pane-h">Модель</div>
+      <div class="tree" id="mtree">
+        <div class="node"><span class="ic">▾</span>Объекты</div>
+        <div id="objlist"></div>
+        <div class="node"><span class="ic">▾</span>Возбуждения</div>
+        <div class="node i1"><span class="ic">↯</span>Ток обмотки <span class="tag mat" id="obj-cur">—</span></div>
+      </div>
+    </div>
   </aside>
 
-  <main class="col center">
-    <div class="rtools"><span class="lbl">Показать</span>
-      <div class="rseg" id="rseg"><button data-tool="view" class="on">Вид</button><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
-      <span class="lbl" id="modehint" style="margin-left:auto"></span></div>
-    <div class="viewport">
-      <canvas id="cv"></canvas>
-      <div class="vp-lbl" id="vplbl"><b>Геометрия модели</b></div>
-      <div class="coord" id="coord">x —  y — мм</div>
-      <div class="cbar" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" style="color:var(--dim)">Тл</span></div>
-      <div class="zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit">⤢</button></div>
+  <main class="center">
+    <div class="wb-bar"><span class="wb-title" id="wbtitle">Модель</span><span class="saved" id="wbsaved">—</span>
+      <div class="wb-actions"><button class="btn" id="buildmesh">Построить модель</button><button class="btn pri" id="calc">Рассчитать</button></div></div>
+    <div class="tabs" id="tabs">
+      <button data-stage="geom">Геометрия</button><button data-stage="mesh">Сетка</button>
+      <button data-stage="mat">Материалы</button><button data-stage="calc">Расчёт</button>
+      <button data-stage="result" class="on">Результаты</button></div>
+    <div class="rtools"><span class="lbl">Вид</span>
+      <div class="rseg" id="rseg"><button data-tool="view" class="on">Геометрия</button><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
+      <div style="margin-left:16px;display:flex;align-items:center;gap:8px"><span class="toggle" id="showfield"></span><span style="font-size:12px;font-weight:600">Показать поле</span></div>
     </div>
-    <div class="presult hide" id="presult"></div>
+    <div class="center-body">
+      <div class="viewport">
+        <canvas id="cv"></canvas>
+        <div class="vp-overlay" id="vplbl"><b>Геометрия модели</b></div>
+        <div class="vp-coord" id="coord">x —  y — мм</div>
+        <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
+      </div>
+      <div class="vp-cbar hide" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" id="cunit" style="color:var(--dim)">Тл</span></div>
+    </div>
   </main>
 
-  <aside class="col right">
-    <div class="rp-sec on" data-sec="view">
-      <h4>Отображение</h4>
-      <div class="togrow"><span class="toggle" id="showfield"></span><span>Показать поле</span></div>
-      <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option></select></div>
-      <div class="field"><label>Палитра</label><select class="select" id="pal"><option value="rainbow">Rainbow</option><option value="viridis">Viridis</option></select></div>
-      <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div>
-      <div class="needsolve" id="ns1"></div>
-    </div>
-    <div class="rp-sec" data-sec="point">
-      <h4>Значение в точке</h4>
-      <p style="color:var(--muted);font-size:12px;margin:0 0 10px">Задай координаты или кликни по вьюпорту.</p>
-      <div class="row2"><div class="field"><label>x, мм</label><input class="num" id="px" value="15"></div><div class="field"><label>y, мм</label><input class="num" id="py" value="8"></div></div>
-      <button class="applybtn" id="apply-point">Показать</button><div class="needsolve" id="ns2"></div>
-    </div>
-    <div class="rp-sec" data-sec="line">
-      <h4>Вдоль линии</h4>
-      <div class="row2"><div class="field"><label>x₁</label><input class="num" id="lx1" value="0"></div><div class="field"><label>y₁</label><input class="num" id="ly1" value="6"></div></div>
-      <div class="row2"><div class="field"><label>x₂</label><input class="num" id="lx2" value="0"></div><div class="field"><label>y₂</label><input class="num" id="ly2" value="29"></div></div>
-      <div class="field"><label>Число точек</label><input class="num" id="ln" value="60"></div>
-      <label style="font-size:11px;color:var(--muted)">Компоненты</label>
-      <div class="chks"><label class="chk"><input type="checkbox" id="lc-mag" checked>|B|</label><label class="chk"><input type="checkbox" id="lc-bx">B_x</label><label class="chk"><input type="checkbox" id="lc-by">B_y</label></div>
-      <button class="applybtn" id="apply-line">Построить</button><div class="needsolve" id="ns3"></div>
-    </div>
-    <div class="rp-sec" data-sec="circle">
-      <h4>Вдоль окружности</h4>
-      <div class="row2"><div class="field"><label>Центр x</label><input class="num" id="ccx" value="0"></div><div class="field"><label>Центр y</label><input class="num" id="ccy" value="0"></div></div>
-      <div class="row2"><div class="field"><label>Радиус, мм</label><input class="num" id="cr" value="22.5"></div><div class="field"><label>Точек</label><input class="num" id="cn" value="180"></div></div>
-      <label style="font-size:11px;color:var(--muted)">Компоненты</label>
-      <div class="chks"><label class="chk"><input type="checkbox" id="cc-br" checked>B_r</label><label class="chk"><input type="checkbox" id="cc-bt" checked>B_θ</label><label class="chk"><input type="checkbox" id="cc-mag">|B|</label></div>
-      <button class="applybtn" id="apply-circle">Построить</button><div class="needsolve" id="ns4"></div>
+  <aside class="right">
+    <div class="pane-h" id="rp-head">Результаты</div>
+    <div class="rp">
+      <!-- ГЕОМЕТРИЯ -->
+      <div class="rp-stage" data-stage="geom">
+        <p class="hint">Свои размеры мотора. Радиальные толщины считаются наружу от расточки. «Построить модель» пересобирает.</p>
+        <div id="geomfields"></div>
+      </div>
+      <!-- СЕТКА -->
+      <div class="rp-stage" data-stage="mesh">
+        <p class="hint">Размер элемента по регионам, мм. Мельче — точнее и дольше. Сгущайте зазор/магниты.</p>
+        <div id="meshfields"></div>
+        <div class="meshinfo" id="meshinfo"></div>
+      </div>
+      <!-- МАТЕРИАЛЫ -->
+      <div class="rp-stage" data-stage="mat">
+        <div class="field"><label>Материал магнита</label><select class="select" id="material"><option value="ndfeb">NdFeB (N42SH)</option><option value="smco">SmCo (КС25ДЦ)</option></select></div>
+        <p class="hint">Сталь ярма/зубцов — M270-35A (кривая B(H)). Библиотека своих измеренных материалов — следующим шагом.</p>
+      </div>
+      <!-- РАСЧЁТ -->
+      <div class="rp-stage" data-stage="calc">
+        <div class="row2"><div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div></div>
+        <div class="row2"><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div><div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div></div>
+        <p class="hint">i_peak=0 — холостой ход. γ≈180° ≈ демаг-d-ось. Нагрев в статике — заданная T (динамика/тепло — S3).</p>
+        <div class="reshead">Результаты</div>
+        <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
+      </div>
+      <!-- РЕЗУЛЬТАТЫ -->
+      <div class="rp-stage on" data-stage="result">
+        <div id="field-ctrls" style="display:none">
+          <h4>Отображение поля</h4>
+          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option></select></div>
+          <div class="field"><label>Палитра</label><select class="select" id="pal"><option value="rainbow">Rainbow</option><option value="viridis">Viridis</option></select></div>
+          <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div><hr>
+        </div>
+        <div class="rp-tool" data-tool="view"><p class="hint">Выберите инструмент (Точка/Линия/Окружность) или включите «Показать поле».</p></div>
+        <div class="rp-tool" data-tool="point">
+          <p class="hint">Задай координаты или кликни по вьюпорту.</p>
+          <div class="row2"><div class="field"><label>x, мм</label><input class="num" id="px" value="15"></div><div class="field"><label>y, мм</label><input class="num" id="py" value="8"></div></div>
+          <button class="applybtn" id="apply-point">Показать в точке</button>
+        </div>
+        <div class="rp-tool" data-tool="line">
+          <div class="row2"><div class="field"><label>x₁, мм</label><input class="num" id="lx1" value="0"></div><div class="field"><label>y₁, мм</label><input class="num" id="ly1" value="6"></div></div>
+          <div class="row2"><div class="field"><label>x₂, мм</label><input class="num" id="lx2" value="0"></div><div class="field"><label>y₂, мм</label><input class="num" id="ly2" value="29"></div></div>
+          <div class="field"><label>Число точек</label><input class="num" id="ln" value="60"></div>
+          <label style="font-size:11px;color:var(--muted)">Компоненты</label>
+          <div class="chks"><label class="chk"><input type="checkbox" id="lc-mag" checked>|B|</label><label class="chk"><input type="checkbox" id="lc-bx">B_x</label><label class="chk"><input type="checkbox" id="lc-by">B_y</label></div>
+          <button class="applybtn" id="apply-line">Построить распределение</button>
+        </div>
+        <div class="rp-tool" data-tool="circle">
+          <div class="row2"><div class="field"><label>Центр x</label><input class="num" id="ccx" value="0"></div><div class="field"><label>Центр y</label><input class="num" id="ccy" value="0"></div></div>
+          <div class="row2"><div class="field"><label>Радиус, мм</label><input class="num" id="cr" value="22.5"></div><div class="field"><label>Точек</label><input class="num" id="cn" value="180"></div></div>
+          <label style="font-size:11px;color:var(--muted)">Компоненты</label>
+          <div class="chks"><label class="chk"><input type="checkbox" id="cc-br" checked>B_r</label><label class="chk"><input type="checkbox" id="cc-bt" checked>B_θ</label><label class="chk"><input type="checkbox" id="cc-mag">|B|</label></div>
+          <button class="applybtn" id="apply-circle">Построить распределение</button>
+        </div>
+        <div id="presult"></div>
+      </div>
+      <div class="err" id="err"></div>
+      <div class="needsolve" id="needsolve"></div>
     </div>
   </aside>
 </div>
+
+<div class="status">
+  <span id="st-conv">● загрузка…</span><span id="st-cells">—</span><span id="st-iters"></span>
+  <span>Магнитостатика 2D · Стационарное S1/S2</span>
+  <span class="r"><span id="st-mode">Вид: Геометрия</span><span id="st-zoom">масштаб 100 %</span></span>
+</div>
+
 <script>
 const $=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t;
 function rainbow(t){t=clamp(t,0,1);return[clamp(1.5-Math.abs(4*t-3),0,1)*255,clamp(1.5-Math.abs(4*t-2),0,1)*255,clamp(1.5-Math.abs(4*t-1),0,1)*255];}
 function viridis(t){t=clamp(t,0,1);const s=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],x=t*4,i=x|0,f=x-i,a=s[i],b=s[Math.min(i+1,4)];return[lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f)];}
 function diverging(t){t=clamp(t,-1,1);const w=[233,238,245];if(t>=0){const c=[224,72,60];return[lerp(w[0],c[0],t),lerp(w[1],c[1],t),lerp(w[2],c[2],t)];}const c=[62,122,224],a=-t;return[lerp(w[0],c[0],a),lerp(w[1],c[1],a),lerp(w[2],c[2],a)];}
 const ramp=t=>PAL==='viridis'?viridis(t):rainbow(t);
-function regColor(rid){const r=(SCENE.regions[rid])||{},n=r.name||'',k=r.kind||'';
+function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.kind||'';
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
-let SCENE=null,BX=null,BY=null,CENT=null;
-let TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
+let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
+let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
 function resize(){const vp=cv.parentElement,w=vp.clientWidth|0,h=vp.clientHeight|0;if(w>20&&h>20){cv.width=w;cv.height=h;W=w;H=h;}}
 function fit(){if(!SCENE)return;const b=SCENE.bounds,span=Math.max(b.xmax-b.xmin,b.ymax-b.ymin);scale=(Math.min(W,H)*0.9)/span;base=scale;ox=W/2-(b.xmin+b.xmax)/2*scale;oy=H/2+(b.ymin+b.ymax)/2*scale;draw();}
 
-// поиск ячейки по точке (мм) + значение компоненты
 function cellAt(x,y){const V=SCENE.vertices,C=SCENE.cells;for(let i=0;i<C.length;i++){const t=C[i],a=V[t[0]],b=V[t[1]],c=V[t[2]],d=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);if(Math.abs(d)<1e-12)continue;
   const l0=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/d,l1=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/d;if(l0>=-1e-9&&l1>=-1e-9&&l0+l1<=1+1e-9)return i;}return -1;}
 function fieldAtPoint(x,y){const i=cellAt(x,y);if(i<0||!BX)return null;const bx=BX[i],by=BY[i],th=Math.atan2(y,x),c=Math.cos(th),s=Math.sin(th);
@@ -176,55 +261,108 @@ function overlays(){ctx.lineWidth=1.7;
   if(TOOL==='point'){const s=w2s(P.point.x,P.point.y);ctx.strokeStyle='#fff';ctx.beginPath();ctx.moveTo(s[0]-9,s[1]);ctx.lineTo(s[0]+9,s[1]);ctx.moveTo(s[0],s[1]-9);ctx.lineTo(s[0],s[1]+9);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(s[0],s[1],3.2,0,7);ctx.fill();}
   else if(TOOL==='line'){const a=w2s(P.line.x1,P.line.y1),b=w2s(P.line.x2,P.line.y2);ctx.strokeStyle='#fff';ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#2fd39c';const n=Math.min(P.line.n,40);for(let i=0;i<=n;i++){const s=w2s(lerp(P.line.x1,P.line.x2,i/n),lerp(P.line.y1,P.line.y2,i/n));ctx.beginPath();ctx.arc(s[0],s[1],1.5,0,7);ctx.fill();}}
   else if(TOOL==='circle'){ctx.strokeStyle='#2fd39c';ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}}
-function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE)return;grid();
+function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE){return;}grid();
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
   for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let col;if(showF){const v=cellVal(i);col=sgn?diverging(v/VMAX):ramp(v/VMAX);}else col=null;
     ctx.fillStyle=col?'rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')':regColor(''+REG[i]);ctx.fill();}
-  overlays();}
+  overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';}
 
-// цветовая шкала
 function stops(f,a,b){let s=[];for(let i=0;i<=8;i++){const t=a+(b-a)*i/8,c=f(t);s.push('rgb('+c.map(x=>x|0).join(',')+') '+(i/8*100|0)+'%');}return s.join(',');}
 function bars(){const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
   $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
   $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);
   $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
-  $('cbar').classList.toggle('on',!!(SHOWFIELD&&BX));}
+  $('cbar').classList.toggle('hide',!(SHOWFIELD&&BX));}
 
-// графики
 function poly(pts,c){return'<polyline fill="none" stroke="'+c+'" stroke-width="1.8" points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>';}
-function chart(series,x0,x1){const w=560,h=150,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>34+t*(w-42),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
-  let s='';for(let i=0;i<=4;i++){const y=10+i*(h-26)/4;s+='<line x1="34" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="#25314a"/>';}
-  s+='<line x1="34" y1="'+(10+(h-26)/2)+'" x2="'+(w-6)+'" y2="'+(10+(h-26)/2)+'" stroke="#31405d" stroke-dasharray="3 3"/>';
+function chart(series,x0,x1){const w=256,h=160,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>30+t*(w-38),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
+  let s='';for(let i=0;i<=4;i++){const y=10+i*(h-26)/4;s+='<line x1="30" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="#25314a"/>';}
+  s+='<line x1="30" y1="'+(10+(h-26)/2)+'" x2="'+(w-6)+'" y2="'+(10+(h-26)/2)+'" stroke="#31405d" stroke-dasharray="3 3"/>';
   series.forEach(se=>s+=poly(se.pts.map(p=>[X(p[0]),Y(p[1])]),se.color));
-  s+='<text x="34" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x0+'</text><text x="'+(w-28)+'" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x1+'</text><text x="3" y="14" fill="#5d6d8a" font-size="9" font-family="monospace">'+mx.toFixed(2)+'</text>';
+  s+='<text x="30" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x0+'</text><text x="'+(w-28)+'" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x1+'</text><text x="3" y="14" fill="#5d6d8a" font-size="9" font-family="monospace">'+mx.toFixed(2)+'</text>';
   return'<svg class="chartsvg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'+s+'</svg>';}
 function leg(se){return'<div class="legend">'+se.map(s=>'<span><i style="background:'+s.color+'"></i>'+s.label+'</span>').join('')+'</div>';}
 
-function runProbe(){const R=$('presult');if(!BX){R.classList.add('hide');return;}
-  if(TOOL==='point'){const f=fieldAtPoint(P.point.x,P.point.y);R.classList.remove('hide');
+function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';return;}
+  if(TOOL==='point'){const f=fieldAtPoint(P.point.x,P.point.y);
     if(!f){R.innerHTML='<div class="reshead">Точка вне сетки</div>';return;}
     const row=(k,v)=>'<tr><td class="k">'+k+'</td><td class="v">'+(v>=0?'+':'')+v.toFixed(3)+'</td><td class="u">Тл</td></tr>';
     R.innerHTML='<div class="reshead">Точка ('+P.point.x+', '+P.point.y+') · '+f.reg+'</div><table class="ptable">'+row('B_x',f.bx)+row('B_y',f.by)+row('B_r',f.br)+row('B_θ',f.bt)+'<tr><td class="k"><b>|B|</b></td><td class="v" style="color:var(--accent)">'+f.mag.toFixed(3)+'</td><td class="u">Тл</td></tr></table>';}
   else if(TOOL==='line'){const L=P.line,N=Math.max(2,L.n|0),d={mag:[],bx:[],by:[]};
     for(let i=0;i<=N;i++){const t=i/N,f=fieldAtPoint(lerp(L.x1,L.x2,t),lerp(L.y1,L.y2,t))||{mag:0,bx:0,by:0};d.mag.push([t,f.mag]);d.bx.push([t,f.bx]);d.by.push([t,f.by]);}
     const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'|B|'});if($('lc-bx').checked)se.push({pts:d.bx,color:'#e0a53a',label:'B_x'});if($('lc-by').checked)se.push({pts:d.by,color:'#4d8bff',label:'B_y'});
-    R.classList.remove('hide');R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек</div>'+(se.length?chart(se,'т.1','т.2')+leg(se):'<p style="color:var(--muted);font-size:12px">Выберите компоненту.</p>');}
+    R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек</div>'+(se.length?chart(se,'т.1','т.2')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else if(TOOL==='circle'){const c=P.circle,N=Math.max(3,c.n|0),d={br:[],bt:[],mag:[]};
     for(let i=0;i<=N;i++){const a=i/N*2*Math.PI,f=fieldAtPoint(c.cx+c.r*Math.cos(a),c.cy+c.r*Math.sin(a))||{br:0,bt:0,mag:0};d.br.push([i/N,f.br]);d.bt.push([i/N,f.bt]);d.mag.push([i/N,f.mag]);}
     const se=[];if($('cc-br').checked)se.push({pts:d.br,color:'#e0a53a',label:'B_r'});if($('cc-bt').checked)se.push({pts:d.bt,color:'#4d8bff',label:'B_θ'});if($('cc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'|B|'});
-    R.classList.remove('hide');R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p style="color:var(--muted);font-size:12px">Выберите компоненту.</p>');}}
+    R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
+  else R.innerHTML='';}
 
-function setTool(){document.querySelectorAll('#rseg button').forEach(b=>b.classList.toggle('on',b.dataset.tool===TOOL));
-  document.querySelectorAll('.rp-sec').forEach(s=>s.classList.toggle('on',s.dataset.sec===TOOL));
-  cv.classList.toggle('pt',TOOL==='point');
-  const need=!BX?'⚠ сначала «Рассчитать»':'';['ns1','ns2','ns3','ns4'].forEach(id=>{const e=$(id);if(e)e.textContent=need;});
+const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',result:'Результаты'};
+function setStage(st){STAGE=st;
+  document.querySelectorAll('.rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
+  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
+  document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));
+  $('rp-head').textContent=STAGE_NAME[st];}
+function setTool(t){TOOL=t;
+  document.querySelectorAll('#rseg button').forEach(b=>b.classList.toggle('on',b.dataset.tool===(t==='view'?'view':t)));
+  document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
+  cv.classList.toggle('pt',t==='point');
+  $('st-mode').textContent='Вид: '+({view:'Геометрия',point:'Точка',line:'Линия',circle:'Окружность'})[t];
   $('vplbl').innerHTML=(SHOWFIELD&&BX)?('<b>Поле '+({mag:'|B|',bx:'B_x',by:'B_y',br:'B_r',bt:'B_θ'}[COMP])+'</b>'):'<b>Геометрия модели</b>';
-  $('modehint').textContent=TOOL==='view'?'':'клик по вьюпорту — точка';
-  if(TOOL==='view')$('presult').classList.add('hide');else runProbe();
-  draw();}
+  $('needsolve').textContent=(t!=='view'&&!BX)?'⚠ сначала «Рассчитать»':'';
+  if(STAGE==='result')runProbe();draw();}
 
+function setConv(kind,txt){const e=$('st-conv');e.className=kind;e.textContent=txt;}
+function objTag(r){const n=r.name,k=r.kind;if(k==='magnet'||n==='magnet')return $('material').value==='smco'?'КС25ДЦ':'N42SH';if(k==='steel')return'M270';if(n==='slot')return'Cu/возд.';if(n==='air_gap')return'Воздух';return'—';}
+function populateModel(counts){const seen={};const rs=SCENE.regions;const order=Object.keys(rs);
+  const items=order.map(id=>rs[id]).filter(r=>{if(seen[r.name])return false;seen[r.name]=1;return true;});
+  const RU={air_gap:'Зазор',magnet:'Магниты',tooth:'Зубцы',slot:'Пазы',stator_yoke:'Ярмо статора',rotor_yoke:'Ярмо ротора'};
+  $('objlist').innerHTML=items.map(r=>'<div class="node i1"><span class="ic">▪</span>'+(RU[r.name]||r.name)+'<span class="tag mat">'+objTag(r)+'</span></div>').join('');
+  $('obj-cur').textContent=(+$('i_peak').value||0)+' A';}
+
+async function loadFields(){const r=await(await fetch('/api/mesh_defaults')).json();REGIONS=r.regions;GEOM=r.geometry;
+  $('geomfields').innerHTML=GEOM.map(x=>{const u=x.kind==='mm'?'мм':(x.kind==='int'?'шт':'');return '<div class="mrow"><label>'+x.label+'</label><input class="gsz" data-name="'+x.name+'" value="'+x.value+'"><span class="u">'+u+'</span></div>';}).join('');
+  $('meshfields').innerHTML=REGIONS.map(x=>'<div class="mrow"><label>'+x.label+'</label><input class="msz" data-name="'+x.name+'" value="'+x.mm+'"><span class="u">мм</span></div>').join('');}
+function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
+function geomSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
+
+async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';
+  try{const d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
+    if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
+    MESH_ID=d.mesh_id;SCENE=d.scene;
+    CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
+    BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+    const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
+    $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
+    setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
+    $('wbsaved').textContent=d.n_cells+' эл.';populateModel(rc);
+    resize();fit();bars();setTool(TOOL);
+  }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
+  finally{btn.disabled=false;btn.textContent='Построить модель';}}
+
+function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
+function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';bars();
+  setConv(d.converged?'g':'c',(d.converged?'● Решение сошлось':'● Не сошлось'));$('st-iters').textContent=d.iters+' итераций';
+  summary([{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'},{k:'Момент',v:d.torque.toFixed(3)+' Н·м'},{k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'},{k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'}]);
+  setTool(TOOL);}
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
+  const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
+  const body={mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+  try{const {job_id}=await(await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');
+      const j=await(await fetch('/api/jobs/'+job_id)).json();
+      if(j.status==='running')continue;
+      if(j.status==='done'){applyResult(j.result);$('obj-cur').textContent=(+$('i_peak').value||0)+' A';break;}
+      $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● Ошибка расчёта');break;}
+  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
+  finally{btn.disabled=false;btn.textContent='Рассчитать';}}
+
+// события вьюпорта
 let drag=false,moved=false,last=[0,0];
 const pos=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H];};
 cv.addEventListener('wheel',e=>{e.preventDefault();const p=pos(e),wx=(p[0]-ox)/scale,wy=(oy-p[1])/scale,f=Math.exp(-e.deltaY*0.0016);scale=clamp(scale*f,base*0.3,base*40);ox=p[0]-wx*scale;oy=p[1]+wy*scale;draw();},{passive:false});
@@ -232,48 +370,21 @@ cv.addEventListener('mousedown',e=>{drag=true;moved=false;last=pos(e);cv.classLi
 window.addEventListener('mouseup',e=>{if(drag&&!moved&&TOOL==='point'){const p=pos(e),w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}drag=false;cv.classList.remove('pan');});
 window.addEventListener('mousemove',e=>{const p=pos(e);if(p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
-document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{TOOL=b.dataset.tool;setTool();});
-$('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);bars();setTool();};
-$('comp').onchange=e=>{COMP=e.target.value;bars();setTool();};
+
+// навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
+document.querySelectorAll('#tabs button,#nav button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
+document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
+document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
+$('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
+$('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};
 $('apply-line').onclick=()=>{P.line={x1:+$('lx1').value,y1:+$('ly1').value,x2:+$('lx2').value,y2:+$('ly2').value,n:+$('ln').value||60};runProbe();draw();};
 $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
 ['lc-mag','lc-bx','lc-by','cc-br','cc-bt','cc-mag'].forEach(id=>$(id).addEventListener('change',runProbe));
+$('material').addEventListener('change',()=>{if(SCENE){const rc={};REGIONS.forEach(x=>rc[x.name]=0);populateModel(rc);}});
+$('buildmesh').onclick=buildMesh;$('calc').onclick=solve;
 window.addEventListener('resize',()=>{resize();fit();});
 
-let MESH_ID=null,REGIONS=[],GEOM=[];
-async function loadMeshFields(){const r=await(await fetch('/api/mesh_defaults')).json();REGIONS=r.regions;GEOM=r.geometry;
-  $('geomfields').innerHTML=GEOM.map(x=>{const u=x.kind==='mm'?'мм':(x.kind==='int'?'шт':'');return '<div class="mrow"><label>'+x.label+'</label><input class="gsz" data-name="'+x.name+'" value="'+x.value+'"><span class="u">'+u+'</span></div>';}).join('');
-  $('meshfields').innerHTML=REGIONS.map(x=>'<div class="mrow"><label>'+x.label+'</label><input class="msz" data-name="'+x.name+'" value="'+x.mm+'"><span class="u">мм</span></div>').join('');}
-function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
-function geomSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
-async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю модель…';$('err').style.display='none';
-  try{const d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
-    if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
-    MESH_ID=d.mesh_id;SCENE=d.scene;
-    CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
-    BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');
-    const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
-    $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
-    $('status').innerHTML='ячеек <b>'+d.n_cells+'</b>';resize();fit();bars();setTool();
-  }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
-  finally{btn.disabled=false;btn.textContent='Построить модель';}}
-function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
-function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');bars();setTool();
-  summary([{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'},{k:'Момент',v:d.torque.toFixed(3)+' Н·м'},{k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'},{k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'}]);}
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте сетку.';$('err').style.display='block';return;}
-  const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
-  const body={mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
-  try{const {job_id}=await(await fetch('/api/solve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';
-      const j=await(await fetch('/api/jobs/'+job_id)).json();
-      if(j.status==='running')continue;
-      if(j.status==='done'){applyResult(j.result);break;}
-      $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';break;}
-  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
-  finally{btn.disabled=false;btn.textContent='Рассчитать';}}
-$('calc').onclick=solve;$('buildmesh').onclick=buildMesh;
-(async()=>{await loadMeshFields();await buildMesh();})();
+(async()=>{await loadFields();setStage('result');setTool('view');await buildMesh();})();
 </script></body></html>
