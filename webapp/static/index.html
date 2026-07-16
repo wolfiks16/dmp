@@ -100,8 +100,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 <body>
 <div class="topbar">
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
-  <nav class="nav" id="nav"><button data-stage="geom">Проект</button><button data-stage="calc">Расчёт</button><button data-stage="result" class="on">Результаты</button><button class="dis" disabled title="позже">Оптимизация</button></nav>
+  <span class="wb-title" id="wbtitle">outrunner PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
+  <div class="wb-actions"><button class="btn" id="buildmesh">Построить модель</button><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
 </div>
 
@@ -133,8 +134,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   </aside>
 
   <main class="center">
-    <div class="wb-bar"><span class="wb-title" id="wbtitle">Модель</span><span class="saved" id="wbsaved">—</span>
-      <div class="wb-actions"><button class="btn" id="buildmesh">Построить модель</button><button class="btn pri" id="calc">Рассчитать</button></div></div>
     <div class="tabs" id="tabs">
       <button data-stage="geom">Геометрия</button><button data-stage="mesh">Сетка</button>
       <button data-stage="mat">Материалы</button><button data-stage="calc">Расчёт</button>
@@ -304,7 +303,6 @@ const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Матери�
 function setStage(st){STAGE=st;
   document.querySelectorAll('.rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
   document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
-  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));
   $('rp-head').textContent=STAGE_NAME[st];}
 function setTool(t){TOOL=t;
@@ -372,7 +370,7 @@ window.addEventListener('mousemove',e=>{const p=pos(e);if(p[0]>=0&&p[0]<=W&&p[1]
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
-document.querySelectorAll('#tabs button,#nav button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
+document.querySelectorAll('#tabs button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
