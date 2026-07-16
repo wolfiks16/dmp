@@ -55,6 +55,7 @@ from magcore.fem2d.machines.problem import (
     solve_machine_problem,
 )
 from magcore.fem2d.machines.bridge import pmsm_to_problem
+from magcore.fem2d.machines.scenario import MachineScenario, machine_scenario
 
 __all__ = [
     "MachineGeometry",
@@ -90,4 +91,6 @@ __all__ = [
     "Scenario",
     "solve_machine_problem",
     "pmsm_to_problem",
+    "MachineScenario",
+    "machine_scenario",
 ]
