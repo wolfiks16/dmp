@@ -42,7 +42,8 @@ class OutrunnerPMSMParams:
     tooth_width_frac: float = 0.5  # доля зубцового шага, занятая зубцом (0..1)
     magnet_embrace: float = 0.83   # охват полюса магнитом (доля полюсного шага, 0..1)
     axial_length: float = 0.030    # осевая длина (для масштаба момента; в 2D не в сетке)
-    mesh_size: float | None = None # характерный размер элемента (по умолч. ~ зазор)
+    mesh_size: float | None = None # ГЛОБАЛЬНЫЙ характерный размер элемента (по умолч. ~ зазор)
+    mesh_size_by_region: dict | None = None  # имя региона -> свой размер; иначе mesh_size везде
 
     # --- производные радиусы ---
     @property
@@ -75,6 +76,15 @@ class OutrunnerPMSMParams:
             raise ValueError("tooth_width_frac in (0,1).")
         if not (0.0 < self.magnet_embrace <= 1.0):
             raise ValueError("magnet_embrace in (0,1].")
+        if self.mesh_size is not None and self.mesh_size <= 0.0:
+            raise ValueError("mesh_size must be positive.")
+        if self.mesh_size_by_region:
+            valid = set(REGION_NAMES.values())
+            for name, sz in self.mesh_size_by_region.items():
+                if name not in valid:
+                    raise ValueError(f"неизвестный регион сетки {name!r}; допустимо: {sorted(valid)}.")
+                if sz <= 0.0:
+                    raise ValueError(f"размер сетки региона {name!r} должен быть > 0.")
 
 
 @dataclass(frozen=True)
@@ -136,7 +146,7 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
     tooth_ang = p.tooth_width_frac * slot_pitch
     pole_pitch = 2.0 * math.pi / p.n_poles
     mag_ang = p.magnet_embrace * pole_pitch
-    size = p.mesh_size if p.mesh_size is not None else p.air_gap
+    default_size = p.mesh_size if p.mesh_size is not None else p.air_gap
 
     gmsh.initialize()
     try:
@@ -179,8 +189,24 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
         occ.fragment(dt, dt)                                        # конформность (общие границы)
         occ.synchronize()
 
-        gmsh.option.setNumber("Mesh.MeshSizeMin", size * 0.5)
-        gmsh.option.setNumber("Mesh.MeshSizeMax", size)
+        # ПОСЕГМЕНТНАЯ сетка: размер элемента задаётся ПО РЕГИОНУ через тот же аналитический
+        # _classify(r,θ) — размер по координате, без завязки на нумерацию поверхностей gmsh.
+        # Без mesh_size_by_region поведение ровно как раньше (равномерная сетка default_size),
+        # чтобы не сдвигать существующие результаты/тесты.
+        if p.mesh_size_by_region:
+            reg_sizes = {name: float(p.mesh_size_by_region.get(name, default_size))
+                         for name in REGION_NAMES.values()}
+
+            def _size_cb(dim, tag, x, y, z, lc):
+                code, _ = _classify(x, y, p, slot_pitch, tooth_ang, pole_pitch, mag_ang)
+                return reg_sizes[REGION_NAMES[code]]
+
+            gmsh.model.mesh.setSizeCallback(_size_cb)
+            gmsh.option.setNumber("Mesh.MeshSizeMin", min(reg_sizes.values()) * 0.5)
+            gmsh.option.setNumber("Mesh.MeshSizeMax", max(reg_sizes.values()))
+        else:
+            gmsh.option.setNumber("Mesh.MeshSizeMin", default_size * 0.5)
+            gmsh.option.setNumber("Mesh.MeshSizeMax", default_size)
         gmsh.model.mesh.generate(2)
 
         node_tags, node_coords, _ = gmsh.model.mesh.getNodes()
