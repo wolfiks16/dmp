@@ -29,6 +29,7 @@ class GeoObject:
     current_density: float = 0.0         # физ. J_z [А/м²] (0 — не проводник)
     magnet_dir: object = None            # 'radial' | 'radial-in' | (dx,dy) — ось намагничивания
     mesh_size: float | None = None       # свой размер элемента, иначе общий
+    priority: int = 1                    # приоритет наложения: больше = ВЫШЕ (перекрывает)
 
     def center(self) -> tuple[float, float]:
         p = self.params
@@ -51,6 +52,8 @@ class GeoObject:
             raise ValueError(f"{self.name}: полигон требует ≥3 точки.")
         if self.mesh_size is not None and not (self.mesh_size > 0):
             raise ValueError(f"{self.name}: mesh_size должен быть > 0.")
+        if not (self.priority >= 1):
+            raise ValueError(f"{self.name}: priority должен быть ≥ 1.")
 
 
 def _ang_between(th: float, a1: float, a2: float) -> bool:
@@ -215,7 +218,10 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
     domain.validate()
     for o in objects:
         o.validate()
-    all_objs = [domain] + list(objects)           # индекс 0 = домен (низший приоритет)
+    all_objs = [domain] + list(objects)           # индекс 0 = домен (всегда фон)
+    # Порядок разрешения наложений: по УБЫВАНИЮ (priority, индекс) — больший приоритет сверху,
+    # при равном приоритете позже добавленный сверху. Домен (0) — всегда запасной фон.
+    order = sorted(range(1, len(all_objs)), key=lambda i: (all_objs[i].priority, i), reverse=True)
 
     gmsh.initialize()
     try:
@@ -227,7 +233,7 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
         occ.synchronize()
 
         def _size_cb(dim, tag, x, y, z, lc):
-            for idx in range(len(all_objs) - 1, 0, -1):
+            for idx in order:
                 if contains(all_objs[idx], x, y):
                     return all_objs[idx].mesh_size or default_mesh_size
             return domain.mesh_size or default_mesh_size
@@ -249,7 +255,7 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
     for c in range(nc):
         cx, cy = mesh.cell_centroid(c)
         owner, rid = domain, 0
-        for idx in range(len(all_objs) - 1, 0, -1):   # объекты сверху вниз; домен — запас
+        for idx in order:                             # по приоритету сверху вниз; домен — запас
             if contains(all_objs[idx], cx, cy):
                 owner, rid = all_objs[idx], idx
                 break

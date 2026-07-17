@@ -119,6 +119,32 @@ def test_covered_magnet_has_axis_and_solves():
     assert sol.converged
 
 
+def test_explicit_priority_overrides_order():
+    # Приоритет ЯВНЫЙ: объект a добавлен РАНЬШЕ, но с бОльшим priority ⇒ он должен победить в
+    # наложении (без priority победил бы b как более поздний). Проверяем оба направления.
+    pytest.importorskip("gmsh")
+    steel = m270_35a_bh_curve()
+
+    def region_at(prob, x, y):
+        reg = np.asarray(prob.cell_region)
+        i = min(range(prob.mesh.n_cells),
+                key=lambda c: (prob.mesh.cell_centroid(c)[0] - x) ** 2 + (prob.mesh.cell_centroid(c)[1] - y) ** 2)
+        return prob.regions[int(reg[i])].name
+
+    a = GeoObject("a", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.010}, SteelMaterial(steel), priority=30)
+    b = GeoObject("b", "circle", {"cx": 0.005, "cy": 0.0, "r": 0.010}, SteelMaterial(steel), priority=5)
+    dom = auto_domain([a, b], material=Air(), mesh_size=0.0025)
+    prob = build_object_problem([a, b], dom, default_mesh_size=0.0025)
+    assert region_at(prob, 0.008, 0.0) == "a"          # a приоритетнее ⇒ побеждает в перекрытии
+
+    # перевернём приоритеты — теперь должен побеждать b (тот же список объектов)
+    a2 = GeoObject("a", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.010}, SteelMaterial(steel), priority=5)
+    b2 = GeoObject("b", "circle", {"cx": 0.005, "cy": 0.0, "r": 0.010}, SteelMaterial(steel), priority=30)
+    prob2 = build_object_problem([a2, b2], auto_domain([a2, b2], material=Air(), mesh_size=0.0025),
+                                 default_mesh_size=0.0025)
+    assert region_at(prob2, 0.008, 0.0) == "b"
+
+
 def test_magnet_disk_uniform_interior(_model):
     # Равномерно намагниченный (вдоль +x) диск в воздухе → внутри поле ~однородно и вдоль x.
     prob, dom, steel, mag = _model

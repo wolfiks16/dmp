@@ -100,7 +100,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .objrow{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:12px;border:1px solid transparent}
 .objrow:hover{background:var(--panel2)}.objrow.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
 .objrow .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid var(--line2)}
-.objrow .del{margin-left:auto;color:var(--dim);border:0;background:none;cursor:pointer;font-size:13px;padding:0 2px}
+.objrow .oname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.objrow .opri{font:600 9px/1 var(--mono);color:var(--dim);padding:2px 5px;border:1px solid var(--line2);border-radius:4px}
+.objrow .del{color:var(--dim);border:0;background:none;cursor:pointer;font-size:13px;padding:0 2px}
 .objrow .del:hover{color:var(--crit)}
 .objedit{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
 .status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
@@ -111,7 +113,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
   <span class="wb-title" id="wbtitle">outrunner PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
-  <div class="wb-actions"><button class="btn" id="buildmesh">Построить модель</button><button class="btn pri" id="calc">Рассчитать</button></div>
+  <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
 </div>
 
@@ -176,8 +178,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button></div>
           <div id="objlist2"></div>
           <div class="objedit" id="objedit"></div>
-          <p class="hint">Домен-воздух строится автоматически вокруг объектов (внешняя граница A_z=0). Порядок в списке = наложение (нижний сверху).</p>
+          <p class="hint">Домен-воздух строится автоматически вокруг объектов (внешняя граница A_z=0). При наложении побеждает объект с бОльшим приоритетом.</p>
         </div>
+        <button class="applybtn" id="buildmesh" style="margin-top:6px">Построить модель</button>
       </div>
       <!-- СЕТКА -->
       <div class="rp-stage" data-stage="mesh">
@@ -357,7 +360,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       if(!OBJECTS.length){$('err').textContent='Добавьте хотя бы один объект.';$('err').style.display='block';return;}
       const objs=OBJECTS.map(o=>({name:o.name,kind:o.kind,params:o.params,material:o.material,
         magnet_dir:(o.magnet_dir==='x'?[1,0]:o.magnet_dir==='y'?[0,1]:o.magnet_dir),
-        current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined)}));
+        current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined),priority:(+o.priority||1)}));
       d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objects:objs,default_mesh_mm:2.0,domain_mesh_mm:3.0})})).json();
     }else{
       d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
@@ -430,14 +433,14 @@ const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высо�
 const MAT_SW={air:'#202a3b',steel:'#48586e',ndfeb:'#7e64a6',smco:'#6a6f9a'};
 const MAT_TAG={steel:'M270',ndfeb:'N42SH',smco:'SmCo',air:'возд.'};
 function seedObjects(){OBJECTS=[
-  {name:'Стальная пластина',kind:'rect',params:{cx:-8,cy:0,w:10,h:20,angle:0},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:''},
-  {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9}
+  {name:'Стальная пластина',kind:'rect',params:{cx:-8,cy:0,w:10,h:20,angle:0},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10},
+  {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9,priority:10}
 ];SEL=1;}
-function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),kind,params:{...OBJDEF[kind]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:''});SEL=OBJECTS.length-1;renderObjects();}
+function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),kind,params:{...OBJDEF[kind]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;renderObjects();}
 function delObject(i){OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();}
 function angUnit(k){return(k==='angle'||k==='a1'||k==='a2')?'°':'мм';}
 function renderObjects(){
-  $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+(MAT_SW[o.material]||'#556075')+'"></span>'+o.name+'<button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
+  $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+(MAT_SW[o.material]||'#556075')+'"></span><span class="oname">'+o.name+'</span><span class="opri" title="приоритет наложения">P'+(o.priority||1)+'</span><button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
   const o=OBJECTS[SEL];
   if(!o){$('objedit').innerHTML='';}
   else{
@@ -446,6 +449,7 @@ function renderObjects(){
     if(o.material==='ndfeb'||o.material==='smco')extra='<div class="field"><label>Намагничивание</label><select class="select oedit" data-f="magnet_dir"><option value="radial">Радиально наружу</option><option value="radial-in">Радиально внутрь</option><option value="x">По оси +X</option><option value="y">По оси +Y</option></select></div>';
     else extra='<div class="mrow"><label>Плотн. тока J</label><input class="num oedit" data-f="current" value="'+(o.current?(o.current/1e6):0)+'" style="width:70px"><span class="u">А/мм²</span></div>';
     extra+='<div class="mrow"><label>Размер сетки</label><input class="num oedit" data-f="mesh_size_mm" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>';
+    extra+='<div class="mrow"><label>Приоритет слоя</label><input class="num oedit" data-f="priority" value="'+(o.priority||1)+'" style="width:70px"><span class="u">1–50</span></div>';
     $('objedit').innerHTML='<div class="field"><label>Имя объекта</label><input class="oedit" data-f="name" value="'+o.name+'" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>'
       +'<div class="field"><label>Материал</label><select class="select oedit" data-f="material"><option value="steel">Сталь M270</option><option value="ndfeb">Магнит N42SH</option><option value="smco">Магнит SmCo</option><option value="air">Воздух</option></select></div>'
       +par+extra;
@@ -455,8 +459,9 @@ function renderObjects(){
     $('objedit').querySelectorAll('.oedit').forEach(el=>el.onchange=()=>{const f=el.dataset.f,v=el.value;
       if(f==='current')OBJECTS[SEL].current=(+v||0)*1e6;
       else if(f==='mesh_size_mm')OBJECTS[SEL][f]=(v===''?'':+v);
+      else if(f==='priority')OBJECTS[SEL].priority=Math.max(1,Math.min(50,Math.round(+v||1)));
       else OBJECTS[SEL][f]=v;
-      if(f==='material'||f==='name')renderObjects();});
+      if(f==='material'||f==='name'||f==='priority')renderObjects();});
   }
   if(MODE==='objects')$('objlist').innerHTML=OBJECTS.map(o=>'<div class="node i1"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+(MAT_TAG[o.material]||'')+'</span></div>').join('');
 }

@@ -282,7 +282,8 @@ def _geo_from(o: dict) -> GeoObject:
     return GeoObject(name=str(o.get("name", k)), kind=k, params=p,
                      material=_object_material(str(o.get("material", "air"))),
                      current_density=float(o.get("current", 0.0)) or 0.0,
-                     magnet_dir=md, mesh_size=(mm(ms) if ms else None))
+                     magnet_dir=md, mesh_size=(mm(ms) if ms else None),
+                     priority=int(o.get("priority", 1)))
 
 
 def _build_object_model(body: dict) -> str:
