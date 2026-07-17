@@ -246,7 +246,6 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
     region = np.zeros(nc, dtype=int)
     j_cells = np.zeros(nc, dtype=float)
     axis = np.zeros((nc, 2), dtype=float)
-    has_magnet = False
     for c in range(nc):
         cx, cy = mesh.cell_centroid(c)
         owner, rid = domain, 0
@@ -258,12 +257,15 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
         if owner.current_density:
             j_cells[c] = owner.current_density
         if isinstance(owner.material, MagnetMaterial):
-            has_magnet = True
             axis[c] = _magnet_axis(owner, cx, cy)
 
     regions = {i: Region2D(i, o.name, o.material) for i, o in enumerate(all_objs)}
+    # Ось магнита нужна ВСЕГДА, если в модели есть магнитный МАТЕРИАЛ (даже если такой объект
+    # перекрыт и не получил ячеек) — иначе Problem2D.validate() справедливо ругается. Для
+    # неполученных магнитом ячеек ось = 0 (вклада нет).
+    magnet_present = any(isinstance(o.material, MagnetMaterial) for o in all_objs)
     return Problem2D(
         mesh=mesh, cell_region=region, regions=regions,
-        magnet_axis=(axis if has_magnet else None),
+        magnet_axis=(axis if magnet_present else None),
         j_cells=(j_cells if np.any(j_cells) else None), T=float(T),
     )

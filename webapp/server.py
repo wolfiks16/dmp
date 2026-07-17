@@ -315,7 +315,7 @@ def _do_object_solve(body: dict) -> dict:
         "Bmax": round(float(Bmag.max()), 3), "Bmean": round(float(Bmag.mean()), 3),
         "energy": round(float(magnetic_energy(sol, axial_length=0.03)), 4),
     }
-    if prob.magnet() is not None and sol.risk is not None:
+    if prob.magnet() is not None and prob.magnet_mask().any() and sol.risk is not None:
         op = operating_point(sol)
         risk = sol.risk
         out.update({
@@ -335,10 +335,16 @@ async def api_object_model(body: dict = Body(default={})) -> dict:
     except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI
         return {"error": str(e)}
     prob = _OBJ[mid]
+    reg = np.asarray(prob.cell_region)
+    empty_mag = [r.name for rid, r in prob.regions.items()
+                 if isinstance(r.material, MagnetMaterial) and int((reg == rid).sum()) == 0]
+    warning = ("магнит без ячеек (перекрыт другим объектом или слишком мелкий): "
+               + ", ".join(empty_mag)) if empty_mag else None
     return {"mesh_id": mid, "scene": problem_to_scene(prob),
             "n_cells": int(prob.mesh.n_cells),
             "regions": [r.name for r in prob.regions.values()],
-            "has_magnet": prob.magnet() is not None}
+            "has_magnet": bool(prob.magnet() is not None and prob.magnet_mask().any()),
+            "warning": warning}
 
 
 @app.post("/api/object_solve")

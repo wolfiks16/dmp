@@ -100,6 +100,25 @@ def test_priority_overlap():
     assert prob.regions[int(reg[i])].name == "b"
 
 
+def test_covered_magnet_has_axis_and_solves():
+    # Магнит полностью перекрыт объектом с бОльшим приоритетом → 0 ячеек магнита. Раньше это
+    # давало magnet_axis=None и падение validate(). Теперь ось есть всегда при наличии
+    # магнитного МАТЕРИАЛА (нули там, где ячеек нет) ⇒ постановка валидна и решается.
+    pytest.importorskip("gmsh")
+    mag = GeoObject("mag", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.004},
+                    MagnetMaterial(n42sh_magnet((1, 0, 0))), magnet_dir=(1.0, 0.0))
+    steel = GeoObject("steel", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.008},
+                      SteelMaterial(m270_35a_bh_curve()))       # позже ⇒ перекрывает магнит
+    dom = auto_domain([mag, steel], material=Air(), mesh_size=0.0025)
+    prob = build_object_problem([mag, steel], dom, default_mesh_size=0.0025)
+    reg = np.asarray(prob.cell_region)
+    assert int((reg == 1).sum()) == 0                          # у магнита нет ячеек
+    assert prob.magnet_axis is not None                        # но ось задана (валидно)
+    assert np.asarray(prob.magnet_axis).shape == (prob.mesh.n_cells, 2)
+    sol = solve_problem2d(prob, max_iter=60)                    # не падает
+    assert sol.converged
+
+
 def test_magnet_disk_uniform_interior(_model):
     # Равномерно намагниченный (вдоль +x) диск в воздухе → внутри поле ~однородно и вдоль x.
     prob, dom, steel, mag = _model
