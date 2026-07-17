@@ -178,7 +178,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button></div>
           <div id="objlist2"></div>
           <div class="objedit" id="objedit"></div>
-          <p class="hint">Домен-воздух строится автоматически вокруг объектов (внешняя граница A_z=0). При наложении побеждает объект с бОльшим приоритетом.</p>
+          <div class="objedit">
+            <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
+            <p class="hint">Внешняя граница = A_z=0, т.е. область обрезается. Мало запаса — поток «заперт» и поле занижено (0.4× даёт −28%, 4× ≈ −1.5% по аналитике). Дальнее поле мешится грубо, так что запас почти бесплатен.</p>
+          </div>
+          <p class="hint">При наложении побеждает объект с бОльшим приоритетом.</p>
         </div>
         <button class="applybtn" id="buildmesh" style="margin-top:6px">Построить модель</button>
       </div>
@@ -361,7 +365,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       const objs=OBJECTS.map(o=>({name:o.name,kind:o.kind,params:o.params,material:o.material,
         magnet_dir:(o.magnet_dir==='x'?[1,0]:o.magnet_dir==='y'?[0,1]:o.magnet_dir),
         current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined),priority:(+o.priority||1)}));
-      d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objects:objs,default_mesh_mm:2.0,domain_mesh_mm:3.0})})).json();
+      d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objects:objs,default_mesh_mm:2.0,margin:(+$('dommargin').value||4)})})).json();
     }else{
       d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
     }

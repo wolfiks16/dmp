@@ -145,6 +145,29 @@ def test_explicit_priority_overrides_order():
     assert region_at(prob2, 0.008, 0.0) == "b"
 
 
+def test_magnet_disk_matches_analytic_free_space():
+    """
+    АНАЛИТИЧЕСКИЙ оракул открытой задачи: поперечно намагниченный цилиндр в свободном
+    пространстве имеет однородное внутреннее поле B_in = Br/(1+μ_rec) (размагн. фактор
+    N=1/2 ⇒ B_in = Br(1−N)/(1+N(μ_rec−1))). Ловит ошибку ОБРЕЗАНИЯ области: при тесном
+    домене поток заперт и B_in занижено (запас 0.4 давал −28%). Сторожит дефолт auto_domain.
+    """
+    pytest.importorskip("gmsh")
+    m = n42sh_magnet((1, 0, 0))
+    exact = m.Br(20.0) / (1.0 + m.mu_rec)
+    md = GeoObject("mag", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.006},
+                   MagnetMaterial(m), magnet_dir=(1.0, 0.0), mesh_size=0.0006)
+    dom = auto_domain([md], material=Air())          # ДЕФОЛТНЫЙ запас — он и проверяется
+    p = build_object_problem([md], dom, default_mesh_size=0.0012)
+    sol = solve_problem2d(p, max_iter=60)
+    assert sol.converged
+    reg = np.asarray(p.cell_region)
+    cen = np.array([p.mesh.cell_centroid(c) for c in range(p.mesh.n_cells)])
+    core = (reg == 1) & (np.hypot(cen[:, 0], cen[:, 1]) < 0.003)
+    b_in = float(sol.B_cells[core][:, 0].mean())
+    assert abs(b_in - exact) / exact < 0.03          # дефолт должен держать ≤3% (не −28%)
+
+
 def test_magnet_disk_uniform_interior(_model):
     # Равномерно намагниченный (вдоль +x) диск в воздухе → внутри поле ~однородно и вдоль x.
     prob, dom, steel, mag = _model

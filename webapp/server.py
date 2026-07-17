@@ -292,8 +292,11 @@ def _build_object_model(body: dict) -> str:
     if not objs:
         raise ValueError("добавьте хотя бы один объект.")
     defm = float(body.get("default_mesh_mm", 2.0)) / 1000.0
-    domm = float(body.get("domain_mesh_mm", 3.0)) / 1000.0
-    dom = auto_domain(objs, material=Air(), margin_frac=float(body.get("margin", 0.4)), mesh_size=domm)
+    domm = body.get("domain_mesh_mm")
+    # Запас домена критичен: граница A_z=0 близко ⇒ поле занижено (0.4 → −28% на аналитике).
+    # Дефолт 4.0; дальнее поле мешится грубо (auto_domain), поэтому запас почти бесплатен.
+    dom = auto_domain(objs, material=Air(), margin_frac=float(body.get("margin", 4.0)),
+                      mesh_size=(float(domm) / 1000.0 if domm else None))
     prob = build_object_problem(objs, dom, default_mesh_size=defm)
     mid = "o" + hashlib.sha1(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:11]
     _OBJ[mid] = prob

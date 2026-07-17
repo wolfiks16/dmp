@@ -193,16 +193,29 @@ def _bbox(obj: GeoObject) -> tuple[float, float, float, float]:
     return float(pts[:, 0].min()), float(pts[:, 1].min()), float(pts[:, 0].max()), float(pts[:, 1].max())
 
 
-def auto_domain(objects, *, material, margin_frac: float = 0.4, mesh_size: float | None = None) -> GeoObject:
-    """Фон-домен (прямоугольник) по общему bbox объектов + запас. Его граница = внешняя ГУ A_z=0."""
+def auto_domain(objects, *, material, margin_frac: float = 4.0, mesh_size: float | None = None) -> GeoObject:
+    """
+    Фон-домен (прямоугольник) по общему bbox объектов + запас. Его граница = внешняя ГУ A_z=0,
+    т.е. область ОБРЕЗАЕТСЯ — поток принудительно замыкается на границе.
+
+    ⚠ Запас критичен для ТОЧНОСТИ в открытой задаче (магнит в воздухе): граница близко —
+    поток «заперт» и поле занижено. Замерено на аналитике (поперечно намагниченный цилиндр в
+    свободном пространстве, B_in=Br/(1+μ_rec)): запас 0.4 → −28%, 1.0 → −10%, 2.0 → −3.9%,
+    4.0 → −1.5%, 8.0 → −0.8%. Отсюда дефолт 4.0. Дальнее поле мешится ГРУБО (размер ~ габарит
+    домена/25), поэтому большой запас почти бесплатен по числу ячеек.
+    (Точная альтернатива без обрезания — преобразование Кельвина, см. fem2d/kelvin.py.)
+    """
     boxes = np.array([_bbox(o) for o in objects], dtype=float)
     xmin, ymin = boxes[:, 0].min(), boxes[:, 1].min()
     xmax, ymax = boxes[:, 2].max(), boxes[:, 3].max()
     w, h = xmax - xmin, ymax - ymin
     mx, my = margin_frac * w, margin_frac * h
     cx, cy = (xmin + xmax) / 2, (ymin + ymax) / 2
+    W, H = w + 2 * mx, h + 2 * my
+    if mesh_size is None:
+        mesh_size = max(W, H) / 25.0        # дальнее поле грубое — точность даёт ближняя зона
     return GeoObject(name="domain", kind="rect",
-                     params={"cx": cx, "cy": cy, "w": w + 2 * mx, "h": h + 2 * my},
+                     params={"cx": cx, "cy": cy, "w": W, "h": H},
                      material=material, mesh_size=mesh_size)
 
 
