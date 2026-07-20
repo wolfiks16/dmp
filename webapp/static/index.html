@@ -475,8 +475,24 @@ function drawHandles(){if(!editable()||SEL<0||!OBJECTS[SEL])return;handlesOf(OBJ
   if(h.k==='rot'){ctx.fillStyle='#0d1420';ctx.strokeStyle='#e0a53a';ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(q[0],q[1],5,0,7);ctx.fill();ctx.stroke();}
   else if(h.k.indexOf('add')===0){ctx.fillStyle='#0d1420';ctx.strokeStyle='#5dcaa5';ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(q[0],q[1],4,0,7);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(q[0]-2,q[1]);ctx.lineTo(q[0]+2,q[1]);ctx.moveTo(q[0],q[1]-2);ctx.lineTo(q[0],q[1]+2);ctx.stroke();}
   else{ctx.fillStyle='#0d1420';ctx.strokeStyle='#2fd39c';ctx.lineWidth=1.6;ctx.beginPath();ctx.rect(q[0]-4,q[1]-4,8,8);ctx.fill();ctx.stroke();}});}
+function matName(mid){if(mid==='air')return'Воздух';const st=STEELS.find(s=>s.id===mid);if(st)return st.name;const m=MAGNETS.find(x=>x.id===mid);return m?m.name:mid;}
+function objBBox(o){const p=o.params,DEG=Math.PI/180;let pts=[];
+  if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(a),s=Math.sin(a);[[-1,-1],[1,-1],[1,1],[-1,1]].forEach(q=>{const lx=q[0]*p.w/2,ly=q[1]*p.h/2;pts.push([p.cx+lx*c-ly*s,p.cy+lx*s+ly*c]);});}
+  else if(o.kind==='circle'||o.kind==='ring'){const R=o.kind==='ring'?p.r_out:p.r;for(let i=0;i<24;i++){const a=i/24*2*Math.PI;pts.push([p.cx+R*Math.cos(a),p.cy+R*Math.sin(a)]);}}
+  else if(o.kind==='sector'){const a1=p.a1*DEG,a2=p.a2*DEG;pts.push([p.cx,p.cy]);for(let i=0;i<=16;i++){const a=a1+(a2-a1)*i/16;pts.push([p.cx+p.r_out*Math.cos(a),p.cy+p.r_out*Math.sin(a)],[p.cx+p.r_in*Math.cos(a),p.cy+p.r_in*Math.sin(a)]);}}
+  else pts=p.points.slice();
+  const xs=pts.map(q=>q[0]),ys=pts.map(q=>q[1]);return{w:Math.max.apply(0,xs)-Math.min.apply(0,xs),h:Math.max.apply(0,ys)-Math.min.apply(0,ys)};}
+function objArea(o){const p=o.params;
+  if(o.kind==='rect')return p.w*p.h;
+  if(o.kind==='circle')return Math.PI*p.r*p.r;
+  if(o.kind==='ring')return Math.PI*(p.r_out*p.r_out-p.r_in*p.r_in);
+  if(o.kind==='sector'){const span=((p.a2-p.a1)%360+360)%360||360;return span/360*Math.PI*(p.r_out*p.r_out-p.r_in*p.r_in);}
+  const pt=p.points;let a=0;for(let i=0,j=pt.length-1;i<pt.length;j=i++)a+=(pt[j][0]+pt[i][0])*(pt[j][1]-pt[i][1]);return Math.abs(a/2);}
 function editHint(){if(DRAW)return;const on=editable()&&OBJECTS.length;$('draw-hint').style.display=on?'block':'none';
-  if(on){const o=SEL>=0&&OBJECTS[SEL];$('draw-hint').innerHTML=o?('<b>'+o.name+'</b> · тяни — двигать (Shift ось) · ▢ размер · '+(o.kind==='polygon'?'<span style="color:var(--accent)">⊕</span> добавить/ПКМ по узлу — удалить вершину · ':'')+'<span style="color:var(--warn)">○</span> поворот · Del удалить · Ctrl+Z отмена'):'Клик по фигуре — выбрать её';}}
+  if(!on)return;const o=SEL>=0&&OBJECTS[SEL];
+  if(!o){$('draw-hint').innerHTML='Клик по фигуре — выбрать её';return;}
+  const bb=objBBox(o),ms=o.mesh_size_mm||2;
+  $('draw-hint').innerHTML='<b>'+o.name+'</b> · '+matName(o.material)+' · X '+bb.w.toFixed(1)+' × Y '+bb.h.toFixed(1)+' мм · S '+objArea(o).toFixed(1)+' мм² · сетка '+ms+' мм'+(o.mesh_size_mm?'':' (авто)');}
 // история отмен (Ctrl+Z / Ctrl+Shift+Z)
 let HIST=[],REDO=[],FORMEDIT=false;
 function snap(){return JSON.parse(JSON.stringify(OBJECTS));}
@@ -635,7 +651,7 @@ window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&
   if(EDIT){const raw=s2w(p[0],p[1]),w=worldSnap(p);
     if(EDIT.type==='handle'){const ang=EDIT.h.k==='rot'||EDIT.h.k==='a1'||EDIT.h.k==='a2';applyHandle(OBJECTS[SEL],EDIT.h,ang?raw[0]:w[0],ang?raw[1]:w[1]);}
     else{let dx=w[0]-EDIT.origin[0],dy=w[1]-EDIT.origin[1];if(e.shiftKey){if(Math.abs(dx)>=Math.abs(dy))dy=0;else dx=0;}setTranslate(OBJECTS[SEL],EDIT.base,dx,dy);}
-    draw();return;}
+    draw();editHint();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
 
