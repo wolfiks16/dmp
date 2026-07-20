@@ -27,7 +27,7 @@ import numpy as np
 from fastapi import Body, FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from magcore.domain.magnet_model import n42sh_magnet, sm2co17_magnet
+from magcore.domain.magnet_model import magnet_from_datasheet, n42sh_magnet, sm2co17_magnet
 from magcore.domain.steel_curves import m270_35a_bh_curve
 from magcore.fem2d.machines import (
     MachineScenario,
@@ -166,8 +166,7 @@ def _do_solve(body: dict) -> dict:
     if mid not in _GEOM:
         raise ValueError("сетка не найдена — постройте её заново.")
     g, lay, steel = _GEOM[mid]
-    material = str(body.get("material", "ndfeb"))
-    magnet = sm2co17_magnet((1, 0, 0)) if material == "smco" else n42sh_magnet((1, 0, 0))
+    magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
     scen = MachineScenario(geometry=g, magnet=magnet, steel=steel, layout=lay)
     # Метод Ньютона (дефолт solve_problem2d): сходится за ~20 итераций НА ЛЮБОЙ плотности,
     # без подбора релаксации под сетку. max_iter с запасом.
@@ -244,16 +243,47 @@ def api_job(jid: str) -> dict:
 
 # ---- ОБЪЕКТНАЯ ПРОИЗВОЛЬНАЯ ГЕОМЕТРИЯ (свободная модель из примитивов) ----
 
+# ---- БИБЛИОТЕКА МАТЕРИАЛОВ (встроенные + свои измеренные магниты, персист на диск) ----
+_MATERIALS_PATH = Path(__file__).parent / "materials.json"
+_BUILTIN_MAGNETS = {
+    "ndfeb": {"name": "NdFeB N42SH (представит.)", "builtin": True},
+    "smco": {"name": "SmCo КС25ДЦ (представит.)", "builtin": True},
+}
+
+
+def _load_custom_materials() -> dict:
+    """Свои магниты с диска (id -> spec). Данные в СИ: Br [Тл], Hcb/Hk/Hcj [А/м]."""
+    if not _MATERIALS_PATH.exists():
+        return {}
+    try:
+        return json.loads(_MATERIALS_PATH.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 — битый файл не должен рушить сервер
+        return {}
+
+
+def _magnet_by_id(mid: str):
+    """Модель магнита по id: встроенные марки или свой из библиотеки (magnet_from_datasheet)."""
+    if mid == "ndfeb":
+        return n42sh_magnet((1, 0, 0))
+    if mid == "smco":
+        return sm2co17_magnet((1, 0, 0))
+    spec = _load_custom_materials().get(mid)
+    if spec is not None:
+        return magnet_from_datasheet(
+            mid, spec.get("name", mid), (1, 0, 0),
+            Br=float(spec["Br"]), Hcb=float(spec["Hcb"]), Hk=float(spec["Hk"]),
+            Hcj=float(spec["Hcj"]), alpha_Br=float(spec.get("alpha_Br", 0.12)),
+            gamma_Hc=float(spec.get("gamma_Hc", 0.6)), T0=float(spec.get("T0", 20.0)),
+        )
+    raise ValueError(f"неизвестный магнит {mid!r}.")
+
+
 def _object_material(m: str):
     if m == "air":
         return Air()
     if m == "steel":
         return SteelMaterial(m270_35a_bh_curve())
-    if m == "ndfeb":
-        return MagnetMaterial(n42sh_magnet((1, 0, 0)))
-    if m == "smco":
-        return MagnetMaterial(sm2co17_magnet((1, 0, 0)))
-    raise ValueError(f"неизвестный материал {m!r}.")
+    return MagnetMaterial(_magnet_by_id(m))     # ndfeb|smco|свой из библиотеки
 
 
 def _geo_from(o: dict) -> GeoObject:
@@ -356,6 +386,53 @@ def api_object_solve(body: dict = Body(default={})) -> dict:
     jid = uuid.uuid4().hex[:12]
     _JOBS[jid] = _EXEC.submit(_do_object_solve, dict(body))
     return {"job_id": jid}
+
+
+@app.get("/api/materials")
+def api_materials() -> dict:
+    """Магниты для выпадающих списков: встроенные + свои (id, name, builtin)."""
+    out = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_MAGNETS.items()]
+    for mid, spec in _load_custom_materials().items():
+        out.append({"id": mid, "name": spec.get("name", mid), "builtin": False})
+    return {"magnets": out}
+
+
+@app.post("/api/materials")
+def api_material_save(body: dict = Body(default={})) -> dict:
+    """Сохранить свой магнит. Вход: name + Br[Тл] + Hcb/Hk/Hcj[кА/м] + α_Br,γ_Hc[%/°C] + T0."""
+    try:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            return {"error": "нужно имя материала."}
+        spec = {
+            "name": name,
+            "Br": float(body["Br"]),
+            "Hcb": float(body["Hcb_kA"]) * 1e3,
+            "Hk": float(body["Hk_kA"]) * 1e3,
+            "Hcj": float(body["Hcj_kA"]) * 1e3,
+            "alpha_Br": float(body.get("alpha_Br", 0.12)),
+            "gamma_Hc": float(body.get("gamma_Hc", 0.6)),
+            "T0": float(body.get("T0", 20.0)),
+        }
+        mid = "cust_" + hashlib.sha1(name.encode()).hexdigest()[:8]
+        mg = magnet_from_datasheet(mid, name, (1, 0, 0), Br=spec["Br"], Hcb=spec["Hcb"],
+                                   Hk=spec["Hk"], Hcj=spec["Hcj"], alpha_Br=spec["alpha_Br"],
+                                   gamma_Hc=spec["gamma_Hc"], T0=spec["T0"])  # валидирует
+    except (KeyError, ValueError, TypeError) as e:
+        return {"error": f"некорректные параметры: {e}"}
+    store = _load_custom_materials()
+    store[mid] = spec
+    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"id": mid, "ok": True, "mu_rec": round(float(mg.mu_rec), 4),
+            "temp_limit": round(float(mg.temperature_limit()), 1)}
+
+
+@app.post("/api/materials/delete")
+def api_material_delete(body: dict = Body(default={})) -> dict:
+    store = _load_custom_materials()
+    store.pop(str(body.get("id", "")), None)
+    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="ui")
