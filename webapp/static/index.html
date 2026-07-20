@@ -388,7 +388,7 @@ function drawPreview(){ctx.save();ctx.lineWidth=1.8;ctx.strokeStyle='#2fd39c';ct
   else if(DRAW.start&&DRAW.cur){shapePath({kind:DRAW.kind,params:paramsFromDrag(DRAW.kind,DRAW.start,DRAW.cur)});ctx.stroke();}
   ctx.restore();}
 function rnd(o){const r={};for(const k in o)r[k]=Array.isArray(o[k])?o[k].map(p=>[+p[0].toFixed(1),+p[1].toFixed(1)]):+o[k].toFixed(2);return r;}
-function startDraw(kind){DRAW={kind,start:null,cur:null,pts:[],reopen:$('modal-ov').classList.contains('on')};cv.classList.add('pt');closeModal();
+function startDraw(kind){invalidateField();DRAW={kind,start:null,cur:null,pts:[],reopen:$('modal-ov').classList.contains('on')};cv.classList.add('pt');closeModal();
   $('draw-hint').style.display='block';
   $('draw-hint').innerHTML=kind==='polygon'?'<b>Полигон:</b> клик — вершина · двойной клик или Enter — замкнуть · Esc — отмена'
     :(kind==='rect'?'<b>Прямоугольник:</b> зажми и тяни из угла в угол · Esc — отмена':'<b>'+KINDRU[kind]+':</b> клик в центр и тяни радиус · Esc — отмена');
@@ -399,12 +399,14 @@ function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:KI
 
 // ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
 let EDIT=null;
-function editable(){return MODE==='objects'&&!DRAW&&TOOL==='view'&&!$('modal-ov').classList.contains('on');}
+function editable(){return MODE==='objects'&&!DRAW&&TOOL==='view'&&!BX&&!$('modal-ov').classList.contains('on');}
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
   $('geomhint').textContent=MODE==='objects'?'— добавь фигуру и нарисуй на холсте, потом «Рассчитать»':'параметрический мотор: размеры в окне «Геометрия»';}
+// изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
+function invalidateField(){if(!BX)return;BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -640,7 +642,7 @@ function seedObjects(){OBJECTS=[
   {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9,priority:10}
 ];SEL=1;}
 function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),kind,params:{...OBJDEF[kind]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;renderObjects();}
-function delObject(i){pushHist();OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();draw();}
+function delObject(i){invalidateField();pushHist();OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();draw();}
 function angUnit(k){return(k==='angle'||k==='a1'||k==='a2')?'°':'мм';}
 function renderObjects(){
   $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+matSwatch(o.material)+'"></span><span class="oname">'+o.name+'</span><span class="opri" title="приоритет наложения">P'+(o.priority||1)+'</span><button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
@@ -660,9 +662,9 @@ function renderObjects(){
       +par+extra;
     const md=$('objedit').querySelector('[data-f="magnet_dir"]');if(md)md.value=(typeof o.magnet_dir==='string'?o.magnet_dir:'x');
     $('objedit').querySelectorAll('.opar').forEach(inp=>{
-      inp.oninput=()=>{if(!FORMEDIT){pushHist();FORMEDIT=true;}const v=+inp.value;if(!isNaN(v)){OBJECTS[SEL].params[inp.dataset.k]=v;draw();}};
+      inp.oninput=()=>{if(!FORMEDIT){pushHist();FORMEDIT=true;}invalidateField();const v=+inp.value;if(!isNaN(v)){OBJECTS[SEL].params[inp.dataset.k]=v;draw();}};
       inp.onblur=()=>{FORMEDIT=false;};});
-    $('objedit').querySelectorAll('.oedit').forEach(el=>{el.onchange=()=>{pushHist();const f=el.dataset.f,v=el.value;
+    $('objedit').querySelectorAll('.oedit').forEach(el=>{el.onchange=()=>{invalidateField();pushHist();const f=el.dataset.f,v=el.value;
       if(f==='current')OBJECTS[SEL].current=(+v||0)*1e6;
       else if(f==='mesh_size_mm')OBJECTS[SEL][f]=(v===''?'':+v);
       else if(f==='priority')OBJECTS[SEL].priority=Math.max(1,Math.min(50,Math.round(+v||1)));
