@@ -346,7 +346,7 @@ function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE){return;
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let col;if(showF){const v=cellVal(i);col=sgn?diverging(v/VMAX):ramp(v/VMAX);}else col=null;
     ctx.fillStyle=col?'rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')':regColor(''+REG[i]);ctx.fill();}
-  if(MODE==='objects')drawObjects();
+  if(MODE==='objects'){drawObjects();drawHandles();}
   if(DRAW)drawPreview();
   overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';}
 
@@ -386,6 +386,38 @@ function endDraw(){DRAW=null;cv.classList.remove('pt');$('draw-hint').style.disp
 function cancelDraw(){endDraw();setStage('geom');draw();}
 function finishDraw(params){OBJECTS.push({name:KINDRU[DRAW.kind]+' '+(OBJECTS.length+1),kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();setStage('geom');renderObjects();draw();}
 
+// ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
+let EDIT=null;
+function editable(){return MODE==='objects'&&!DRAW&&!$('modal-ov').classList.contains('on');}
+function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
+  if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
+  if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
+  if(o.kind==='ring'){const d2=(x-p.cx)**2+(y-p.cy)**2;return d2>=p.r_in*p.r_in&&d2<=p.r_out*p.r_out;}
+  if(o.kind==='sector'){const d2=(x-p.cx)**2+(y-p.cy)**2;if(d2<p.r_in*p.r_in||d2>p.r_out*p.r_out)return false;const th=Math.atan2(y-p.cy,x-p.cx)/DEG,t=((th-p.a1)%360+360)%360,span=((p.a2-p.a1)%360+360)%360||360;return t<=span;}
+  if(o.kind==='polygon'){const pts=p.points;if(pts.length<3)return false;let inside=false;for(let i=0,j=pts.length-1;i<pts.length;j=i++){const xi=pts[i][0],yi=pts[i][1],xj=pts[j][0],yj=pts[j][1];if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi+1e-30)+xi))inside=!inside;}return inside;}
+  return false;}
+function topObjectAt(x,y){let best=-1,bp=-2;for(let i=0;i<OBJECTS.length;i++)if(objContains(OBJECTS[i],x,y)){const pr=OBJECTS[i].priority||1;if(pr>=bp){bp=pr;best=i;}}return best;}
+function handlesOf(o){const p=o.params,DEG=Math.PI/180,H=[];
+  if(o.kind==='circle')H.push({k:'r',x:p.cx+p.r,y:p.cy});
+  else if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(a),s=Math.sin(a);[[-1,-1],[1,-1],[1,1],[-1,1]].forEach(q=>{const lx=q[0]*p.w/2,ly=q[1]*p.h/2;H.push({k:'corner',x:p.cx+lx*c-ly*s,y:p.cy+lx*s+ly*c});});}
+  else if(o.kind==='ring')H.push({k:'r_in',x:p.cx+p.r_in,y:p.cy},{k:'r_out',x:p.cx+p.r_out,y:p.cy});
+  else if(o.kind==='sector'){const am=(p.a1+p.a2)/2*DEG;H.push({k:'r_in',x:p.cx+p.r_in*Math.cos(am),y:p.cy+p.r_in*Math.sin(am)},{k:'r_out',x:p.cx+p.r_out*Math.cos(am),y:p.cy+p.r_out*Math.sin(am)},{k:'a1',x:p.cx+p.r_out*Math.cos(p.a1*DEG),y:p.cy+p.r_out*Math.sin(p.a1*DEG)},{k:'a2',x:p.cx+p.r_out*Math.cos(p.a2*DEG),y:p.cy+p.r_out*Math.sin(p.a2*DEG)});}
+  else if(o.kind==='polygon')p.points.forEach((pt,i)=>H.push({k:'v'+i,x:pt[0],y:pt[1]}));
+  return H;}
+function hitHandle(o,sp){for(const h of handlesOf(o)){const q=w2s(h.x,h.y);if(Math.hypot(q[0]-sp[0],q[1]-sp[1])<9)return h;}return null;}
+function applyHandle(o,h,x,y){const p=o.params,DEG=Math.PI/180;
+  if(h.k==='r')p.r=+Math.max(0.3,Math.hypot(x-p.cx,y-p.cy)).toFixed(1);
+  else if(h.k==='corner'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;p.w=+Math.max(0.5,2*Math.abs(lx)).toFixed(1);p.h=+Math.max(0.5,2*Math.abs(ly)).toFixed(1);}
+  else if(h.k==='r_in')p.r_in=+Math.max(0.2,Math.min(p.r_out-0.2,Math.hypot(x-p.cx,y-p.cy))).toFixed(1);
+  else if(h.k==='r_out')p.r_out=+Math.max(p.r_in+0.2,Math.hypot(x-p.cx,y-p.cy)).toFixed(1);
+  else if(h.k==='a1')p.a1=Math.round(Math.atan2(y-p.cy,x-p.cx)/DEG);
+  else if(h.k==='a2')p.a2=Math.round(Math.atan2(y-p.cy,x-p.cx)/DEG);
+  else if(h.k[0]==='v')p.points[+h.k.slice(1)]=[+x.toFixed(1),+y.toFixed(1)];}
+function translateObj(o,dx,dy){const p=o.params;if(o.kind==='polygon')p.points=p.points.map(pt=>[+(pt[0]+dx).toFixed(1),+(pt[1]+dy).toFixed(1)]);else{p.cx=+(p.cx+dx).toFixed(1);p.cy=+(p.cy+dy).toFixed(1);}}
+function drawHandles(){if(!editable()||SEL<0||!OBJECTS[SEL])return;ctx.fillStyle='#0d1420';ctx.strokeStyle='#2fd39c';ctx.lineWidth=1.6;handlesOf(OBJECTS[SEL]).forEach(h=>{const q=w2s(h.x,h.y);ctx.beginPath();ctx.rect(q[0]-4,q[1]-4,8,8);ctx.fill();ctx.stroke();});}
+function editHint(){if(DRAW)return;const on=editable()&&OBJECTS.length;$('draw-hint').style.display=on?'block':'none';
+  if(on)$('draw-hint').innerHTML=(SEL>=0&&OBJECTS[SEL]?'<b>'+OBJECTS[SEL].name+'</b> · тяни тело — двигать, узлы — менять, Del — удалить':'Клик по фигуре — выбрать её');}
+
 function stops(f,a,b){let s=[];for(let i=0;i<=8;i++){const t=a+(b-a)*i/8,c=f(t);s.push('rgb('+c.map(x=>x|0).join(',')+') '+(i/8*100|0)+'%');}return s.join(',');}
 function bars(){const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
   $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
@@ -421,11 +453,11 @@ const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Матери�
 function openModal(){$('modal-ov').classList.add('on');}
 function closeModal(){$('modal-ov').classList.remove('on');}
 function setStage(st){STAGE=st;
-  if(st==='result'){closeModal();}
+  if(st==='result'){closeModal();editHint();}
   else{
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
     $('modal-title').textContent=STAGE_NAME[st];
-    openModal();
+    openModal();$('draw-hint').style.display='none';
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
 function setTool(t){TOOL=t;
@@ -510,16 +542,22 @@ function finishPolygon(){let pts=DRAW.pts.slice();
   if(pts.length<3){cancelDraw();return;} finishDraw({points:pts});}
 cv.addEventListener('mousedown',e=>{const p=pos(e);
   if(DRAW){if(DRAW.kind!=='polygon'){const w=s2w(p[0],p[1]);DRAW.start=[w[0],w[1]];DRAW.cur=[w[0],w[1]];}return;}
+  if(editable()){const w=s2w(p[0],p[1]);
+    if(SEL>=0&&OBJECTS[SEL]){const h=hitHandle(OBJECTS[SEL],p);if(h){EDIT={type:'handle',h};return;}}
+    const idx=topObjectAt(w[0],w[1]);
+    if(idx>=0){SEL=idx;EDIT={type:'move',last:[w[0],w[1]]};renderObjects();editHint();draw();return;}}
   drag=true;moved=false;last=p;cv.classList.add('pan');});
 cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
 window.addEventListener('mouseup',e=>{const p=pos(e);
   if(DRAW){const w=s2w(p[0],p[1]);
     if(DRAW.kind==='polygon'){DRAW.pts.push([w[0],w[1]]);draw();return;}
     if(DRAW.start)finishDraw(paramsFromDrag(DRAW.kind,DRAW.start,[w[0],w[1]]));return;}
+  if(EDIT){EDIT=null;renderObjects();editHint();draw();return;}
   if(drag&&!moved&&TOOL==='point'){const w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}
   drag=false;cv.classList.remove('pan');});
 window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H;if(inside){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
   if(DRAW){if(inside){const w=s2w(p[0],p[1]);DRAW.cur=[w[0],w[1]];draw();}return;}
+  if(EDIT){const w=s2w(p[0],p[1]);if(EDIT.type==='handle')applyHandle(OBJECTS[SEL],EDIT.h,w[0],w[1]);else{translateObj(OBJECTS[SEL],w[0]-EDIT.last[0],w[1]-EDIT.last[1]);EDIT.last=[w[0],w[1]];}draw();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
 
@@ -529,6 +567,8 @@ $('m-calc').onclick=()=>{setStage('result');solve();};
 $('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
 window.addEventListener('keydown',e=>{
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
+  const t=document.activeElement&&document.activeElement.tagName;
+  if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
@@ -542,7 +582,7 @@ $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r
 $('material').addEventListener('change',()=>{if(SCENE&&MODE==='pmsm')populateModel();});
 
 // ---- Объектный редактор (свободная модель) ----
-const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90},polygon:{points:[[0,0],[10,0],[5,8]]}};
+const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90},polygon:{points:[]}};
 const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор',polygon:'Полигон'};
 const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высота',angle:'Угол',r:'Радиус',r_in:'R внутр.',r_out:'R внешн.',a1:'Угол от',a2:'Угол до'};
 function isMagnet(mid){return mid!=='air'&&!STEELS.some(s=>s.id===mid);}
@@ -593,7 +633,7 @@ $('modekind').onchange=e=>{MODE=e.target.value;
   $('calc-machine').style.display=MODE==='objects'?'none':'block';
   if(MODE==='objects'&&!OBJECTS.length)seedObjects();
   if(MODE==='objects')renderObjects();
-  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';draw();};
+  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';editHint();draw();};
 
 // ---- Библиотека материалов (магниты) ----
 async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
