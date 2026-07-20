@@ -97,6 +97,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .palette button{flex:1;min-width:70px;background:var(--panel2);border:1px solid var(--line2);color:var(--text);padding:7px 6px;border-radius:6px;font:600 11px/1 var(--ui);cursor:pointer}
 .palette button:hover{border-color:var(--accent2);color:var(--accent)}
+.rtgroup{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+#toppalette{margin:0;flex-wrap:nowrap;flex:0 0 auto}
+#toppalette button{flex:0 0 auto;min-width:0;padding:6px 9px;font-size:11px}
 .objrow{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:12px;border:1px solid transparent}
 .objrow:hover{background:var(--panel2)}.objrow.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
 .objrow .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid var(--line2)}
@@ -159,9 +162,17 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   </aside>
 
   <main class="center">
-    <div class="rtools"><span class="lbl">Вид</span>
-      <div class="rseg" id="rseg"><button data-tool="view" class="on">Геометрия</button><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
-      <div style="margin-left:16px;display:flex;align-items:center;gap:8px"><span class="toggle" id="showfield"></span><span style="font-size:12px;font-weight:600">Показать поле</span></div>
+    <div class="rtools">
+      <div class="rtgroup" id="rtools-geom">
+        <span class="lbl">Геометрия</span>
+        <div class="palette" id="toppalette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button><button data-add="polygon">＋ Полигон</button></div>
+        <span class="lbl" id="geomhint" style="letter-spacing:0;text-transform:none;color:var(--dim)"></span>
+      </div>
+      <div class="rtgroup" id="rtools-res" style="display:none">
+        <span class="lbl">Результаты</span>
+        <div class="rseg" id="rseg"><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
+        <div style="margin-left:16px;display:flex;align-items:center;gap:8px"><span class="toggle" id="showfield"></span><span style="font-size:12px;font-weight:600">Показать поле</span></div>
+      </div>
     </div>
     <div class="center-body">
       <div class="viewport">
@@ -377,18 +388,23 @@ function drawPreview(){ctx.save();ctx.lineWidth=1.8;ctx.strokeStyle='#2fd39c';ct
   else if(DRAW.start&&DRAW.cur){shapePath({kind:DRAW.kind,params:paramsFromDrag(DRAW.kind,DRAW.start,DRAW.cur)});ctx.stroke();}
   ctx.restore();}
 function rnd(o){const r={};for(const k in o)r[k]=Array.isArray(o[k])?o[k].map(p=>[+p[0].toFixed(1),+p[1].toFixed(1)]):+o[k].toFixed(2);return r;}
-function startDraw(kind){DRAW={kind,start:null,cur:null,pts:[]};cv.classList.add('pt');closeModal();
+function startDraw(kind){DRAW={kind,start:null,cur:null,pts:[],reopen:$('modal-ov').classList.contains('on')};cv.classList.add('pt');closeModal();
   $('draw-hint').style.display='block';
   $('draw-hint').innerHTML=kind==='polygon'?'<b>Полигон:</b> клик — вершина · двойной клик или Enter — замкнуть · Esc — отмена'
     :(kind==='rect'?'<b>Прямоугольник:</b> зажми и тяни из угла в угол · Esc — отмена':'<b>'+KINDRU[kind]+':</b> клик в центр и тяни радиус · Esc — отмена');
   draw();}
 function endDraw(){DRAW=null;cv.classList.remove('pt');$('draw-hint').style.display='none';}
-function cancelDraw(){endDraw();setStage('geom');draw();}
-function finishDraw(params){pushHist();OBJECTS.push({name:KINDRU[DRAW.kind]+' '+(OBJECTS.length+1),kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();setStage('geom');renderObjects();draw();}
+function cancelDraw(){const r=DRAW&&DRAW.reopen;endDraw();if(r)setStage('geom');else editHint();draw();}
+function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:KINDRU[DRAW.kind]+' '+(OBJECTS.length+1),kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();renderObjects();if(r)setStage('geom');else editHint();draw();}
 
 // ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
 let EDIT=null;
-function editable(){return MODE==='objects'&&!DRAW&&!$('modal-ov').classList.contains('on');}
+function editable(){return MODE==='objects'&&!DRAW&&TOOL==='view'&&!$('modal-ov').classList.contains('on');}
+function updateRtools(){const solved=!!BX;
+  $('rtools-geom').style.display=solved?'none':'flex';
+  $('rtools-res').style.display=solved?'flex':'none';
+  $('toppalette').style.display=MODE==='objects'?'flex':'none';
+  $('geomhint').textContent=MODE==='objects'?'— добавь фигуру и нарисуй на холсте, потом «Рассчитать»':'параметрический мотор: размеры в окне «Геометрия»';}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -526,7 +542,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     }
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
-    resize();fit();bars();setTool(TOOL);
+    resize();fit();bars();setTool(TOOL);updateRtools();
   }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
@@ -537,7 +553,7 @@ function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true
   if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
   rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'});
   if(d.Bd_mean!==undefined)rows.push({k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'});
-  summary(rows);setTool(TOOL);}
+  summary(rows);setTool(TOOL);updateRtools();}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
   const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
@@ -567,7 +583,8 @@ cv.addEventListener('mousedown',e=>{const p=pos(e);
       if(h.k==='rot'&&OBJECTS[SEL].kind==='polygon'){const pts=OBJECTS[SEL].params.points,cx=pts.reduce((a,b)=>a+b[0],0)/pts.length,cy=pts.reduce((a,b)=>a+b[1],0)/pts.length;EDIT.base=pts.map(q=>q.slice());EDIT.cen=[cx,cy];EDIT.a0=Math.atan2(w[1]-cy,w[0]-cx);}
       return;}}
     const idx=topObjectAt(w[0],w[1]);
-    if(idx>=0){SEL=idx;pushHist();EDIT={type:'move',origin:[w[0],w[1]],base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};renderObjects();editHint();draw();return;}}
+    if(idx>=0){SEL=idx;pushHist();EDIT={type:'move',origin:[w[0],w[1]],base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};renderObjects();editHint();draw();return;}
+    if(SEL!==-1){SEL=-1;renderObjects();editHint();draw();}}
   drag=true;moved=false;last=p;cv.classList.add('pan');});
 cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
 window.addEventListener('mouseup',e=>{const p=pos(e);
@@ -595,10 +612,12 @@ window.addEventListener('keydown',e=>{
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();e.shiftKey?redo():undo();return;}
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y'||e.key==='н'||e.key==='Н')){e.preventDefault();redo();return;}
   const t=document.activeElement&&document.activeElement.tagName;
+  if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){if(SEL>=0){SEL=-1;renderObjects();editHint();}buildMesh();return;}
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
-document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
+document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
+$('toppalette').addEventListener('click',e=>{const add=e.target.dataset.add;if(add)startDraw(add);});
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
@@ -662,7 +681,7 @@ $('modekind').onchange=e=>{MODE=e.target.value;
   $('calc-machine').style.display=MODE==='objects'?'none':'block';
   if(MODE==='objects'&&!OBJECTS.length)seedObjects();
   if(MODE==='objects')renderObjects();
-  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';editHint();draw();};
+  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';editHint();updateRtools();draw();};
 
 // ---- Библиотека материалов (магниты) ----
 async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
