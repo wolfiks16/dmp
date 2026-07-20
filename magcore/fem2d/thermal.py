@@ -77,3 +77,72 @@ def solve_thermal(
     if dirichlet_dofs is not None:
         K, f = apply_dirichlet(K, f, dirichlet_dofs, dirichlet_values)
     return solve_scalar(K, f)
+
+
+def assemble_capacity(space: LagrangeP1Space2D, c_cells) -> np.ndarray:
+    """
+    Матрица теплоёмкости C_ij = ∫ c φ_i φ_j, где c = ρ·c_p [Дж/(м³·K)] — объёмная
+    теплоёмкость (скаляр|(n_cells,), разная по регионам: медь/сталь/магнит/воздух).
+    Локально (c·A/12)·[[2,1,1],[1,2,1],[1,1,2]]. Структура = матрица масс, взвешенная c.
+    """
+    mesh = space.mesh
+    c = np.asarray(c_cells, dtype=float)
+    if c.ndim == 0:
+        c = np.full(mesh.n_cells, float(c))
+    elif c.shape != (mesh.n_cells,):
+        raise ValueError("c_cells must be a scalar or shape (n_cells,).")
+    n = space.ndofs
+    C = np.zeros((n, n), dtype=float)
+    base = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 1.0, 2.0]], dtype=float) / 12.0
+    for cell in range(mesh.n_cells):
+        area = triangle_area(mesh.cell_vertices(cell))
+        idx = mesh.cell_vertex_indices(cell)
+        Ce = c[cell] * area * base
+        for a in range(3):
+            for b in range(3):
+                C[idx[a], idx[b]] += Ce[a, b]
+    return C
+
+
+def solve_thermal_transient(
+    space: LagrangeP1Space2D,
+    k,
+    capacity,
+    *,
+    source,
+    dt: float,
+    n_steps: int,
+    h: float,
+    T_amb: float,
+    T0=None,
+):
+    """
+    НЕСТАЦИОНАРНАЯ теплопроводность C·∂T/∂t − div(k∇T) = q + конвекция (Robin), неявный
+    Эйлер (безусловно устойчив): (C/dt + K + R)·T^{n+1} = (C/dt)·T^n + f^{n+1}.
+
+    capacity — c=ρc_p [Дж/(м³·K)] (скаляр|(n_cells,)); k — теплопроводность; h,T_amb —
+    конвекция на границе; T0 — начальное поле (по умолч. T_amb всюду).
+    source — источник потерь q [Вт/м³]: массив (n_cells,) ПОСТОЯННЫЙ, ИЛИ callable(step:int,
+    t:float)->(n_cells,) (для связки с магнитными потерями, зависящими от T).
+
+    Возвращает (times:(n_steps+1,), T_hist:(n_steps+1, ndofs)) — поле на каждом шаге.
+    Оператор A и его LU постоянны при неизменных k,c,h ⇒ факторизуем один раз (spsolve на
+    разрежённой A; здесь плотный масштаб верификации).
+    """
+    K = assemble_stiffness(space, k)
+    C = assemble_capacity(space, capacity)
+    R, amb_load = assemble_robin_boundary(space, float(h))
+    Cdt = C / float(dt)
+    A = Cdt + K + R
+    T = (np.full(space.ndofs, float(T_amb), dtype=float)
+         if T0 is None else np.asarray(T0, dtype=float).copy())
+    times = [0.0]
+    hist = [T.copy()]
+    for n in range(1, int(n_steps) + 1):
+        t = n * float(dt)
+        q = source(n, t) if callable(source) else source
+        f = assemble_source_rhs(space, np.asarray(q, dtype=float)) + float(T_amb) * amb_load
+        T = solve_scalar(A, Cdt @ T + f)
+        times.append(t)
+        hist.append(T.copy())
+    return np.asarray(times), np.asarray(hist)
