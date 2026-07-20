@@ -105,6 +105,18 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .objrow .del{color:var(--dim);border:0;background:none;cursor:pointer;font-size:13px;padding:0 2px}
 .objrow .del:hover{color:var(--crit)}
 .objedit{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+.modal-ov{position:fixed;inset:0;background:rgba(6,10,18,.66);display:none;align-items:center;justify-content:center;z-index:50}
+.modal-ov.on{display:flex}
+.modal{width:768px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:14px}
+.modal-x{background:none;border:0;color:var(--muted);font-size:16px;cursor:pointer;line-height:1}.modal-x:hover{color:var(--text)}
+.modal-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);overflow-x:auto}
+.modal-tabs button{background:none;border:0;color:var(--muted);padding:11px 15px;font:600 12.5px/1 var(--ui);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.modal-tabs button:hover{color:var(--text)}.modal-tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.modal-body{padding:16px 20px;overflow:auto}
+.modal-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line)}
+.modal-body #geomfields,.modal-body #meshfields{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+.modal-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
 .status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
 .status .g{color:var(--good)}.status .c{color:var(--crit)}.status .r{margin-left:auto;display:flex;gap:12px}
 </style></head>
@@ -113,7 +125,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
   <span class="wb-title" id="wbtitle">outrunner PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
-  <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
+  <div class="wb-actions"><button class="btn" id="open-params">⚙ Параметры</button><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
 </div>
 
@@ -145,10 +157,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   </aside>
 
   <main class="center">
-    <div class="tabs" id="tabs">
-      <button data-stage="geom">Геометрия</button><button data-stage="mesh">Сетка</button>
-      <button data-stage="mat">Материалы</button><button data-stage="calc">Расчёт</button>
-      <button data-stage="result" class="on">Результаты</button></div>
     <div class="rtools"><span class="lbl">Вид</span>
       <div class="rseg" id="rseg"><button data-tool="view" class="on">Геометрия</button><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
       <div style="margin-left:16px;display:flex;align-items:center;gap:8px"><span class="toggle" id="showfield"></span><span style="font-size:12px;font-weight:600">Показать поле</span></div>
@@ -167,6 +175,10 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <aside class="right">
     <div class="pane-h" id="rp-head">Результаты</div>
     <div class="rp">
+      <div class="modal-ov" id="modal-ov"><div class="modal">
+        <div class="modal-head"><span id="modal-title">Параметры модели</span><button class="modal-x" id="modal-x">✕</button></div>
+        <div class="modal-tabs" id="mtabs"><button data-stage="geom">Геометрия</button><button data-stage="mesh">Сетка</button><button data-stage="mat">Материалы</button><button data-stage="calc">Расчёт</button></div>
+        <div class="modal-body">
       <!-- ГЕОМЕТРИЯ -->
       <div class="rp-stage" data-stage="geom">
         <div class="field"><label>Тип модели</label><select class="select" id="modekind"><option value="pmsm">Параметрический PMSM</option><option value="objects">Свободная модель (объекты)</option></select></div>
@@ -184,7 +196,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           </div>
           <p class="hint">При наложении побеждает объект с бОльшим приоритетом.</p>
         </div>
-        <button class="applybtn" id="buildmesh" style="margin-top:6px">Построить модель</button>
       </div>
       <!-- СЕТКА -->
       <div class="rp-stage" data-stage="mesh">
@@ -243,6 +254,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="reshead">Результаты</div>
         <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
       </div>
+        </div>
+        <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
+      </div></div>
       <!-- РЕЗУЛЬТАТЫ -->
       <div class="rp-stage on" data-stage="result">
         <div id="field-ctrls" style="display:none">
@@ -274,7 +288,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         </div>
         <div id="presult"></div>
       </div>
-      <div class="err" id="err"></div>
       <div class="needsolve" id="needsolve"></div>
     </div>
   </aside>
@@ -364,11 +377,17 @@ function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';ret
   else R.innerHTML='';}
 
 const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',result:'Результаты'};
+function openModal(){$('modal-ov').classList.add('on');}
+function closeModal(){$('modal-ov').classList.remove('on');}
 function setStage(st){STAGE=st;
-  document.querySelectorAll('.rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
-  document.querySelectorAll('#tabs button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
-  document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));
-  $('rp-head').textContent=STAGE_NAME[st];}
+  if(st==='result'){closeModal();}
+  else{
+    document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
+    $('modal-title').textContent='Параметры модели · '+STAGE_NAME[st];
+    document.querySelectorAll('#mtabs button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
+    openModal();
+  }
+  document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
 function setTool(t){TOOL=t;
   document.querySelectorAll('#rseg button').forEach(b=>b.classList.toggle('on',b.dataset.tool===(t==='view'?'view':t)));
   document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
@@ -403,7 +422,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     }else{
       d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
     }
-    if(d.error){$('err').textContent=d.error;$('err').style.display='block';return;}
+    if(d.error){$('err').textContent=d.error;$('err').style.display='block';setConv('c','● '+d.error);return;}
     MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;
     CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
     BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
@@ -438,7 +457,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='running')continue;
       if(j.status==='done'){applyResult(j.result);break;}
-      $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● Ошибка расчёта');break;}
+      $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Рассчитать';}}
 
@@ -452,7 +471,12 @@ window.addEventListener('mousemove',e=>{const p=pos(e);if(p[0]>=0&&p[0]<=W&&p[1]
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
-document.querySelectorAll('#tabs button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
+document.querySelectorAll('#mtabs button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
+$('open-params').onclick=()=>setStage(['geom','mesh','mat','calc'].includes(STAGE)?STAGE:'geom');
+$('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage('result');
+$('m-calc').onclick=()=>{setStage('result');solve();};
+$('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
+window.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
