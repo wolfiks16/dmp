@@ -166,6 +166,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="rtgroup" id="rtools-geom">
         <span class="lbl">Геометрия</span>
         <div class="palette" id="toppalette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button><button data-add="polygon">＋ Полигон</button></div>
+        <label class="chk" style="white-space:nowrap;margin-left:4px"><input type="checkbox" id="snaptog" checked>к сетке</label>
+        <input class="num" id="snapstep" value="1" title="шаг привязки, мм" style="width:46px;padding:5px 6px">
         <span class="lbl" id="geomhint" style="letter-spacing:0;text-transform:none;color:var(--dim)"></span>
       </div>
       <div class="rtgroup" id="rtools-res" style="display:none">
@@ -323,11 +325,13 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
-let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null;
+let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
+function snapV(v){return SNAP?+(Math.round(v/SNAPSTEP)*SNAPSTEP).toFixed(3):+v.toFixed(1);}
+function worldSnap(p){const w=s2w(p[0],p[1]);return[snapV(w[0]),snapV(w[1])];}
 function resize(){const vp=cv.parentElement,w=vp.clientWidth|0,h=vp.clientHeight|0;if(w>20&&h>20){cv.width=w;cv.height=h;W=w;H=h;}}
 function fit(){if(!SCENE)return;const b=SCENE.bounds,span=Math.max(b.xmax-b.xmin,b.ymax-b.ymin);scale=(Math.min(W,H)*0.9)/span;base=scale;ox=W/2-(b.xmin+b.xmax)/2*scale;oy=H/2+(b.ymin+b.ymax)/2*scale;draw();}
 
@@ -340,7 +344,11 @@ function cellVal(i){const bx=BX[i],by=BY[i];if(COMP==='mag')return Math.hypot(bx
 function signedComp(){return SHOWFIELD&&COMP!=='mag';}
 
 function niceStep(){const t=64,c=[1,2,5,10,20,50];let bs=c[0],bd=1e9;c.forEach(s=>{const d=Math.abs(scale*s-t);if(d<bd){bd=d;bs=s;}});return bs;}
-function grid(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep();ctx.lineWidth=1;ctx.strokeStyle='#172032';
+function grid(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep();ctx.lineWidth=1;
+  if(MODE==='objects'&&SNAP&&scale*SNAPSTEP>=6){const ss=SNAPSTEP;ctx.strokeStyle='#111a27';
+    for(let x=Math.ceil(tl[0]/ss)*ss;x<=br[0];x+=ss){const s=w2s(x,0)[0];ctx.beginPath();ctx.moveTo(s,0);ctx.lineTo(s,H);ctx.stroke();}
+    for(let y=Math.ceil(br[1]/ss)*ss;y<=tl[1];y+=ss){const s=w2s(0,y)[1];ctx.beginPath();ctx.moveTo(0,s);ctx.lineTo(W,s);ctx.stroke();}}
+  ctx.strokeStyle='#172032';
   for(let x=Math.ceil(tl[0]/step)*step;x<=br[0];x+=step){const s=w2s(x,0)[0];ctx.beginPath();ctx.moveTo(s,0);ctx.lineTo(s,H);ctx.stroke();}
   for(let y=Math.ceil(br[1]/step)*step;y<=tl[1];y+=step){const s=w2s(0,y)[1];ctx.beginPath();ctx.moveTo(0,s);ctx.lineTo(W,s);ctx.stroke();}
   const ax=w2s(0,0);ctx.strokeStyle='#54658a';ctx.fillStyle='#93a2bd';ctx.font='10px ui-monospace,monospace';
@@ -579,27 +587,27 @@ function finishPolygon(){let pts=DRAW.pts.slice();
   while(pts.length>=2&&Math.hypot(pts[pts.length-1][0]-pts[pts.length-2][0],pts[pts.length-1][1]-pts[pts.length-2][1])<0.4)pts.pop();
   if(pts.length<3){cancelDraw();return;} finishDraw({points:pts});}
 cv.addEventListener('mousedown',e=>{const p=pos(e);
-  if(DRAW){if(DRAW.kind!=='polygon'){const w=s2w(p[0],p[1]);DRAW.start=[w[0],w[1]];DRAW.cur=[w[0],w[1]];}return;}
+  if(DRAW){if(DRAW.kind!=='polygon'){const w=worldSnap(p);DRAW.start=[w[0],w[1]];DRAW.cur=[w[0],w[1]];}return;}
   if(editable()){const w=s2w(p[0],p[1]);
     if(SEL>=0&&OBJECTS[SEL]){const h=hitHandle(OBJECTS[SEL],p);if(h){pushHist();EDIT={type:'handle',h};
       if(h.k==='rot'&&OBJECTS[SEL].kind==='polygon'){const pts=OBJECTS[SEL].params.points,cx=pts.reduce((a,b)=>a+b[0],0)/pts.length,cy=pts.reduce((a,b)=>a+b[1],0)/pts.length;EDIT.base=pts.map(q=>q.slice());EDIT.cen=[cx,cy];EDIT.a0=Math.atan2(w[1]-cy,w[0]-cx);}
       return;}}
     const idx=topObjectAt(w[0],w[1]);
-    if(idx>=0){SEL=idx;pushHist();EDIT={type:'move',origin:[w[0],w[1]],base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};renderObjects();editHint();draw();return;}
+    if(idx>=0){SEL=idx;pushHist();EDIT={type:'move',origin:worldSnap(p),base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};renderObjects();editHint();draw();return;}
     if(SEL!==-1){SEL=-1;renderObjects();editHint();draw();}}
   drag=true;moved=false;last=p;cv.classList.add('pan');});
 cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
 window.addEventListener('mouseup',e=>{const p=pos(e);
-  if(DRAW){const w=s2w(p[0],p[1]);
+  if(DRAW){const w=worldSnap(p);
     if(DRAW.kind==='polygon'){DRAW.pts.push([w[0],w[1]]);draw();return;}
     if(DRAW.start)finishDraw(paramsFromDrag(DRAW.kind,DRAW.start,[w[0],w[1]]));return;}
   if(EDIT){EDIT=null;renderObjects();editHint();draw();return;}
   if(drag&&!moved&&TOOL==='point'){const w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}
   drag=false;cv.classList.remove('pan');});
 window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H;if(inside){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
-  if(DRAW){if(inside){const w=s2w(p[0],p[1]);DRAW.cur=[w[0],w[1]];draw();}return;}
-  if(EDIT){const w=s2w(p[0],p[1]);
-    if(EDIT.type==='handle')applyHandle(OBJECTS[SEL],EDIT.h,w[0],w[1]);
+  if(DRAW){if(inside){const w=worldSnap(p);DRAW.cur=[w[0],w[1]];draw();}return;}
+  if(EDIT){const raw=s2w(p[0],p[1]),w=worldSnap(p);
+    if(EDIT.type==='handle'){const ang=EDIT.h.k==='rot'||EDIT.h.k==='a1'||EDIT.h.k==='a2';applyHandle(OBJECTS[SEL],EDIT.h,ang?raw[0]:w[0],ang?raw[1]:w[1]);}
     else{let dx=w[0]-EDIT.origin[0],dy=w[1]-EDIT.origin[1];if(e.shiftKey){if(Math.abs(dx)>=Math.abs(dy))dy=0;else dx=0;}setTranslate(OBJECTS[SEL],EDIT.base,dx,dy);}
     draw();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
@@ -620,6 +628,8 @@ window.addEventListener('keydown',e=>{
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
 $('toppalette').addEventListener('click',e=>{const add=e.target.dataset.add;if(add)startDraw(add);});
+$('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
+$('snapstep').onchange=e=>{SNAPSTEP=Math.max(0.1,+e.target.value||1);draw();};
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
