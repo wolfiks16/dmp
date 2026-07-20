@@ -28,7 +28,7 @@ from fastapi import Body, FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from magcore.domain.magnet_model import magnet_from_datasheet, n42sh_magnet, sm2co17_magnet
-from magcore.domain.steel_curves import m270_35a_bh_curve
+from magcore.domain.steel_curves import SteelBHCurve, m270_35a_bh_curve
 from magcore.fem2d.machines import (
     MachineScenario,
     OutrunnerPMSMParams,
@@ -165,8 +165,9 @@ def _do_solve(body: dict) -> dict:
     mid = str(body.get("mesh_id", "")) or _DEFAULT_MESH_ID
     if mid not in _GEOM:
         raise ValueError("сетка не найдена — постройте её заново.")
-    g, lay, steel = _GEOM[mid]
+    g, lay, _ = _GEOM[mid]
     magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
+    steel = _steel_by_id(str(body.get("steel", "steel")))
     scen = MachineScenario(geometry=g, magnet=magnet, steel=steel, layout=lay)
     # Метод Ньютона (дефолт solve_problem2d): сходится за ~20 итераций НА ЛЮБОЙ плотности,
     # без подбора релаксации под сетку. max_iter с запасом.
@@ -246,9 +247,10 @@ def api_job(jid: str) -> dict:
 # ---- БИБЛИОТЕКА МАТЕРИАЛОВ (встроенные + свои измеренные магниты, персист на диск) ----
 _MATERIALS_PATH = Path(__file__).parent / "materials.json"
 _BUILTIN_MAGNETS = {
-    "ndfeb": {"name": "NdFeB N42SH (представит.)", "builtin": True},
-    "smco": {"name": "SmCo КС25ДЦ (представит.)", "builtin": True},
+    "ndfeb": {"name": "NdFeB N42SH (представит.)"},
+    "smco": {"name": "SmCo КС25ДЦ (представит.)"},
 }
+_BUILTIN_STEELS = {"steel": {"name": "M270-35A (представит.)"}}   # 'steel' = дефолтная сталь
 
 
 def _load_custom_materials() -> dict:
@@ -268,7 +270,7 @@ def _magnet_by_id(mid: str):
     if mid == "smco":
         return sm2co17_magnet((1, 0, 0))
     spec = _load_custom_materials().get(mid)
-    if spec is not None:
+    if spec is not None and spec.get("kind", "magnet") == "magnet":
         return magnet_from_datasheet(
             mid, spec.get("name", mid), (1, 0, 0),
             Br=float(spec["Br"]), Hcb=float(spec["Hcb"]), Hk=float(spec["Hk"]),
@@ -278,12 +280,31 @@ def _magnet_by_id(mid: str):
     raise ValueError(f"неизвестный магнит {mid!r}.")
 
 
+def _is_steel(mid: str) -> bool:
+    if mid in _BUILTIN_STEELS or mid == "m270":
+        return True
+    spec = _load_custom_materials().get(mid)
+    return spec is not None and spec.get("kind") == "steel"
+
+
+def _steel_by_id(mid: str) -> SteelBHCurve:
+    """Кривая стали по id: встроенная M270 ('steel') или своя таблица B(H) из библиотеки."""
+    if mid in _BUILTIN_STEELS or mid == "m270":
+        return m270_35a_bh_curve()
+    spec = _load_custom_materials().get(mid)
+    if spec is not None and spec.get("kind") == "steel":
+        return SteelBHCurve(curve_id=mid, name=spec.get("name", mid),
+                            H_values=np.asarray(spec["H"], dtype=float),
+                            B_values=np.asarray(spec["B"], dtype=float))
+    raise ValueError(f"неизвестная сталь {mid!r}.")
+
+
 def _object_material(m: str):
     if m == "air":
         return Air()
-    if m == "steel":
-        return SteelMaterial(m270_35a_bh_curve())
-    return MagnetMaterial(_magnet_by_id(m))     # ndfeb|smco|свой из библиотеки
+    if _is_steel(m):
+        return SteelMaterial(_steel_by_id(m))
+    return MagnetMaterial(_magnet_by_id(m))     # ndfeb|smco|свой магнит
 
 
 def _geo_from(o: dict) -> GeoObject:
@@ -390,39 +411,57 @@ def api_object_solve(body: dict = Body(default={})) -> dict:
 
 @app.get("/api/materials")
 def api_materials() -> dict:
-    """Магниты для выпадающих списков: встроенные + свои (id, name, builtin)."""
-    out = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_MAGNETS.items()]
+    """Материалы для списков: магниты и стали (встроенные + свои)."""
+    magnets = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_MAGNETS.items()]
+    steels = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_STEELS.items()]
     for mid, spec in _load_custom_materials().items():
-        out.append({"id": mid, "name": spec.get("name", mid), "builtin": False})
-    return {"magnets": out}
+        entry = {"id": mid, "name": spec.get("name", mid), "builtin": False}
+        (steels if spec.get("kind") == "steel" else magnets).append(entry)
+    return {"magnets": magnets, "steels": steels}
+
+
+def _save_material_spec(mid: str, spec: dict) -> None:
+    store = _load_custom_materials()
+    store[mid] = spec
+    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 @app.post("/api/materials")
 def api_material_save(body: dict = Body(default={})) -> dict:
-    """Сохранить свой магнит. Вход: name + Br[Тл] + Hcb/Hk/Hcj[кА/м] + α_Br,γ_Hc[%/°C] + T0."""
+    """
+    Сохранить свой материал. kind='magnet': name + Br[Тл] + Hcb/Hk/Hcj[кА/м] + α_Br,γ_Hc.
+    kind='steel': name + points [[H А/м, B Тл], …] (монотонно от нуля, dH/dB ≤ 1/μ₀).
+    Валидация — сборкой доменной модели (magnet_from_datasheet / SteelBHCurve).
+    """
+    kind = str(body.get("kind", "magnet"))
     try:
         name = str(body.get("name", "")).strip()
         if not name:
             return {"error": "нужно имя материала."}
+        if kind == "steel":
+            pts = list(body["points"])
+            H = np.asarray([float(p[0]) for p in pts], dtype=float)
+            B = np.asarray([float(p[1]) for p in pts], dtype=float)
+            mid = "cust_" + hashlib.sha1(("steel:" + name).encode()).hexdigest()[:8]
+            curve = SteelBHCurve(curve_id=mid, name=name, H_values=H, B_values=B)  # валидирует
+            spec = {"kind": "steel", "name": name, "H": H.tolist(), "B": B.tolist()}
+            _save_material_spec(mid, spec)
+            return {"id": mid, "ok": True, "n_points": int(curve.n_points),
+                    "B_max": round(float(curve.B_max), 3)}
         spec = {
-            "name": name,
-            "Br": float(body["Br"]),
-            "Hcb": float(body["Hcb_kA"]) * 1e3,
-            "Hk": float(body["Hk_kA"]) * 1e3,
-            "Hcj": float(body["Hcj_kA"]) * 1e3,
+            "kind": "magnet", "name": name,
+            "Br": float(body["Br"]), "Hcb": float(body["Hcb_kA"]) * 1e3,
+            "Hk": float(body["Hk_kA"]) * 1e3, "Hcj": float(body["Hcj_kA"]) * 1e3,
             "alpha_Br": float(body.get("alpha_Br", 0.12)),
-            "gamma_Hc": float(body.get("gamma_Hc", 0.6)),
-            "T0": float(body.get("T0", 20.0)),
+            "gamma_Hc": float(body.get("gamma_Hc", 0.6)), "T0": float(body.get("T0", 20.0)),
         }
         mid = "cust_" + hashlib.sha1(name.encode()).hexdigest()[:8]
         mg = magnet_from_datasheet(mid, name, (1, 0, 0), Br=spec["Br"], Hcb=spec["Hcb"],
                                    Hk=spec["Hk"], Hcj=spec["Hcj"], alpha_Br=spec["alpha_Br"],
                                    gamma_Hc=spec["gamma_Hc"], T0=spec["T0"])  # валидирует
-    except (KeyError, ValueError, TypeError) as e:
+    except (KeyError, ValueError, TypeError, IndexError) as e:
         return {"error": f"некорректные параметры: {e}"}
-    store = _load_custom_materials()
-    store[mid] = spec
-    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+    _save_material_spec(mid, spec)
     return {"id": mid, "ok": True, "mu_rec": round(float(mg.mu_rec), 4),
             "temp_limit": round(float(mg.temperature_limit()), 1)}
 

@@ -194,8 +194,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       </div>
       <!-- МАТЕРИАЛЫ -->
       <div class="rp-stage" data-stage="mat">
-        <div class="field"><label>Магнит модели (PMSM)</label><select class="select" id="material"></select></div>
-        <p class="hint">Сталь ярма/зубцов — M270-35A (кривая B(H)). В объектном режиме материал задаётся на объект.</p>
+        <div class="row2"><div class="field"><label>Магнит (PMSM)</label><select class="select" id="material"></select></div><div class="field"><label>Сталь (PMSM)</label><select class="select" id="steel"></select></div></div>
+        <p class="hint">В объектном режиме материал задаётся на каждый объект.</p>
         <hr>
         <h4>Свои материалы · магниты</h4>
         <div id="matlist"></div>
@@ -206,6 +206,23 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div class="row2"><div class="field"><label>α_Br, %/°C</label><input class="num" id="mat-aBr" value="0.03"></div><div class="field"><label>γ_Hc, %/°C</label><input class="num" id="mat-gHc" value="0.20"></div></div>
           <button class="applybtn" id="mat-save">Сохранить магнит</button>
           <div class="hint" id="mat-info">Br — ремнантность; HcB/HcJ — коэрцитивности; Hk — поле колена (Hk &lt; HcJ). Температурные коэффициенты — падение %/°C.</div>
+        </div>
+        <hr>
+        <h4>Свои материалы · сталь B(H)</h4>
+        <div id="steellist"></div>
+        <div class="objedit">
+          <div class="field"><label>Название</label><input id="st-name" value="Моя сталь (измер.)" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
+          <div class="field"><label>Таблица: H [А/м]&nbsp;&nbsp;B [Тл] — строка на точку, начиная с «0 0»</label>
+            <textarea id="st-table" rows="8" spellcheck="false" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:8px 9px;border-radius:6px;font:500 11.5px/1.5 var(--mono);resize:vertical">0 0
+30 0.15
+60 0.40
+150 1.00
+600 1.48
+5000 1.78
+30000 1.98
+160000 2.21</textarea></div>
+          <button class="applybtn" id="st-save">Сохранить сталь</button>
+          <div class="hint" id="st-info">B и H строго возрастают от нуля; наклон dH/dB ≤ 1/μ₀ (иначе отвергнуто как нефизичное).</div>
         </div>
       </div>
       <!-- РАСЧЁТ -->
@@ -273,7 +290,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
-let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[];
+let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[];
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
@@ -409,7 +426,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
   const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
   const url=MODE==='objects'?'/api/object_solve':'/api/solve';
   const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value}
-    :{mesh_id:MESH_ID,material:$('material').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+    :{mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
   try{const {job_id}=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');
       const j=await(await fetch('/api/jobs/'+job_id)).json();
@@ -445,10 +462,10 @@ $('material').addEventListener('change',()=>{if(SCENE&&MODE==='pmsm')populateMod
 const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90}};
 const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор'};
 const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высота',angle:'Угол',r:'Радиус',r_in:'R внутр.',r_out:'R внешн.',a1:'Угол от',a2:'Угол до'};
-function isMagnet(mid){return mid!=='air'&&mid!=='steel';}
-function matSwatch(mid){return mid==='air'?'#202a3b':mid==='steel'?'#48586e':'#7e64a6';}
-function matTag(mid){if(mid==='air')return'возд.';if(mid==='steel')return'M270';const m=MAGNETS.find(x=>x.id===mid);return m?(m.builtin?(mid==='smco'?'SmCo':'N42SH'):'свой'):'магн';}
-function matOptions(sel){const base=[['steel','Сталь M270'],['air','Воздух']].concat(MAGNETS.map(m=>[m.id,m.name]));return base.map(a=>'<option value="'+a[0]+'"'+(a[0]===sel?' selected':'')+'>'+a[1]+'</option>').join('');}
+function isMagnet(mid){return mid!=='air'&&!STEELS.some(s=>s.id===mid);}
+function matSwatch(mid){return mid==='air'?'#202a3b':STEELS.some(s=>s.id===mid)?'#48586e':'#7e64a6';}
+function matTag(mid){if(mid==='air')return'возд.';const st=STEELS.find(s=>s.id===mid);if(st)return st.builtin?'M270':'сталь';const m=MAGNETS.find(x=>x.id===mid);return m?(m.builtin?(mid==='smco'?'SmCo':'N42SH'):'свой'):'магн';}
+function matOptions(sel){const base=[['air','Воздух']].concat(STEELS.map(s=>[s.id,s.name])).concat(MAGNETS.map(m=>[m.id,m.name]));return base.map(a=>'<option value="'+a[0]+'"'+(a[0]===sel?' selected':'')+'>'+a[1]+'</option>').join('');}
 function seedObjects(){OBJECTS=[
   {name:'Стальная пластина',kind:'rect',params:{cx:-8,cy:0,w:10,h:20,angle:0},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10},
   {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9,priority:10}
@@ -494,12 +511,25 @@ $('modekind').onchange=e=>{MODE=e.target.value;
   $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';};
 
 // ---- Библиотека материалов (магниты) ----
-async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];
-  const cur=$('material').value;
+async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
+  const cm=$('material').value,cs=$('steel').value;
   $('material').innerHTML=MAGNETS.map(m=>'<option value="'+m.id+'">'+m.name+'</option>').join('');
-  if(MAGNETS.some(m=>m.id===cur))$('material').value=cur;
-  $('matlist').innerHTML=MAGNETS.filter(m=>!m.builtin).map(m=>'<div class="objrow"><span class="sw" style="background:#7e64a6"></span><span class="oname">'+m.name+'</span><button class="del" data-delmat="'+m.id+'" title="удалить">✕</button></div>').join('')||'<p class="hint">Свои магниты появятся здесь.</p>';
+  $('steel').innerHTML=STEELS.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+  if(MAGNETS.some(m=>m.id===cm))$('material').value=cm;
+  if(STEELS.some(s=>s.id===cs))$('steel').value=cs;
+  const delrow=(x,c)=>'<div class="objrow"><span class="sw" style="background:'+c+'"></span><span class="oname">'+x.name+'</span><button class="del" data-delmat="'+x.id+'" title="удалить">✕</button></div>';
+  $('matlist').innerHTML=MAGNETS.filter(m=>!m.builtin).map(m=>delrow(m,'#7e64a6')).join('')||'<p class="hint">Свои магниты появятся здесь.</p>';
+  $('steellist').innerHTML=STEELS.filter(s=>!s.builtin).map(s=>delrow(s,'#48586e')).join('')||'<p class="hint">Свои стали появятся здесь.</p>';
   if(SEL>=0&&MODE==='objects')renderObjects();}
+async function saveSteel(){const btn=$('st-save');btn.disabled=true;
+  const pts=$('st-table').value.trim().split('\n').map(l=>l.trim().split(/[\s,]+/).map(Number)).filter(a=>a.length>=2&&a.every(x=>isFinite(x)));
+  try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'steel',name:$('st-name').value,points:pts})})).json();
+    if(d.error)$('st-info').innerHTML='<span style="color:var(--crit)">'+d.error+'</span>';
+    else{$('st-info').innerHTML='<span style="color:var(--good)">Сохранено. точек '+d.n_points+', B_max '+d.B_max+' Тл</span>';await loadMaterials();}
+  }catch(e){$('st-info').innerHTML='<span style="color:var(--crit)">Ошибка: '+e+'</span>';}
+  finally{btn.disabled=false;}}
+$('st-save').onclick=saveSteel;
+$('steellist').addEventListener('click',async e=>{const id=e.target.dataset.delmat;if(id){await fetch('/api/materials/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});await loadMaterials();}});
 async function saveMaterial(){const btn=$('mat-save');btn.disabled=true;
   const body={name:$('mat-name').value,Br:+$('mat-Br').value,Hcb_kA:+$('mat-Hcb').value,Hk_kA:+$('mat-Hk').value,Hcj_kA:+$('mat-Hcj').value,alpha_Br:+$('mat-aBr').value,gamma_Hc:+$('mat-gHc').value};
   try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
