@@ -117,6 +117,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .modal-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line)}
 .modal-body #geomfields,.modal-body #meshfields{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
 .modal-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
+.draw-hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:#0d1420f2;border:1px solid var(--accent2);color:var(--accent);font:600 11.5px/1.3 var(--mono);padding:8px 13px;border-radius:7px;z-index:6;max-width:88%;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.4)}
+.draw-hint b{color:#eafff6}
 .status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
 .status .g{color:var(--good)}.status .c{color:var(--crit)}.status .r{margin-left:auto;display:flex;gap:12px}
 </style></head>
@@ -125,7 +127,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
   <span class="wb-title" id="wbtitle">outrunner PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
-  <div class="wb-actions"><button class="btn" id="open-params">⚙ Параметры</button><button class="btn pri" id="calc">Рассчитать</button></div>
+  <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
 </div>
 
@@ -165,6 +167,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="viewport">
         <canvas id="cv"></canvas>
         <div class="vp-overlay" id="vplbl"><b>Геометрия модели</b></div>
+        <div class="draw-hint" id="draw-hint" style="display:none"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
         <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
       </div>
@@ -177,7 +180,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     <div class="rp">
       <div class="modal-ov" id="modal-ov"><div class="modal">
         <div class="modal-head"><span id="modal-title">Параметры модели</span><button class="modal-x" id="modal-x">✕</button></div>
-        <div class="modal-tabs" id="mtabs"><button data-stage="geom">Геометрия</button><button data-stage="mesh">Сетка</button><button data-stage="mat">Материалы</button><button data-stage="calc">Расчёт</button></div>
         <div class="modal-body">
       <!-- ГЕОМЕТРИЯ -->
       <div class="rp-stage" data-stage="geom">
@@ -187,7 +189,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div id="geomfields"></div>
         </div>
         <div id="geom-objects" style="display:none">
-          <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button></div>
+          <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button><button data-add="polygon">＋ Полигон</button></div>
+          <p class="hint" style="margin:0 0 9px">Выбери фигуру → нарисуй на холсте мышью (окно свернётся). Параметры потом можно уточнить в полях.</p>
           <div id="objlist2"></div>
           <div class="objedit" id="objedit"></div>
           <div class="objedit">
@@ -309,7 +312,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
-let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[];
+let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
@@ -343,7 +346,45 @@ function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE){return;
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let col;if(showF){const v=cellVal(i);col=sgn?diverging(v/VMAX):ramp(v/VMAX);}else col=null;
     ctx.fillStyle=col?'rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')':regColor(''+REG[i]);ctx.fill();}
+  if(MODE==='objects')drawObjects();
+  if(DRAW)drawPreview();
   overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';}
+
+// контуры объектов свободной модели (видны до сборки) + предпросмотр рисуемой фигуры
+function shapePath(o){const p=o.params,DEG=Math.PI/180;ctx.beginPath();
+  if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(a),s=Math.sin(a),w2=p.w/2,h2=p.h/2,
+    cor=[[-w2,-h2],[w2,-h2],[w2,h2],[-w2,h2]].map(q=>w2s(p.cx+q[0]*c-q[1]*s,p.cy+q[0]*s+q[1]*c));
+    ctx.moveTo(cor[0][0],cor[0][1]);for(let i=1;i<4;i++)ctx.lineTo(cor[i][0],cor[i][1]);ctx.closePath();}
+  else if(o.kind==='circle'){for(let i=0;i<=64;i++){const a=i/64*2*Math.PI,q=w2s(p.cx+p.r*Math.cos(a),p.cy+p.r*Math.sin(a));i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);}ctx.closePath();}
+  else if(o.kind==='ring'){for(let i=0;i<=64;i++){const a=i/64*2*Math.PI,q=w2s(p.cx+p.r_out*Math.cos(a),p.cy+p.r_out*Math.sin(a));i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);}ctx.closePath();
+    for(let i=0;i<=64;i++){const a=i/64*2*Math.PI,q=w2s(p.cx+p.r_in*Math.cos(a),p.cy+p.r_in*Math.sin(a));i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);}ctx.closePath();}
+  else if(o.kind==='sector'){const a1=(p.a1||0)*DEG,a2=(p.a2||0)*DEG,N=48;
+    let q=w2s(p.cx+p.r_in*Math.cos(a1),p.cy+p.r_in*Math.sin(a1));ctx.moveTo(q[0],q[1]);
+    for(let i=0;i<=N;i++){const a=a1+(a2-a1)*i/N;q=w2s(p.cx+p.r_out*Math.cos(a),p.cy+p.r_out*Math.sin(a));ctx.lineTo(q[0],q[1]);}
+    for(let i=N;i>=0;i--){const a=a1+(a2-a1)*i/N;q=w2s(p.cx+p.r_in*Math.cos(a),p.cy+p.r_in*Math.sin(a));ctx.lineTo(q[0],q[1]);}ctx.closePath();}
+  else if(o.kind==='polygon'){p.points.forEach((pt,i)=>{const q=w2s(pt[0],pt[1]);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);});ctx.closePath();}}
+function drawObjects(){for(let i=0;i<OBJECTS.length;i++){const o=OBJECTS[i];shapePath(o);
+  ctx.fillStyle=matSwatch(o.material)+'66';ctx.fill('evenodd');
+  ctx.lineWidth=(i===SEL)?2.4:1.3;ctx.strokeStyle=(i===SEL)?'#2fd39c':'#a7b6d0';ctx.stroke();}}
+function paramsFromDrag(kind,a,b){const cx=(a[0]+b[0])/2,cy=(a[1]+b[1])/2,dw=Math.abs(b[0]-a[0]),dh=Math.abs(b[1]-a[1]),r=Math.hypot(b[0]-a[0],b[1]-a[1]);
+  if(kind==='rect')return{cx,cy,w:Math.max(dw,0.5),h:Math.max(dh,0.5),angle:0};
+  if(kind==='circle')return{cx:a[0],cy:a[1],r:Math.max(r,0.5)};
+  if(kind==='ring')return{cx:a[0],cy:a[1],r_in:Math.max(r/2,0.3),r_out:Math.max(r,0.6)};
+  return{cx:a[0],cy:a[1],r_in:Math.max(r/2,0.3),r_out:Math.max(r,0.6),a1:0,a2:90};}
+function drawPreview(){ctx.save();ctx.lineWidth=1.8;ctx.strokeStyle='#2fd39c';ctx.setLineDash([6,4]);
+  if(DRAW.kind==='polygon'){if(DRAW.pts.length){ctx.beginPath();DRAW.pts.forEach((pt,i)=>{const q=w2s(pt[0],pt[1]);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);});if(DRAW.cur){const q=w2s(DRAW.cur[0],DRAW.cur[1]);ctx.lineTo(q[0],q[1]);}ctx.stroke();
+    ctx.setLineDash([]);ctx.fillStyle='#2fd39c';DRAW.pts.forEach(pt=>{const q=w2s(pt[0],pt[1]);ctx.beginPath();ctx.arc(q[0],q[1],3,0,7);ctx.fill();});}}
+  else if(DRAW.start&&DRAW.cur){shapePath({kind:DRAW.kind,params:paramsFromDrag(DRAW.kind,DRAW.start,DRAW.cur)});ctx.stroke();}
+  ctx.restore();}
+function rnd(o){const r={};for(const k in o)r[k]=Array.isArray(o[k])?o[k].map(p=>[+p[0].toFixed(1),+p[1].toFixed(1)]):+o[k].toFixed(2);return r;}
+function startDraw(kind){DRAW={kind,start:null,cur:null,pts:[]};cv.classList.add('pt');closeModal();
+  $('draw-hint').style.display='block';
+  $('draw-hint').innerHTML=kind==='polygon'?'<b>Полигон:</b> клик — вершина · двойной клик или Enter — замкнуть · Esc — отмена'
+    :(kind==='rect'?'<b>Прямоугольник:</b> зажми и тяни из угла в угол · Esc — отмена':'<b>'+KINDRU[kind]+':</b> клик в центр и тяни радиус · Esc — отмена');
+  draw();}
+function endDraw(){DRAW=null;cv.classList.remove('pt');$('draw-hint').style.display='none';}
+function cancelDraw(){endDraw();setStage('geom');draw();}
+function finishDraw(params){OBJECTS.push({name:KINDRU[DRAW.kind]+' '+(OBJECTS.length+1),kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();setStage('geom');renderObjects();draw();}
 
 function stops(f,a,b){let s=[];for(let i=0;i<=8;i++){const t=a+(b-a)*i/8,c=f(t);s.push('rgb('+c.map(x=>x|0).join(',')+') '+(i/8*100|0)+'%');}return s.join(',');}
 function bars(){const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
@@ -383,8 +424,7 @@ function setStage(st){STAGE=st;
   if(st==='result'){closeModal();}
   else{
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
-    $('modal-title').textContent='Параметры модели · '+STAGE_NAME[st];
-    document.querySelectorAll('#mtabs button').forEach(b=>b.classList.toggle('on',b.dataset.stage===st));
+    $('modal-title').textContent=STAGE_NAME[st];
     openModal();
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
@@ -465,18 +505,31 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
 let drag=false,moved=false,last=[0,0];
 const pos=e=>{const r=cv.getBoundingClientRect();return[(e.clientX-r.left)/r.width*W,(e.clientY-r.top)/r.height*H];};
 cv.addEventListener('wheel',e=>{e.preventDefault();const p=pos(e),wx=(p[0]-ox)/scale,wy=(oy-p[1])/scale,f=Math.exp(-e.deltaY*0.0016);scale=clamp(scale*f,base*0.3,base*40);ox=p[0]-wx*scale;oy=p[1]+wy*scale;draw();},{passive:false});
-cv.addEventListener('mousedown',e=>{drag=true;moved=false;last=pos(e);cv.classList.add('pan');});
-window.addEventListener('mouseup',e=>{if(drag&&!moved&&TOOL==='point'){const p=pos(e),w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}drag=false;cv.classList.remove('pan');});
-window.addEventListener('mousemove',e=>{const p=pos(e);if(p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
+function finishPolygon(){let pts=DRAW.pts.slice();
+  while(pts.length>=2&&Math.hypot(pts[pts.length-1][0]-pts[pts.length-2][0],pts[pts.length-1][1]-pts[pts.length-2][1])<0.4)pts.pop();
+  if(pts.length<3){cancelDraw();return;} finishDraw({points:pts});}
+cv.addEventListener('mousedown',e=>{const p=pos(e);
+  if(DRAW){if(DRAW.kind!=='polygon'){const w=s2w(p[0],p[1]);DRAW.start=[w[0],w[1]];DRAW.cur=[w[0],w[1]];}return;}
+  drag=true;moved=false;last=p;cv.classList.add('pan');});
+cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
+window.addEventListener('mouseup',e=>{const p=pos(e);
+  if(DRAW){const w=s2w(p[0],p[1]);
+    if(DRAW.kind==='polygon'){DRAW.pts.push([w[0],w[1]]);draw();return;}
+    if(DRAW.start)finishDraw(paramsFromDrag(DRAW.kind,DRAW.start,[w[0],w[1]]));return;}
+  if(drag&&!moved&&TOOL==='point'){const w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}
+  drag=false;cv.classList.remove('pan');});
+window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H;if(inside){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
+  if(DRAW){if(inside){const w=s2w(p[0],p[1]);DRAW.cur=[w[0],w[1]];draw();}return;}
+  if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
-document.querySelectorAll('#mtabs button').forEach(b=>{if(b.dataset.stage)b.onclick=()=>setStage(b.dataset.stage);});
-$('open-params').onclick=()=>setStage(['geom','mesh','mat','calc'].includes(STAGE)?STAGE:'geom');
 $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage('result');
 $('m-calc').onclick=()=>{setStage('result');solve();};
 $('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
-window.addEventListener('keydown',e=>{if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
+window.addEventListener('keydown',e=>{
+  if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
+  if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{setTool(b.dataset.tool);if(b.dataset.tool!=='view')setStage('result');});
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
@@ -489,8 +542,8 @@ $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r
 $('material').addEventListener('change',()=>{if(SCENE&&MODE==='pmsm')populateModel();});
 
 // ---- Объектный редактор (свободная модель) ----
-const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90}};
-const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор'};
+const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx:0,cy:0,r_in:5,r_out:10},sector:{cx:0,cy:0,r_in:5,r_out:10,a1:0,a2:90},polygon:{points:[[0,0],[10,0],[5,8]]}};
+const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор',polygon:'Полигон'};
 const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высота',angle:'Угол',r:'Радиус',r_in:'R внутр.',r_out:'R внешн.',a1:'Угол от',a2:'Угол до'};
 function isMagnet(mid){return mid!=='air'&&!STEELS.some(s=>s.id===mid);}
 function matSwatch(mid){return mid==='air'?'#202a3b':STEELS.some(s=>s.id===mid)?'#48586e':'#7e64a6';}
@@ -501,14 +554,16 @@ function seedObjects(){OBJECTS=[
   {name:'Магнит',kind:'circle',params:{cx:8,cy:0,r:5},material:'ndfeb',magnet_dir:'x',current:0,mesh_size_mm:0.9,priority:10}
 ];SEL=1;}
 function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),kind,params:{...OBJDEF[kind]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;renderObjects();}
-function delObject(i){OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();}
+function delObject(i){OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();draw();}
 function angUnit(k){return(k==='angle'||k==='a1'||k==='a2')?'°':'мм';}
 function renderObjects(){
   $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+matSwatch(o.material)+'"></span><span class="oname">'+o.name+'</span><span class="opri" title="приоритет наложения">P'+(o.priority||1)+'</span><button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
   const o=OBJECTS[SEL];
   if(!o){$('objedit').innerHTML='';}
   else{
-    const par=Object.keys(o.params).map(k=>'<div class="mrow"><label>'+(PARAMRU[k]||k)+'</label><input class="num opar" data-k="'+k+'" value="'+o.params[k]+'" style="width:70px"><span class="u">'+angUnit(k)+'</span></div>').join('');
+    const par=o.kind==='polygon'
+      ? '<div class="mrow"><label>Полигон</label><span style="color:var(--muted);font:600 12px/1 var(--mono)">'+o.params.points.length+' вершин</span></div>'
+      : Object.keys(o.params).map(k=>'<div class="mrow"><label>'+(PARAMRU[k]||k)+'</label><input class="num opar" data-k="'+k+'" value="'+o.params[k]+'" style="width:70px"><span class="u">'+angUnit(k)+'</span></div>').join('');
     let extra='';
     if(isMagnet(o.material))extra='<div class="field"><label>Намагничивание</label><select class="select oedit" data-f="magnet_dir"><option value="radial">Радиально наружу</option><option value="radial-in">Радиально внутрь</option><option value="x">По оси +X</option><option value="y">По оси +Y</option></select></div>';
     else extra='<div class="mrow"><label>Плотн. тока J</label><input class="num oedit" data-f="current" value="'+(o.current?(o.current/1e6):0)+'" style="width:70px"><span class="u">А/мм²</span></div>';
@@ -518,7 +573,7 @@ function renderObjects(){
       +'<div class="field"><label>Материал</label><select class="select oedit" data-f="material">'+matOptions(o.material)+'</select></div>'
       +par+extra;
     const md=$('objedit').querySelector('[data-f="magnet_dir"]');if(md)md.value=(typeof o.magnet_dir==='string'?o.magnet_dir:'x');
-    $('objedit').querySelectorAll('.opar').forEach(inp=>inp.onchange=()=>{OBJECTS[SEL].params[inp.dataset.k]=+inp.value;});
+    $('objedit').querySelectorAll('.opar').forEach(inp=>inp.onchange=()=>{OBJECTS[SEL].params[inp.dataset.k]=+inp.value;draw();});
     $('objedit').querySelectorAll('.oedit').forEach(el=>el.onchange=()=>{const f=el.dataset.f,v=el.value;
       if(f==='current')OBJECTS[SEL].current=(+v||0)*1e6;
       else if(f==='mesh_size_mm')OBJECTS[SEL][f]=(v===''?'':+v);
@@ -529,16 +584,16 @@ function renderObjects(){
   if(MODE==='objects')$('objlist').innerHTML=OBJECTS.map(o=>'<div class="node i1"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span></div>').join('');
 }
 $('geom-objects').addEventListener('click',e=>{
-  const add=e.target.dataset.add;if(add){addObject(add);return;}
+  const add=e.target.dataset.add;if(add){startDraw(add);return;}
   const del=e.target.dataset.del;if(del!==undefined){e.stopPropagation();delObject(+del);return;}
-  const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();}});
+  const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();draw();}});
 $('modekind').onchange=e=>{MODE=e.target.value;
   $('geom-pmsm').style.display=MODE==='pmsm'?'block':'none';
   $('geom-objects').style.display=MODE==='objects'?'block':'none';
   $('calc-machine').style.display=MODE==='objects'?'none':'block';
   if(MODE==='objects'&&!OBJECTS.length)seedObjects();
   if(MODE==='objects')renderObjects();
-  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';};
+  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';draw();};
 
 // ---- Библиотека материалов (магниты) ----
 async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
