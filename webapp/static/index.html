@@ -95,11 +95,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 .reshead{font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin:12px 0 2px}
 .palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-.palette button{flex:1;min-width:70px;background:var(--panel2);border:1px solid var(--line2);color:var(--text);padding:7px 6px;border-radius:6px;font:600 11px/1 var(--ui);cursor:pointer}
+.palette button{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line2);color:var(--muted);padding:6px 9px;border-radius:6px;cursor:pointer;display:grid;place-items:center}
 .palette button:hover{border-color:var(--accent2);color:var(--accent)}
+.palette button svg{width:18px;height:18px;pointer-events:none;display:block}
 .rtgroup{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
 #toppalette{margin:0;flex-wrap:nowrap;flex:0 0 auto}
-#toppalette button{flex:0 0 auto;min-width:0;padding:6px 9px;font-size:11px}
 .objrow{display:flex;align-items:center;gap:7px;padding:6px 8px;border-radius:5px;cursor:pointer;font-size:12px;border:1px solid transparent}
 .objrow:hover{background:var(--panel2)}.objrow.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
 .objrow .sw{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid var(--line2)}
@@ -165,9 +165,16 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     <div class="rtools">
       <div class="rtgroup" id="rtools-geom">
         <span class="lbl">Геометрия</span>
-        <div class="palette" id="toppalette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button><button data-add="polygon">＋ Полигон</button></div>
+        <div class="palette" id="toppalette">
+          <button data-add="rect" title="Прямоугольник"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5.5" width="14" height="9" rx="1"/></svg></button>
+          <button data-add="circle" title="Круг"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.6"/></svg></button>
+          <button data-add="ring" title="Кольцо"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.3"/></svg></button>
+          <button data-add="sector" title="Сектор"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 10 L17.5 10 A7.5 7.5 0 0 0 10 2.5 Z"/></svg></button>
+          <button data-add="polygon" title="Полигон"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="10,3 16.6,8 14,16 6,16 3.4,8"/></svg></button>
+        </div>
         <label class="chk" style="white-space:nowrap;margin-left:4px"><input type="checkbox" id="snaptog" checked>к сетке</label>
         <input class="num" id="snapstep" value="1" title="шаг привязки, мм" style="width:46px;padding:5px 6px">
+        <label class="chk" style="white-space:nowrap"><input type="checkbox" id="moveen" checked>перемещение</label>
         <span class="lbl" id="geomhint" style="letter-spacing:0;text-transform:none;color:var(--dim)"></span>
       </div>
       <div class="rtgroup" id="rtools-res" style="display:none">
@@ -202,7 +209,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div id="geomfields"></div>
         </div>
         <div id="geom-objects" style="display:none">
-          <div class="palette"><button data-add="rect">＋ Прямоуг.</button><button data-add="circle">＋ Круг</button><button data-add="ring">＋ Кольцо</button><button data-add="sector">＋ Сектор</button><button data-add="polygon">＋ Полигон</button></div>
+          <div class="palette">
+            <button data-add="rect" title="Прямоугольник"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5.5" width="14" height="9" rx="1"/></svg></button>
+            <button data-add="circle" title="Круг"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.6"/></svg></button>
+            <button data-add="ring" title="Кольцо"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.3"/></svg></button>
+            <button data-add="sector" title="Сектор"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 10 L17.5 10 A7.5 7.5 0 0 0 10 2.5 Z"/></svg></button>
+            <button data-add="polygon" title="Полигон"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="10,3 16.6,8 14,16 6,16 3.4,8"/></svg></button>
+          </div>
           <p class="hint" style="margin:0 0 9px">Выбери фигуру → нарисуй на холсте мышью (окно свернётся). Параметры потом можно уточнить в полях.</p>
           <div id="objlist2"></div>
           <div class="objedit" id="objedit"></div>
@@ -325,7 +338,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
-let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1;
+let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
@@ -418,7 +431,7 @@ function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
-  $('geomhint').textContent=MODE==='objects'?'— добавь фигуру и нарисуй на холсте, потом «Рассчитать»':'параметрический мотор: размеры в окне «Геометрия»';}
+  $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
 function invalidateField(){if(!BX)return;BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
@@ -603,7 +616,7 @@ cv.addEventListener('mousedown',e=>{const p=pos(e);
       if(h.k==='rot'&&OBJECTS[SEL].kind==='polygon'){const pts=OBJECTS[SEL].params.points,cx=pts.reduce((a,b)=>a+b[0],0)/pts.length,cy=pts.reduce((a,b)=>a+b[1],0)/pts.length;EDIT.base=pts.map(q=>q.slice());EDIT.cen=[cx,cy];EDIT.a0=Math.atan2(w[1]-cy,w[0]-cx);}
       return;}}
     const idx=topObjectAt(w[0],w[1]);
-    if(idx>=0){SEL=idx;pushHist();EDIT={type:'move',origin:worldSnap(p),base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};renderObjects();editHint();draw();return;}
+    if(idx>=0){SEL=idx;if(MOVEEN){pushHist();EDIT={type:'move',origin:worldSnap(p),base:JSON.parse(JSON.stringify(OBJECTS[idx].params))};}renderObjects();editHint();draw();return;}
     if(SEL!==-1){SEL=-1;renderObjects();editHint();draw();}}
   drag=true;moved=false;last=p;cv.classList.add('pan');});
 cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
@@ -640,9 +653,10 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
-$('toppalette').addEventListener('click',e=>{const add=e.target.dataset.add;if(add)startDraw(add);});
+$('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
 $('snapstep').onchange=e=>{SNAPSTEP=Math.max(0.1,+e.target.value||1);draw();};
+$('moveen').onchange=e=>{MOVEEN=e.target.checked;};
 $('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
@@ -697,7 +711,7 @@ function renderObjects(){
   if(MODE==='objects')$('objlist').innerHTML=OBJECTS.map(o=>'<div class="node i1"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span></div>').join('');
 }
 $('geom-objects').addEventListener('click',e=>{
-  const add=e.target.dataset.add;if(add){startDraw(add);return;}
+  const b=e.target.closest('[data-add]');if(b){startDraw(b.dataset.add);return;}
   const del=e.target.dataset.del;if(del!==undefined){e.stopPropagation();delObject(+del);return;}
   const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();draw();}});
 $('modekind').onchange=e=>{MODE=e.target.value;
