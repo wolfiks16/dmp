@@ -466,6 +466,25 @@ def api_material_save(body: dict = Body(default={})) -> dict:
             "temp_limit": round(float(mg.temperature_limit()), 1)}
 
 
+@app.post("/api/magnet_curve")
+def api_magnet_curve(body: dict = Body(default={})) -> dict:
+    """Кривая размагничивания B(H) магнита при T (по методике curve_at) + колено/Br(T)/Hk(T)."""
+    try:
+        m = _magnet_by_id(str(body.get("material", "ndfeb")))
+        T = float(body.get("T", 20.0))
+        c = m.curve_at(T)                          # перестраивается по методике при T
+        Hk = float(m.Hk(T))
+        B_knee = float(c.B_of_H(-Hk))
+    except Exception as e:  # noqa: BLE001 — T вне диапазона модели и пр. → в UI
+        return {"error": str(e)}
+    return {
+        "H": np.round(c.H_values, 1).tolist(), "B": np.round(c.B_values, 4).tolist(),
+        "Br": round(float(m.Br(T)), 4), "Hcb": round(float(m.Hcb(T)), 1),
+        "Hk": round(Hk, 1), "B_knee": round(B_knee, 4),
+        "mu_rec": round(float(m.mu_rec), 4), "T_limit": round(float(m.temperature_limit()), 1),
+    }
+
+
 @app.post("/api/materials/delete")
 def api_material_delete(body: dict = Body(default={})) -> dict:
     store = _load_custom_materials()

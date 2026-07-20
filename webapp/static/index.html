@@ -197,6 +197,12 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="row2"><div class="field"><label>Магнит (PMSM)</label><select class="select" id="material"></select></div><div class="field"><label>Сталь (PMSM)</label><select class="select" id="steel"></select></div></div>
         <p class="hint">В объектном режиме материал задаётся на каждый объект.</p>
         <hr>
+        <h4>Кривая размагничивания B(H) при T</h4>
+        <div class="row2"><div class="field"><label>Магнит</label><select class="select" id="curve-mat"></select></div><div class="field"><label>T, °C</label><input class="num" id="curve-T" value="20"></div></div>
+        <div id="curve-plot"></div>
+        <div class="hint" id="curve-info"></div>
+        <p class="hint">Кривая строится по методике из даташит-параметров (recoil-прямая + касательная парабола) и перестраивается при любой T двумя коэффициентами α_Br, γ_Hc.</p>
+        <hr>
         <h4>Свои материалы · магниты</h4>
         <div id="matlist"></div>
         <div class="objedit">
@@ -517,10 +523,35 @@ async function loadMaterials(){const r=await(await fetch('/api/materials')).json
   $('steel').innerHTML=STEELS.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
   if(MAGNETS.some(m=>m.id===cm))$('material').value=cm;
   if(STEELS.some(s=>s.id===cs))$('steel').value=cs;
+  const cc=$('curve-mat').value;
+  $('curve-mat').innerHTML=MAGNETS.map(m=>'<option value="'+m.id+'">'+m.name+'</option>').join('');
+  if(MAGNETS.some(m=>m.id===cc))$('curve-mat').value=cc;
   const delrow=(x,c)=>'<div class="objrow"><span class="sw" style="background:'+c+'"></span><span class="oname">'+x.name+'</span><button class="del" data-delmat="'+x.id+'" title="удалить">✕</button></div>';
   $('matlist').innerHTML=MAGNETS.filter(m=>!m.builtin).map(m=>delrow(m,'#7e64a6')).join('')||'<p class="hint">Свои магниты появятся здесь.</p>';
   $('steellist').innerHTML=STEELS.filter(s=>!s.builtin).map(s=>delrow(s,'#48586e')).join('')||'<p class="hint">Свои стали появятся здесь.</p>';
-  if(SEL>=0&&MODE==='objects')renderObjects();}
+  if(SEL>=0&&MODE==='objects')renderObjects();
+  drawCurve();}
+// график кривой размагничивания B(H) при T (2-й квадрант)
+function curveChart(d){const w=256,h=182,L=36,R=8,Tp=10,Bp=22;
+  const Hk=d.H.map(x=>x/1000),xmin=Math.min.apply(0,Hk),ymin=Math.min(0,Math.min.apply(0,d.B)),ymax=Math.max(d.Br,Math.max.apply(0,d.B));
+  const X=v=>L+(v-xmin)/((0-xmin)||1)*(w-L-R),Y=v=>Tp+(1-(v-ymin)/((ymax-ymin)||1))*(h-Tp-Bp);
+  let s='<line x1="'+L+'" y1="'+Y(0)+'" x2="'+(w-R)+'" y2="'+Y(0)+'" stroke="#31405d" stroke-dasharray="3 3"/>';
+  s+='<line x1="'+L+'" y1="'+Tp+'" x2="'+L+'" y2="'+(h-Bp)+'" stroke="#25314a"/><line x1="'+L+'" y1="'+(h-Bp)+'" x2="'+(w-R)+'" y2="'+(h-Bp)+'" stroke="#25314a"/>';
+  s+='<polyline fill="none" stroke="#2fd39c" stroke-width="1.8" points="'+d.H.map((hh,i)=>X(Hk[i]).toFixed(1)+','+Y(d.B[i]).toFixed(1)).join(' ')+'"/>';
+  const kx=X(-d.Hk/1000),ky=Y(d.B_knee);
+  s+='<line x1="'+kx.toFixed(1)+'" y1="'+Tp+'" x2="'+kx.toFixed(1)+'" y2="'+(h-Bp)+'" stroke="#e0a53a" stroke-dasharray="4 3"/>';
+  s+='<circle cx="'+kx.toFixed(1)+'" cy="'+ky.toFixed(1)+'" r="3.2" fill="#e0a53a"/><text x="'+(kx+4).toFixed(1)+'" y="'+(Tp+11)+'" fill="#e0a53a" font-size="9" font-family="monospace">колено</text>';
+  s+='<circle cx="'+X(0).toFixed(1)+'" cy="'+Y(d.Br).toFixed(1)+'" r="3" fill="#42c25a"/>';
+  s+='<text x="'+L+'" y="'+(h-6)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+xmin.toFixed(0)+'</text><text x="'+(w-R-30)+'" y="'+(h-6)+'" fill="#5d6d8a" font-size="9" font-family="monospace">0 кА/м</text>';
+  s+='<text x="3" y="'+(Y(d.Br)+3).toFixed(1)+'" fill="#42c25a" font-size="9" font-family="monospace">Br '+d.Br.toFixed(2)+'</text><text x="3" y="'+(Y(0)+3).toFixed(1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">B=0</text>';
+  return '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block">'+s+'</svg>';}
+async function drawCurve(){const mat=$('curve-mat').value;if(!mat)return;
+  try{const d=await(await fetch('/api/magnet_curve',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material:mat,T:+$('curve-T').value})})).json();
+    if(d.error){$('curve-plot').innerHTML='';$('curve-info').innerHTML='<span style="color:var(--crit)">'+d.error+'</span>';return;}
+    $('curve-plot').innerHTML=curveChart(d);
+    $('curve-info').innerHTML='Br(T) = '+d.Br+' Тл · Hk(T) = '+(d.Hk/1000).toFixed(0)+' кА/м · μ_rec = '+d.mu_rec+' · предел модели T ≈ '+d.T_limit+' °C';
+  }catch(e){$('curve-info').textContent='Ошибка: '+e;}}
+$('curve-mat').onchange=drawCurve;$('curve-T').addEventListener('change',drawCurve);$('curve-T').addEventListener('input',drawCurve);
 async function saveSteel(){const btn=$('st-save');btn.disabled=true;
   const pts=$('st-table').value.trim().split('\n').map(l=>l.trim().split(/[\s,]+/).map(Number)).filter(a=>a.length>=2&&a.every(x=>isFinite(x)));
   try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:'steel',name:$('st-name').value,points:pts})})).json();
@@ -534,7 +565,7 @@ async function saveMaterial(){const btn=$('mat-save');btn.disabled=true;
   const body={name:$('mat-name').value,Br:+$('mat-Br').value,Hcb_kA:+$('mat-Hcb').value,Hk_kA:+$('mat-Hk').value,Hcj_kA:+$('mat-Hcj').value,alpha_Br:+$('mat-aBr').value,gamma_Hc:+$('mat-gHc').value};
   try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if(d.error)$('mat-info').innerHTML='<span style="color:var(--crit)">'+d.error+'</span>';
-    else{$('mat-info').innerHTML='<span style="color:var(--good)">Сохранено. μ_rec = '+d.mu_rec+', предел модели T ≈ '+d.temp_limit+' °C</span>';await loadMaterials();}
+    else{$('mat-info').innerHTML='<span style="color:var(--good)">Сохранено. μ_rec = '+d.mu_rec+', предел модели T ≈ '+d.temp_limit+' °C</span>';await loadMaterials();$('curve-mat').value=d.id;drawCurve();}
   }catch(e){$('mat-info').innerHTML='<span style="color:var(--crit)">Ошибка: '+e+'</span>';}
   finally{btn.disabled=false;}}
 $('mat-save').onclick=saveMaterial;
