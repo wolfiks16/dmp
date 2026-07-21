@@ -42,6 +42,11 @@ class OutrunnerPMSMParams:
     tooth_width_frac: float = 0.5  # доля зубцового шага, занятая зубцом (0..1)
     magnet_embrace: float = 0.83   # охват полюса магнитом (доля полюсного шага, 0..1)
     axial_length: float = 0.030    # осевая длина (для масштаба момента; в 2D не в сетке)
+    rotor_angle: float = 0.0       # МЕХАНИЧЕСКИЙ поворот ротора [рад]: смещает магниты и
+                                   # межполюсный воздух, статор остаётся на месте. Геометрия
+                                   # перестраивается ⇒ сетка на каждом положении КОНФОРМНА
+                                   # (границы магнитов не «ступеньками»), и пульсации момента
+                                   # получаются физическими, а не артефактом дискретизации.
     mesh_size: float | None = None # ГЛОБАЛЬНЫЙ характерный размер элемента (по умолч. ~ зазор)
     mesh_size_by_region: dict | None = None  # имя региона -> свой размер; иначе mesh_size везде
 
@@ -117,7 +122,12 @@ def _nearest_center_dist(theta: float, pitch: float) -> float:
 def _classify(cx: float, cy: float, p: OutrunnerPMSMParams,
               slot_pitch: float, tooth_ang: float,
               pole_pitch: float, mag_ang: float) -> tuple[int, float]:
-    """Регион и знак полярности магнита по центроиду ячейки."""
+    """
+    Регион и знак полярности магнита по центроиду ячейки.
+
+    Статор (ярмо/зубцы/пазы) считается по абсолютному θ, ротор (магниты/межполюсный воздух) —
+    по РОТОРНОЙ координате θ − rotor_angle: именно она делает поворот ротора поворотом.
+    """
     r = math.hypot(cx, cy)
     th = math.atan2(cy, cx) % (2.0 * math.pi)
     if r < p.R_sy:
@@ -128,9 +138,10 @@ def _classify(cx: float, cy: float, p: OutrunnerPMSMParams,
     if r < p.R_mag_in:
         return int(Region.AIR_GAP), 0.0
     if r < p.R_mag_out:
-        d = _nearest_center_dist(th, pole_pitch)
+        th_r = (th - p.rotor_angle) % (2.0 * math.pi)
+        d = _nearest_center_dist(th_r, pole_pitch)
         if d <= mag_ang / 2:
-            k = int(round(th / pole_pitch)) % p.n_poles
+            k = int(round(th_r / pole_pitch)) % p.n_poles
             return int(Region.MAGNET), (1.0 if k % 2 == 0 else -1.0)
         return int(Region.AIR_GAP), 0.0
     return int(Region.ROTOR_YOKE), 0.0
@@ -180,7 +191,7 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
             surfs.append(sector(p.R_sy, p.R_s_out, c + tooth_ang / 2, c + slot_pitch - tooth_ang / 2))
         surfs.append(ring(p.R_s_out, p.R_mag_in))                   # зазор
         for k in range(p.n_poles):                                  # магниты + межполюс. воздух
-            c = k * pole_pitch
+            c = k * pole_pitch + p.rotor_angle
             surfs.append(sector(p.R_mag_in, p.R_mag_out, c - mag_ang / 2, c + mag_ang / 2))
             surfs.append(sector(p.R_mag_in, p.R_mag_out, c + mag_ang / 2, c + pole_pitch - mag_ang / 2))
         surfs.append(ring(p.R_mag_out, p.R_out))                    # ярмо ротора
