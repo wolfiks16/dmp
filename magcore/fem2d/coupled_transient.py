@@ -174,11 +174,17 @@ class IrreversibleMagnetState:
         поэтому линеаризация точно согласована с используемой кривой (неподвижная точка
         итерации не смещается — меняется только скорость сходимости).
 
-        Ниже H_cJ (конец таблицы) модель кривой не определена. Принято КОНСЕРВАТИВНОЕ
-        доопределение: ремнантность потеряна полностью (r=0), ячейка идёт по линии возврата
-        из начала координат B=μ₀μ_rec·H. Альтернатива «зажать H на H_cJ» была бы оптимистичной
-        (утверждала бы, что глубже H_cJ потерь больше не возникает) и вдобавок рассогласовала
-        бы ветви: B^maj считался бы по зажатому H, а линия возврата — по фактическому.
+        Таблица кривой покрывает только второй квадрант, H ∈ [−H_cJ, 0], поэтому ОБА конца
+        доопределяются явно — и по РАЗНОМУ, потому что физика у них разная:
+
+        * H > 0 (поле вдоль лёгкой оси ПОДМАГНИЧИВАЕТ — реакция якоря на части полюса всегда
+          такая): магнит просто идёт вверх по линии возврата, B = B_r(T) + μ₀μ_rec·H, потерь
+          НЕТ (r ровно 1). Если вместо этого зажать H в ноль, тождество B^maj = B_r + μ₀μ_rec·H
+          ломается и латч записывает ФАНТОМНОЕ повреждение именно там, где магнит усиливают
+          (наблюдалось: r=0.614 при нулевом числе ячеек за коленом).
+        * H < −H_cJ: модель не определена; принято КОНСЕРВАТИВНОЕ доопределение r=0 (линия
+          возврата из начала координат). Зажатие H на H_cJ было бы оптимистичным (утверждало
+          бы, что глубже потерь не возникает) и рассогласовало бы ветви.
         """
         bins = np.round(self.T_mag / self.T_bin).astype(int)
         b_maj = np.empty(self.idx.size, dtype=float)
@@ -192,10 +198,13 @@ class IrreversibleMagnetState:
             h = h_par[sel]
             H = np.clip(h, Hs[0], Hs[-1])
             i = np.clip(np.searchsorted(Hs, H), 1, Hs.size - 1)
-            under = h < Hs[0]
-            b_maj[sel] = np.where(under, mu_rec_abs * h, np.interp(H, Hs, Bs))
-            slope[sel] = np.where(under, mu_rec_abs,
-                                  (Bs[i] - Bs[i - 1]) / (Hs[i] - Hs[i - 1]))
+            under = h < Hs[0]                       # ниже H_cJ  → полная потеря
+            over = h > Hs[-1]                       # подмагничивание → линия возврата вверх
+            tab = np.interp(H, Hs, Bs)
+            tab_slope = (Bs[i] - Bs[i - 1]) / (Hs[i] - Hs[i - 1])
+            b_maj[sel] = np.where(under, mu_rec_abs * h,
+                                  np.where(over, nominal + mu_rec_abs * h, tab))
+            slope[sel] = np.where(under | over, mu_rec_abs, tab_slope)
             br_nom[sel] = nominal
             beyond[sel] = under
         return b_maj, slope, br_nom, beyond
@@ -345,6 +354,7 @@ def solve_coupled_magneto_thermal_transient(
     dt: float,
     n_steps: int,
     j_cells=None,
+    j_loss_cells=None,
     magnet: AnisotropicBHTMagnet | None = None,
     magnet_mask=None,
     magnet_axis=(1.0, 0.0),
@@ -372,12 +382,20 @@ def solve_coupled_magneto_thermal_transient(
     необратимая потеря фиксируется (`IrreversibleMagnetState`).
     Потери: медь q=ρ(T)·J² (главная положительная обратная связь) + `extra_loss`.
 
-    j_cells   — ФИЗИЧЕСКАЯ плотность тока [А/м²] (0 вне обмотки); для магнитного RHS
-                домножается на μ₀ (относительная конвенция ν), для потерь берётся как есть.
+    j_cells   — ФИЗИЧЕСКАЯ плотность тока [А/м²] (0 вне обмотки) для МАГНИТНОЙ задачи;
+                домножается на μ₀ (относительная конвенция ν).
+    j_loss_cells — плотность тока для ПОТЕРЬ (по умолчанию = j_cells). Разделены потому, что
+                это РАЗНЫЕ величины: магнитостатику считают при МГНОВЕННОМ токе (худший угол
+                реакции якоря), а нагрев — при СРЕДНЕКВАДРАТИЧНОМ за электрический период
+                (тепловая постоянная времени много больше периода), причём в гомогенизированном
+                пазу ток размазан по всей площади, а греется только медь ⇒ подавать надо
+                J_паз/√k_зап (иначе потери занижены в 1/k_зап ≈ 2 раза).
     magnet    — None ⇒ магнитная часть не решается (чисто тепловая связка, для верификации
                 порога разгона); иначе нужен `magnet_mask` (n_cells,) и ν-модель nu_of_B/nu_init.
     extra_loss— callable(T_cells, em_result|None) -> (n_cells,) [Вт/м³]: железо, вихревые и т.п.
-    T_cap     — порог остановки по перегреву; по умолчанию предел модели магнита (или ∞).
+    T_cap     — порог остановки по перегреву ЛЮБОЙ точки области (класс изоляции обмотки и
+                т.п.); по умолчанию ∞. Предел применимости модели МАГНИТА проверяется отдельно
+                и только по его ячейкам — эти два критерия не следует смешивать.
     max_substeps — предел дробления шага по температуре (продолжение). Если магнитная задача
                 на шаге не сошлась, шаг повторяется с 2, 4, … подшагами по T: путь нагружения
                 проходится мельче, что и требуется для гистерезисной задачи, где равновесие
@@ -395,6 +413,10 @@ def solve_coupled_magneto_thermal_transient(
               else np.asarray(j_cells, dtype=float).reshape(-1))
     if j_phys.shape != (nc,):
         raise ValueError("j_cells must have shape (n_cells,).")
+    j_loss = (j_phys if j_loss_cells is None
+              else np.asarray(j_loss_cells, dtype=float).reshape(-1))
+    if j_loss.shape != (nc,):
+        raise ValueError("j_loss_cells must have shape (n_cells,).")
 
     state: IrreversibleMagnetState | None = None
     if magnet is not None:
@@ -419,9 +441,13 @@ def solve_coupled_magneto_thermal_transient(
         nu0[state.idx] = state.nu_rel
         ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
 
+    # Предел модели магнита проверяется ТОЛЬКО по ячейкам магнита. Глобальный T_cap — это
+    # отдельный порог для ОСТАЛЬНОЙ машины (класс изоляции обмотки), и по умолчанию его нет:
+    # медь в машине штатно горячее, чем область валидности кривой магнита, и приравнивать
+    # одно к другому значило бы останавливать расчёт по чужому критерию.
     T_cap_magnet = magnet.temperature_limit() if magnet is not None else float("inf")
     if T_cap is None:
-        T_cap = T_cap_magnet
+        T_cap = float("inf")
 
     stepper = ImplicitEulerThermalStepper(space, k_cells, capacity_cells, dt=dt, h=h, T_amb=T_amb)
     areas = np.array([mesh.cell_area(c) for c in range(nc)], dtype=float)
@@ -474,7 +500,7 @@ def solve_coupled_magneto_thermal_transient(
     if state is not None:
         T_prev_mag = _cell_temperature(space, T)[state.idx]
         state.set_temperature(T_prev_mag)
-    record(0.0, T, copper_loss_density(j_phys, _cell_temperature(space, T)))
+    record(0.0, T, copper_loss_density(j_loss, _cell_temperature(space, T)))
 
     em_prev = None
     for n in range(1, int(n_steps) + 1):
@@ -554,7 +580,7 @@ def solve_coupled_magneto_thermal_transient(
                 state.restore(snap)
                 break
 
-        q = copper_loss_density(j_phys, T_cells)
+        q = copper_loss_density(j_loss, T_cells)
         if extra_loss is not None:
             q = q + np.asarray(extra_loss(T_cells, em), dtype=float)
 
