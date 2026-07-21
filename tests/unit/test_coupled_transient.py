@@ -266,11 +266,11 @@ def test_magnetic_residual_reported_and_small_in_design_regime():
     assert res.retention_mean[-1] < 0.99          # повреждение реально произошло
 
 
-def test_destructive_regime_is_flagged_not_silently_returned():
-    # Глубокое размагничивание у предела модели (B_r → 0, кривая вырождается) — режим, где
-    # квазистатическое равновесие перестаёт быть единственным: ответ там зависит от настроек
-    # итерации, то есть доверять ему нельзя. Требование к решателю — НЕ выдавать такой
-    # результат молча: em_converged=False и достигнутая невязка видны вызывающему.
+def test_cascade_stops_the_run_and_history_stays_trustworthy():
+    # Каскад: нагрев роняет H_cJ(T), остаточной намагниченности не хватает против СВОЕГО ЖЕ
+    # поля ⇒ квазистатического равновесия не существует физически. Требование к решателю —
+    # ОСТАНОВИТЬСЯ с явной причиной, а не продолжать выдавать числа: продолжение расчёта за
+    # этой границей давало бы правдоподобную, но бессмысленную траекторию.
     space, magnet_mask, copper_mask = _segment()
     magnet = n42sh_magnet((1.0, 0.0, 0.0))
     nu, k, cap = _materials(magnet, magnet_mask, copper_mask)
@@ -279,9 +279,39 @@ def test_destructive_regime_is_flagged_not_silently_returned():
         j_cells=np.where(copper_mask, 1.6e7, 0.0),
         magnet=magnet, magnet_mask=magnet_mask, nu_init=nu,
     )
-    assert res.retention_mean[-1] < 0.5           # магнит практически уничтожен
-    assert not res.em_converged                   # и решатель об этом СООБЩАЕТ
-    assert res.em_residual.max() > 1.0e-3
+    assert res.magnet_cascade                              # остановлено, и сказано почему
+    assert len(res.times) - 1 < 60                         # раньше запрошенного горизонта
+    assert "H_cJ" in res.stop_reason or "разошлась" in res.stop_reason
+    # Возвращённая история — ДОСТОВЕРНЫЙ ПРЕФИКС: сорвавшийся шаг в неё не попал.
+    assert res.em_residual.max() <= 1.0e-2
+    assert res.retention_mean[-1] < 0.99                   # повреждение до срыва реально
+    # Состояние магнита откачено к последнему достоверному шагу (не к мусору внутри срыва).
+    assert abs(float(res.state.retention.mean()) - res.retention_mean[-1]) < 1e-12
+
+
+def test_substepping_is_engaged_but_idle_when_not_needed():
+    # Дробление шага по температуре должно включаться ТОЛЬКО по необходимости: в спокойном
+    # режиме — ровно один подшаг (иначе оно молча удорожало бы каждый расчёт).
+    space, magnet_mask, copper_mask = _segment()
+    magnet = sm2co17_magnet((1.0, 0.0, 0.0))
+    nu, k, cap = _materials(magnet, magnet_mask, copper_mask)
+    calm = solve_coupled_magneto_thermal_transient(
+        space, k_cells=k, capacity_cells=cap, h=25.0, T_amb=20.0, dt=10.0, n_steps=30,
+        j_cells=np.where(copper_mask, 1.2e7, 0.0),
+        magnet=magnet, magnet_mask=magnet_mask, nu_init=nu,
+    )
+    assert calm.em_converged
+    assert calm.em_substeps.max() == 1
+
+    # А в тяжёлом режиме — включается (и тем самым отодвигает границу применимости).
+    magnet_nd = n42sh_magnet((1.0, 0.0, 0.0))
+    nu_nd, k_nd, cap_nd = _materials(magnet_nd, magnet_mask, copper_mask)
+    hard = solve_coupled_magneto_thermal_transient(
+        space, k_cells=k_nd, capacity_cells=cap_nd, h=25.0, T_amb=20.0, dt=10.0, n_steps=60,
+        j_cells=np.where(copper_mask, 1.6e7, 0.0),
+        magnet=magnet_nd, magnet_mask=magnet_mask, nu_init=nu_nd,
+    )
+    assert hard.em_substeps.max() > 1
 
 
 # -------------------------------------------------------------- (6) прочие негативные

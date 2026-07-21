@@ -26,13 +26,21 @@ from magcore.fem2d.thermal import ImplicitEulerThermalStepper
 # конечное состояние зависит от ПУТИ, а не только от конечной температуры. Это и есть
 # «необратимость в итерации» + разгон/риск в петле.
 #
-# ГРАНИЦА ПРИМЕНИМОСТИ (проверено тестами, см. tests/unit/test_coupled_transient.py):
-# пока магнит повреждён, но не уничтожен, каждый шаг решается до 1e-6, а траектория сходится
-# при измельчении dt. При ГЛУБОКОМ размагничивании у предела температуры модели (B_r → 0,
-# кривая вырождается) квазистатическое равновесие перестаёт быть единственным: ответ начинает
-# зависеть от настроек итерации. Такой результат НЕ выдаётся молча — `em_converged=False` и
-# достигнутая невязка `em_residual` идут наружу. Плановое лечение — продолжение (substepping)
-# по температуре внутри шага.
+# ГРАНИЦА ПРИМЕНИМОСТИ (проверено тестами, см. tests/unit/test_coupled_transient.py).
+# Пока магнит повреждён, но НЕ уничтожен: каждый шаг решается до 1e-6, траектория сходится
+# при измельчении dt — этому режиму можно верить.
+# Дальше наступает КАСКАД: нагрев роняет H_cJ(T), остаточной намагниченности уже не хватает,
+# чтобы устоять против СВОЕГО ЖЕ размагничивающего поля, и квазистатического равновесия не
+# существует — решение перестаёт быть определённым ФИЗИЧЕСКИ, а не численно. Признаки: ячейки
+# уходят ниже H_cJ, итерация не сходится ни при каком демпфировании, ответ зависит от настроек.
+# Продолжение (substepping) по температуре внутри шага это НЕ лечит — ПРОВЕРЕНО: 64 подшага
+# не помогают (гипотеза «слишком крупный скачок по пути нагружения» опровергнута). Дробление
+# всё же полезно: оно отодвигает границу и позволяет остановиться по ФИЗИЧЕСКОМУ признаку
+# (ячейка ниже H_cJ), а не по расходимости.
+# Поэтому каскад — это РЕЗУЛЬТАТ, а не отказ: расчёт останавливается, `magnet_cascade=True`,
+# причина в `stop_reason`, история и состояние магнита обрываются последним достоверным шагом.
+# NB момент остановки зависит от `max_substeps` (чем мельче путь, тем дальше удаётся дойти) —
+# это граница применимости модели, а не точка, которую следует трактовать как предсказание.
 #
 # ФИКСАЦИЯ НЕОБРАТИМОСТИ ведётся по ДОЛЕ СОХРАНЁННОЙ ремнантности r = B_r_eff/B_r(T),
 # а не по «наихудшему H»: одно и то же поле H при более высокой T разрушительнее (колено
@@ -55,10 +63,12 @@ class CoupledTransientResult:
     stored_energy: np.ndarray     # (n+1,) ∫c·T dV [Дж/м]
     outflow: np.ndarray           # (n+1,) отвод ∫h(T−T_amb) ds [Вт/м]
     runaway: bool                 # True ⇒ остановлено по перегреву (тепловой разгон)
+    magnet_cascade: bool          # True ⇒ остановлено по каскадному самоуничтожению магнита
     stop_reason: str
     em_converged: bool            # все магнитные решения достигли em_tol
-    em_iterations: np.ndarray     # (n+1,) число Picard-итераций магнитной задачи на шаге
+    em_iterations: np.ndarray     # (n+1,) суммарное число Picard-итераций на шаге
     em_residual: np.ndarray       # (n+1,) ДОСТИГНУТАЯ относительная невязка по B на шаге
+    em_substeps: np.ndarray       # (n+1,) на сколько подшагов по T пришлось дробить шаг
     state: "IrreversibleMagnetState | None"   # финальное состояние магнита (латч r)
 
 
@@ -121,6 +131,7 @@ class IrreversibleMagnetState:
         self.T_mag = np.zeros(self.idx.size, dtype=float)      # температура ячеек магнита
         self.H_par = np.zeros(self.idx.size, dtype=float)      # рабочее поле вдоль e [А/м]
         self.nu_rel = np.full(self.idx.size, self.nu_rec, dtype=float)  # касательная ν магнита
+        self.beyond_hcj = np.zeros(self.idx.size, dtype=bool)  # ячейки ниже H_cJ (каскад)
         self._pending: np.ndarray | None = None                # r_eff последней итерации
         self._prev: tuple[np.ndarray, np.ndarray] | None = None
         self._curve_cache: dict[int, tuple[np.ndarray, np.ndarray, float]] = {}
@@ -258,6 +269,7 @@ class IrreversibleMagnetState:
         b_src = b_branch - mu_frozen * h_par           # источник под ЗАМОРОЖЕННУЮ ν
 
         self.H_par = h_par
+        self.beyond_hcj = beyond
         self._pending = r_eff
         self.nu_rel = nu_branch                        # наклон ветви для следующей сборки
         out[self.idx] = (nu_frozen * b_src)[:, None] * self.axes      # источник ν·B_r
@@ -268,6 +280,27 @@ class IrreversibleMagnetState:
         if self._pending is not None:
             self.retention = np.minimum(self.retention, self._pending)
 
+    # --- снимок/откат (для повтора шага с продолжением по температуре) ---
+    def snapshot(self) -> dict:
+        """Полное состояние с историей — чтобы повторить шаг мельче, а не поверх испорченного."""
+        return {
+            "retention": self.retention.copy(),
+            "T_mag": self.T_mag.copy(),
+            "H_par": self.H_par.copy(),
+            "nu_rel": self.nu_rel.copy(),
+            "pending": None if self._pending is None else self._pending.copy(),
+            "prev": None if self._prev is None else (self._prev[0].copy(), self._prev[1].copy()),
+        }
+
+    def restore(self, snap: dict) -> None:
+        self.retention = snap["retention"].copy()
+        self.T_mag = snap["T_mag"].copy()
+        self.H_par = snap["H_par"].copy()
+        self.nu_rel = snap["nu_rel"].copy()
+        self._pending = None if snap["pending"] is None else snap["pending"].copy()
+        self._prev = (None if snap["prev"] is None
+                      else (snap["prev"][0].copy(), snap["prev"][1].copy()))
+
     # --- отчётность ---
     def margins(self) -> np.ndarray:
         """Маржа до колена m = H_par − H_knee(T) по ячейкам (<0 ⇒ за коленом)."""
@@ -277,6 +310,15 @@ class IrreversibleMagnetState:
 
     def n_past_knee(self) -> int:
         return int(np.count_nonzero(self.margins() < 0.0))
+
+    def n_beyond_hcj(self) -> int:
+        """
+        Ячейки, где собственное поле загнало магнит ниже собственной коэрцитивности H_cJ.
+        Это КАСКАД: остаточная намагниченность уже недостаточна, чтобы устоять против
+        своего же размагничивающего поля, и квазистатического равновесия не существует —
+        решение перестаёт быть определённым не численно, а физически.
+        """
+        return int(np.count_nonzero(self.beyond_hcj))
 
 
 class MagnetOverheated(RuntimeError):
@@ -319,6 +361,8 @@ def solve_coupled_magneto_thermal_transient(
     demag_relaxation: float = 0.3,
     switch_band: float = 0.15,
     T_bin: float = 0.5,
+    max_substeps: int = 32,
+    em_abort_residual: float = 1.0e-2,
 ) -> CoupledTransientResult:
     """
     Связанный магнитотепловой расчёт ВО ВРЕМЕНИ с необратимым размагничиванием в петле.
@@ -334,6 +378,13 @@ def solve_coupled_magneto_thermal_transient(
                 порога разгона); иначе нужен `magnet_mask` (n_cells,) и ν-модель nu_of_B/nu_init.
     extra_loss— callable(T_cells, em_result|None) -> (n_cells,) [Вт/м³]: железо, вихревые и т.п.
     T_cap     — порог остановки по перегреву; по умолчанию предел модели магнита (или ∞).
+    max_substeps — предел дробления шага по температуре (продолжение). Если магнитная задача
+                на шаге не сошлась, шаг повторяется с 2, 4, … подшагами по T: путь нагружения
+                проходится мельче, что и требуется для гистерезисной задачи, где равновесие
+                зависит от пути. Состояние откатывается перед каждой попыткой.
+    em_abort_residual — невязка, выше которой решение считается бессмысленным и расчёт
+                останавливается (`magnet_cascade=True`). Промах по `em_tol` на доли порядка
+                остановкой не считается — он отражается в `em_converged`/`em_residual`.
 
     Возвращает `CoupledTransientResult`. Разгон (`runaway=True`) — это НЕ ошибка расчёта,
     а результат: история до момента срыва сохраняется целиком.
@@ -368,8 +419,9 @@ def solve_coupled_magneto_thermal_transient(
         nu0[state.idx] = state.nu_rel
         ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
 
+    T_cap_magnet = magnet.temperature_limit() if magnet is not None else float("inf")
     if T_cap is None:
-        T_cap = magnet.temperature_limit() if magnet is not None else float("inf")
+        T_cap = T_cap_magnet
 
     stepper = ImplicitEulerThermalStepper(space, k_cells, capacity_cells, dt=dt, h=h, T_amb=T_amb)
     areas = np.array([mesh.cell_area(c) for c in range(nc)], dtype=float)
@@ -389,12 +441,14 @@ def solve_coupled_magneto_thermal_transient(
     outflow: list[float] = []
     em_iters: list[int] = []
     em_res: list[float] = []
+    em_subs: list[int] = []
     em_ok = True
     runaway = False
+    cascade = False
     reason = "завершено"
 
     def record(t: float, T_field: np.ndarray, q: np.ndarray,
-               n_it: int = 0, res: float = 0.0) -> None:
+               n_it: int = 0, res: float = 0.0, n_sub: int = 0) -> None:
         times.append(t)
         T_hist.append(T_field.copy())
         T_max.append(float(T_field.max()))
@@ -411,12 +465,15 @@ def solve_coupled_magneto_thermal_transient(
         p_loss.append(float((q * areas).sum()))
         em_iters.append(int(n_it))
         em_res.append(float(res))
+        em_subs.append(int(n_sub))
         energy.append(stepper.stored_energy(T_field))
         outflow.append(stepper.convective_outflow(T_field))
 
     # Начальное состояние: потери при стартовой температуре (магнит ещё не решался).
+    T_prev_mag = None
     if state is not None:
-        state.set_temperature(_cell_temperature(space, T)[state.idx])
+        T_prev_mag = _cell_temperature(space, T)[state.idx]
+        state.set_temperature(T_prev_mag)
     record(0.0, T, copper_loss_density(j_phys, _cell_temperature(space, T)))
 
     em_prev = None
@@ -426,32 +483,83 @@ def solve_coupled_magneto_thermal_transient(
         em = None
         n_it = 0
         res = 0.0
+        n_sub = 0
         if state is not None:
-            try:
-                state.set_temperature(T_cells[state.idx])
-            except MagnetOverheated as exc:
+            T_target = T_cells[state.idx]
+            if float(T_target.max()) >= T_cap_magnet:
                 runaway = True
-                reason = str(exc)
+                reason = ("магнит перегрет: T=%.1f C >= предел модели %.1f C"
+                          % (float(T_target.max()), T_cap_magnet))
                 break
-            # Тёплый старт с предыдущего шага: поле между шагами меняется слабо.
-            em = solve_nonlinear_2d_picard(
-                space, nu_of_B=nu_fn, nu_init=nu0, j_cells=MU0 * j_phys,
-                magnetization=state, dirichlet_dofs=ddofs, dirichlet_values=dirichlet_values,
-                relaxation=em_relaxation, max_iter=em_max_iter, tol=em_tol,
-                warm_start=em_prev,
-            )
+
+            # ПРОДОЛЖЕНИЕ ПО ТЕМПЕРАТУРЕ: шаг повторяется всё мельче, пока не сойдётся.
+            # Состояние с историей откатывается перед каждой попыткой — иначе повтор шёл бы
+            # поверх уже зафиксированной (и, возможно, неверной) необратимой потери.
+            snap = state.snapshot()
+            em_start = em_prev
+            attempt = 1
+            while True:
+                state.restore(snap)
+                em = em_start
+                ok = True
+                n_it = 0
+                for i in range(1, attempt + 1):
+                    frac = i / attempt
+                    state.set_temperature(T_prev_mag + frac * (T_target - T_prev_mag))
+                    em = solve_nonlinear_2d_picard(
+                        space, nu_of_B=nu_fn, nu_init=nu0, j_cells=MU0 * j_phys,
+                        magnetization=state, dirichlet_dofs=ddofs,
+                        dirichlet_values=dirichlet_values,
+                        relaxation=em_relaxation, max_iter=em_max_iter, tol=em_tol,
+                        warm_start=em,
+                    )
+                    state.commit()      # необратимая потеря подшага уходит в историю
+                    n_it += em.n_iterations
+                    res = em.rel_change_history[-1] if em.rel_change_history else 0.0
+                    if not em.converged:
+                        ok = False
+                        break
+                n_sub = attempt
+                if ok or attempt >= max_substeps:
+                    break
+                attempt *= 2
+
             em_prev = em
+            T_prev_mag = T_target
             em_ok = em_ok and bool(em.converged)
-            n_it = em.n_iterations
-            res = em.rel_change_history[-1] if em.rel_change_history else 0.0
-            state.commit()          # необратимая потеря шага уходит в историю
+
+            # КАСКАД: магнит ослаб настолько, что собственное поле гонит его ниже H_cJ.
+            # Равновесия там не существует ФИЗИЧЕСКИ (не численно), поэтому продолжать
+            # расчёт бессмысленно — останавливаемся с явной причиной, как при разгоне.
+            # Дробление шага по температуре это НЕ лечит (проверено: 64 подшага не помогают),
+            # поэтому не сошедшийся при max_substeps шаг трактуется так же.
+            # Останавливает ФИЗИЧЕСКИЙ детектор (ячейки ниже H_cJ) либо грубо расходящаяся
+            # невязка. Промах по допуску на доли порядка остановкой НЕ считается — он лишь
+            # отражается в em_converged/em_residual, иначе расчёт обрывался бы на 2e-6.
+            n_bad = state.n_beyond_hcj()
+            if n_bad > 0 or res > em_abort_residual:
+                cascade = True
+                reason = (
+                    "каскадное размагничивание магнита при T=%.1f C: %d ячеек ниже H_cJ "
+                    "(собственное поле превысило коэрцитивность — квазистатического "
+                    "равновесия не существует)" % (float(T_target.max()), n_bad)
+                    if n_bad > 0 else
+                    "магнитная задача разошлась при T=%.1f C даже с %d подшагами по "
+                    "температуре (невязка %.1e) — режим глубокого размагничивания"
+                    % (float(T_target.max()), n_sub, res)
+                )
+                # История обрывается ПОСЛЕДНИМ ДОСТОВЕРНЫМ шагом, а состояние магнита
+                # откатывается к нему же: значения, зафиксированные внутри сорвавшегося
+                # шага, отражают не физику, а незавершённую итерацию.
+                state.restore(snap)
+                break
 
         q = copper_loss_density(j_phys, T_cells)
         if extra_loss is not None:
             q = q + np.asarray(extra_loss(T_cells, em), dtype=float)
 
         T = stepper.step(T, q)
-        record(n * float(dt), T, q, n_it, res)
+        record(n * float(dt), T, q, n_it, res, n_sub)
 
         T_peak = float(T.max())
         if not np.isfinite(T_peak) or T_peak >= T_cap:
@@ -465,7 +573,8 @@ def solve_coupled_magneto_thermal_transient(
         T_magnet=np.asarray(T_mag_hist), retention_min=np.asarray(ret_min),
         retention_mean=np.asarray(ret_mean), n_past_knee=np.asarray(knee_cnt),
         loss_power=np.asarray(p_loss), stored_energy=np.asarray(energy),
-        outflow=np.asarray(outflow), runaway=runaway, stop_reason=reason,
+        outflow=np.asarray(outflow), runaway=runaway, magnet_cascade=cascade,
+        stop_reason=reason,
         em_converged=em_ok, em_iterations=np.asarray(em_iters),
-        em_residual=np.asarray(em_res), state=state,
+        em_residual=np.asarray(em_res), em_substeps=np.asarray(em_subs), state=state,
     )
