@@ -42,6 +42,7 @@ def solve_nonlinear_2d_picard(
     tol: float = 1.0e-6,
     relaxation: float = 1.0,
     quadrature_order: int = 5,
+    warm_start: "Fem2DPicardResult | None" = None,
 ) -> Fem2DPicardResult:
     """
     Нелинейный Picard для планарной задачи −div(ν(|B|)∇A_z)=J_z+curl₂(νB_r) на P1.
@@ -58,6 +59,11 @@ def solve_nonlinear_2d_picard(
               вызывающем; см. machines/static_solver).
     magnetization : None | (n_cells,2) ν·B_r | callable(B,H,ν)->(n_cells,2) (магнит с коленом).
     dirichlet_dofs : узлы Dirichlet (по умолчанию — граница сетки).
+    warm_start : предыдущий `Fem2DPicardResult` как НАЧАЛЬНОЕ приближение (B,H для оценки
+        состояния материалов на 1-й итерации). Неподвижная точка и критерий сходимости не
+        меняются — только стартовая точка, поэтому ответ тот же с точностью до `tol`.
+        Ключевое для расчёта во времени: поле между шагами меняется слабо ⇒ 2–3 итерации
+        вместо десятков.
     """
     if j_fn is not None and j_cells is not None:
         raise ValueError("задайте только один источник тока: j_fn ИЛИ j_cells.")
@@ -86,6 +92,11 @@ def solve_nonlinear_2d_picard(
         "H": np.zeros((n_cells, 2), dtype=float),
         "nu_br": np.zeros((n_cells, 2), dtype=float),
     }
+    if warm_start is not None:
+        state.update(a=np.asarray(warm_start.a, dtype=float).copy(),
+                     B=np.asarray(warm_start.B_cells, dtype=float).copy(),
+                     H=np.asarray(warm_start.H_cells, dtype=float).copy())
+        nu0 = np.asarray(warm_start.nu_cells, dtype=float).copy()
 
     def step(nu_frozen: np.ndarray) -> np.ndarray:
         nu_br = np.asarray(mag_fn(state["B"], state["H"], nu_frozen), dtype=float)

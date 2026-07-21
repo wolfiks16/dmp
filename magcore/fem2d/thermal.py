@@ -104,6 +104,46 @@ def assemble_capacity(space: LagrangeP1Space2D, c_cells) -> np.ndarray:
     return C
 
 
+class ImplicitEulerThermalStepper:
+    """
+    Один шаг неявного Эйлера для C·∂T/∂t − div(k∇T) = q + конвекция (Robin):
+        (C/dt + K + R)·T^{n+1} = (C/dt)·T^n + f(q^{n+1}) + T_amb·amb_load.
+    Матрицы собираются ОДИН раз (k, c, h, dt постоянны) — шаг переиспользуется как
+    нестационарным решателем, так и связкой магнит↔тепло (источник q зависит от T).
+
+    Схема безусловно устойчива (A = C/dt + K + R симметрична положительно определена
+    при h>0), поэтому шаг ограничен только точностью, а не устойчивостью.
+    """
+
+    def __init__(self, space: LagrangeP1Space2D, k, capacity, *, dt: float, h: float, T_amb: float):
+        if float(dt) <= 0.0:
+            raise ValueError("dt must be positive.")
+        self.space = space
+        self.dt = float(dt)
+        self.T_amb = float(T_amb)
+        self.K = assemble_stiffness(space, k)
+        self.C = assemble_capacity(space, capacity)
+        self.R, self.amb_load = assemble_robin_boundary(space, float(h))
+        self.Cdt = self.C / self.dt
+        self.A = self.Cdt + self.K + self.R
+
+    def step(self, T: np.ndarray, q_cells: np.ndarray) -> np.ndarray:
+        """Поле на следующем шаге по текущему T и источнику потерь q [Вт/м³] (по ячейкам)."""
+        f = assemble_source_rhs(self.space, np.asarray(q_cells, dtype=float))
+        return solve_scalar(self.A, self.Cdt @ np.asarray(T, dtype=float)
+                            + f + self.T_amb * self.amb_load)
+
+    # --- диагностика энергобаланса (оракул связки) ---
+    def stored_energy(self, T) -> float:
+        """Запасённая тепловая энергия ∫ c·T dV = 1ᵀ·C·T [Дж/м] (на единицу длины)."""
+        return float(np.asarray(T, dtype=float) @ self.C.sum(axis=0))
+
+    def convective_outflow(self, T) -> float:
+        """Отвод конвекцией ∫ h(T−T_amb) ds = 1ᵀR·T − T_amb·1ᵀ·amb_load [Вт/м]."""
+        Tv = np.asarray(T, dtype=float)
+        return float(Tv @ self.R.sum(axis=0)) - self.T_amb * float(self.amb_load.sum())
+
+
 def solve_thermal_transient(
     space: LagrangeP1Space2D,
     k,
@@ -126,14 +166,8 @@ def solve_thermal_transient(
     t:float)->(n_cells,) (для связки с магнитными потерями, зависящими от T).
 
     Возвращает (times:(n_steps+1,), T_hist:(n_steps+1, ndofs)) — поле на каждом шаге.
-    Оператор A и его LU постоянны при неизменных k,c,h ⇒ факторизуем один раз (spsolve на
-    разрежённой A; здесь плотный масштаб верификации).
     """
-    K = assemble_stiffness(space, k)
-    C = assemble_capacity(space, capacity)
-    R, amb_load = assemble_robin_boundary(space, float(h))
-    Cdt = C / float(dt)
-    A = Cdt + K + R
+    stepper = ImplicitEulerThermalStepper(space, k, capacity, dt=dt, h=h, T_amb=T_amb)
     T = (np.full(space.ndofs, float(T_amb), dtype=float)
          if T0 is None else np.asarray(T0, dtype=float).copy())
     times = [0.0]
@@ -141,8 +175,7 @@ def solve_thermal_transient(
     for n in range(1, int(n_steps) + 1):
         t = n * float(dt)
         q = source(n, t) if callable(source) else source
-        f = assemble_source_rhs(space, np.asarray(q, dtype=float)) + float(T_amb) * amb_load
-        T = solve_scalar(A, Cdt @ T + f)
+        T = stepper.step(T, q)
         times.append(t)
         hist.append(T.copy())
     return np.asarray(times), np.asarray(hist)
