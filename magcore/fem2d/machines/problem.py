@@ -105,7 +105,7 @@ class MachineSolution:
     loss: MagnetLossAggregate           # P5: агрегаты необратимой потери
     torque: float                       # P6: момент [Н·м] в режиме
     pm_flux_linkage: np.ndarray         # (3,) потокосцепление ПМ (ХХ) [Вб]
-    back_emf_constant: float            # P6: K_e = K_t [В·с/рад]
+    back_emf_constant: float            # P6: K_e = p·λ_m [В·с/рад] (K_t больше в 3/2 раза)
     impact: DemagImpact | None          # P5 полный (падение ЭДС/момента), если запрошен
 
 
