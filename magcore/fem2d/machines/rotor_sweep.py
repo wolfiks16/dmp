@@ -192,6 +192,7 @@ def sweep_rotor(
     damage: RotorDamage | None = None,
     no_load: bool = True,
     probe_points=None,
+    geometries=None,
     relaxation: float = 0.1,
     max_iter: int = 300,
     tol: float = 1.0e-6,
@@ -214,8 +215,12 @@ def sweep_rotor(
     `probe_points` — (P,2) НЕПОДВИЖНЫЕ точки (обычно в железе статора): в них на каждом угле
     снимается B из НАГРУЗОЧНОГО решения ⇒ `probe_B` (N,P,2) = волна B(θ) в этих точках.
     Именно это нужно потерям в железе: размах ΔB и dB/dθ за электрический период по элементу.
+    `geometries` — заранее построенные (по одному на угол) сетки: gmsh-перестроение делается
+    ОДИН раз, а не в каждой прогонке (у прогонок «до»/«после» углы совпадают ⇒ и сетки те же).
     """
     angles = np.asarray(angles, dtype=float).reshape(-1)
+    if geometries is not None and len(geometries) != angles.size:
+        raise ValueError("geometries должно быть по одному на угол.")
     p_pairs = params.n_poles // 2
     torque = np.empty(angles.size, dtype=float)
     lam = np.full((angles.size, 3), np.nan, dtype=float)
@@ -228,7 +233,8 @@ def sweep_rotor(
     layout = star_of_slots_layout(params.n_slots, params.n_poles)
 
     for i, a in enumerate(angles):
-        geo = build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a)))
+        geo = (geometries[i] if geometries is not None
+               else build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a))))
         ret = None if damage is None else damage.sample(geo)
         gamma_abs = float(gamma_elec) + p_pairs * float(a)     # ток едет вместе с ротором
         jz = (winding_current_density(geo, layout, i_peak=i_peak, gamma_elec=gamma_abs,
@@ -288,3 +294,13 @@ def sample_B_at_points(mesh, B_cells: np.ndarray, points: np.ndarray) -> np.ndar
 def scenario_damage(scenario: MachineScenario, retention: np.ndarray) -> RotorDamage:
     """Повреждение из результата теплового сценария, привязанное к ротору его геометрии."""
     return RotorDamage(scenario.geometry, retention)
+
+
+def build_rotor_geometries(params: OutrunnerPMSMParams, angles):
+    """
+    Построить сетки для всех положений ротора ОДИН раз (gmsh на этом потоке; в веб-сервере —
+    в фон-потоке сценария). Переиспользуются между прогонками «до»/«после», у которых углы
+    совпадают, поэтому gmsh-перестроение делается вдвое реже.
+    """
+    return [build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a)))
+            for a in np.asarray(angles, dtype=float).reshape(-1)]

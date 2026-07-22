@@ -43,7 +43,11 @@ from magcore.fem2d.machines.iron_loss import (
     stator_iron_loss,
 )
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES
-from magcore.fem2d.machines.rotor_sweep import RotorDamage
+from magcore.fem2d.machines.rotor_sweep import (
+    RotorDamage,
+    build_rotor_geometries,
+    electrical_period_angles,
+)
 from magcore.fem2d.machines.thermal_scenario import (
     copper_loss_watts,
     run_machine_thermal_demag,
@@ -290,18 +294,18 @@ def _do_scenario(body: dict) -> dict:
         p_cu = copper_loss_watts(g, i_peak=ipk, turns_per_slot=turns,
                                  slot_fill=slot_fill, T=T_amb)
         n_pos = int(body.get("n_positions", 12))
-        loss_b, sw_b = stator_iron_loss(
-            params, magnet, steel, speed_rpm=rpm, i_peak=ipk, gamma_elec=gamma,
-            turns_per_slot=turns, T=T_amb, n_positions=n_pos, coeffs=cf,
-        )
+        # Сетки положений ротора строятся ОДИН раз (gmsh в фон-потоке — interruptible=False +
+        # общий лок делают это безопасным) и переиспользуются прогонами «до» и «после».
+        angles = electrical_period_angles(params, n_pos, periods=1)
+        geoms = build_rotor_geometries(params, angles)
+        ck = dict(speed_rpm=rpm, i_peak=ipk, gamma_elec=gamma, turns_per_slot=turns,
+                  T=T_amb, n_positions=n_pos, coeffs=cf, geometries=geoms)
+        loss_b, sw_b = stator_iron_loss(params, magnet, steel, **ck)
         if pristine:
             loss_a, sw_a = loss_b, sw_b
         else:
-            loss_a, sw_a = stator_iron_loss(
-                params, magnet, steel, speed_rpm=rpm, i_peak=ipk, gamma_elec=gamma,
-                turns_per_slot=turns, T=T_amb, damage=RotorDamage(g, ret),
-                n_positions=n_pos, coeffs=cf,
-            )
+            loss_a, sw_a = stator_iron_loss(params, magnet, steel,
+                                            damage=RotorDamage(g, ret), **ck)
         eta_b = efficiency(sw_b.torque_mean, rpm, p_cu, loss_b.total)
         eta_a = efficiency(sw_a.torque_mean, rpm, p_cu, loss_a.total)
         out["losses"] = {

@@ -296,8 +296,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
         <div class="row2"><div class="field"><label>T среды, °C</label><input class="num" id="s3-tamb" value="150"></div><div class="field"><label>Конвекция h, Вт/м²K</label><input class="num" id="s3-h" value="400"></div></div>
         <div class="row2"><div class="field"><label>Шаг dt, с</label><input class="num" id="s3-dt" value="2"></div><div class="field"><label>Число шагов</label><input class="num" id="s3-nsteps" value="6"></div></div>
-        <label class="chk" style="margin:4px 0"><input type="checkbox" id="s3-losses">Потери и КПД (медленно: +вращение ротора)</label>
-        <div class="row2" id="s3-speed-row" style="display:none"><div class="field"><label>Обороты n, об/мин</label><input class="num" id="s3-rpm" value="3000"></div><div class="field"><label>Позиций ротора</label><input class="num" id="s3-npos" value="12"></div></div>
+        <label class="chk" style="margin:4px 0"><input type="checkbox" id="s3-losses">Потери и КПД (+вращение ротора)</label>
+        <div class="row2" id="s3-speed-row" style="display:none"><div class="field"><label>Обороты n, об/мин</label><input class="num" id="s3-rpm" value="3000"></div><div class="field"><label>Позиций ротора</label><input class="num" id="s3-npos" value="8"></div></div>
+        <p class="hint" id="s3-slowhint" style="display:none;color:var(--warn)">Прогонка ротора: несколько минут на тонкой сетке. Для быстрой оценки постройте модель на грубой сетке.</p>
         <button class="applybtn" id="s3-run">▶ Запустить сценарий</button>
         <div id="s3-out"></div>
       </div>
@@ -635,7 +636,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
   finally{btn.disabled=false;btn.textContent='Рассчитать';}}
 
 // ---- СЦЕНАРИЙ ТЕПЛОВОЙ СТОЙКОСТИ (S3) ----
-$('s3-losses').addEventListener('change',e=>{$('s3-speed-row').style.display=e.target.checked?'grid':'none';});
+$('s3-losses').addEventListener('change',e=>{$('s3-speed-row').style.display=e.target.checked?'grid':'none';$('s3-slowhint').style.display=e.target.checked?'block':'none';});
 function spark(t,y,color,unit,fmt){const n=y.length;if(!n)return'';const w=232,h=44,pad=4;
   const ymin=Math.min(...y),ymax=Math.max(...y),dy=(ymax-ymin)||1,tmax=t[n-1]||1;
   const X=i=>pad+(t[i]/tmax)*(w-2*pad),Y=v=>h-pad-((v-ymin)/dy)*(h-2*pad);

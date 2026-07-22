@@ -194,6 +194,7 @@ def stator_iron_loss(
     damage: RotorDamage | None = None,
     coeffs: SteinmetzCoefficients | None = None,
     n_positions: int = 24,
+    geometries=None,
     relaxation: float = 0.1,
     max_iter: int = 300,
 ) -> tuple[IronLossResult, RotorSweepResult]:
@@ -214,7 +215,7 @@ def stator_iron_loss(
     sweep = sweep_rotor(
         params, magnet, steel, angles=angles, i_peak=i_peak, gamma_elec=gamma_elec,
         turns_per_slot=turns_per_slot, T=T, damage=damage, no_load=False,
-        probe_points=pts, relaxation=relaxation, max_iter=max_iter,
+        probe_points=pts, geometries=geometries, relaxation=relaxation, max_iter=max_iter,
     )
     freq = electrical_frequency(params, speed_rpm)
     loss = iron_loss_from_probe_waveform(

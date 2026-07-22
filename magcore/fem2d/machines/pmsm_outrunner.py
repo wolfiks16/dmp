@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import math
+import threading
 from dataclasses import dataclass
 from enum import IntEnum
 
 import numpy as np
 
 from magcore.fem2d.mesh import TriangleMesh, signed_area2
+
+# gmsh — глобальный синглтон (initialize/finalize + одна общая модель), поэтому НЕ реентерабелен
+# и небезопасен при параллельном доступе. В веб-сервере к нему обращаются и главный поток
+# (/api/mesh), и фон-поток (прогонка ротора в сценарии) ⇒ сериализуем весь gmsh-блок этим локом.
+_GMSH_LOCK = threading.Lock()
 
 # Параметрический генератор сечения OUTRUNNER SPM PMSM (магниты на роторе снаружи,
 # слотованный статор внутри). Топология по радиусу изнутри наружу:
@@ -159,7 +165,11 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
     mag_ang = p.magnet_embrace * pole_pitch
     default_size = p.mesh_size if p.mesh_size is not None else p.air_gap
 
-    gmsh.initialize()
+    # interruptible=False — НЕ трогать обработчик SIGINT: иначе gmsh.initialize падает вне
+    # главного потока («signal only works in main thread»), а прогонка ротора строит геометрию
+    # именно в фон-потоке веб-сервера. На главном потоке поведение не меняется.
+    _GMSH_LOCK.acquire()
+    gmsh.initialize(interruptible=False)
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -236,6 +246,7 @@ def build_outrunner_spm_pmsm(params: OutrunnerPMSMParams) -> MachineGeometry:
         cells = np.vectorize(tag2idx.get)(tris)
     finally:
         gmsh.finalize()
+        _GMSH_LOCK.release()
 
     verts = np.ascontiguousarray(coords)
     # Ориентация CCW (наш TriangleMesh требует положительной площади).
