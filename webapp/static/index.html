@@ -94,6 +94,12 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .legend{display:flex;gap:12px;flex-wrap:wrap;font:600 10px/1 var(--mono);color:var(--muted);margin-top:4px}
 .legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:5px;vertical-align:middle}
 .reshead{font:600 11px/1 var(--ui);letter-spacing:.6px;text-transform:uppercase;color:var(--accent);margin:12px 0 2px}
+.s3tab{width:100%;border-collapse:collapse;margin-top:6px;font-size:12px}
+.s3tab th{color:var(--muted);font:600 10px/1 var(--mono);text-transform:uppercase;text-align:right;padding:4px 6px;border-bottom:1px solid var(--line2)}
+.s3tab th:first-child{text-align:left}
+.s3tab td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;font:600 12px/1 var(--mono);font-variant-numeric:tabular-nums}
+.s3tab td:first-child{text-align:left;color:var(--muted);font-family:var(--ui)}
+.s3tab tr.hi td{color:var(--accent);border-bottom:0}
 .palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .palette button{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line2);color:var(--muted);padding:6px 9px;border-radius:6px;cursor:pointer;display:grid;place-items:center}
 .palette button:hover{border-color:var(--accent2);color:var(--accent)}
@@ -144,7 +150,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
       <div class="node i1"><span class="ic">⚛</span>Физика</div>
       <div class="node i2"><span class="dot" style="background:var(--accent)"></span>Магнитостатика (2D)<span class="tag on">актив</span></div>
-      <div class="node i2 dis"><span class="dot" style="background:var(--dim)"></span>Тепловая связка (S3)<span class="tag off">позже</span></div>
+      <div class="node i2" data-stage="s3"><span class="dot" style="background:var(--warn)"></span>Тепловая стойкость (S3)<span class="tag ok">К6′</span></div>
       <div class="node i1" data-stage="calc"><span class="ic">◵</span>Исследование<span class="tag ok">S1/S2</span></div>
       <div class="node i1"><span class="ic">▣</span>Результаты</div>
       <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
@@ -282,6 +288,18 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <p class="hint">Нагрев в статике — заданная T (динамика/тепло — S3).</p>
         <div class="reshead">Результаты</div>
         <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
+      </div>
+      <!-- ТЕПЛОВАЯ СТОЙКОСТЬ (S3) -->
+      <div class="rp-stage" data-stage="s3">
+        <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть ремнантности теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
+        <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="s3-ipk" value="60"></div><div class="field"><label>Угол γ, °</label><input class="num" id="s3-gamma" value="0"></div></div>
+        <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
+        <div class="row2"><div class="field"><label>T среды, °C</label><input class="num" id="s3-tamb" value="150"></div><div class="field"><label>Конвекция h, Вт/м²K</label><input class="num" id="s3-h" value="400"></div></div>
+        <div class="row2"><div class="field"><label>Шаг dt, с</label><input class="num" id="s3-dt" value="2"></div><div class="field"><label>Число шагов</label><input class="num" id="s3-nsteps" value="6"></div></div>
+        <label class="chk" style="margin:4px 0"><input type="checkbox" id="s3-losses">Потери и КПД (медленно: +вращение ротора)</label>
+        <div class="row2" id="s3-speed-row" style="display:none"><div class="field"><label>Обороты n, об/мин</label><input class="num" id="s3-rpm" value="3000"></div><div class="field"><label>Позиций ротора</label><input class="num" id="s3-npos" value="12"></div></div>
+        <button class="applybtn" id="s3-run">▶ Запустить сценарий</button>
+        <div id="s3-out"></div>
       </div>
         </div>
         <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
@@ -532,7 +550,7 @@ function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';ret
     R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else R.innerHTML='';}
 
-const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',result:'Результаты'};
+const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',s3:'Тепловая стойкость (S3)',result:'Результаты'};
 function openModal(){$('modal-ov').classList.add('on');}
 function closeModal(){$('modal-ov').classList.remove('on');}
 function setStage(st){STAGE=st;
@@ -615,6 +633,64 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Рассчитать';}}
+
+// ---- СЦЕНАРИЙ ТЕПЛОВОЙ СТОЙКОСТИ (S3) ----
+$('s3-losses').addEventListener('change',e=>{$('s3-speed-row').style.display=e.target.checked?'grid':'none';});
+function spark(t,y,color,unit,fmt){const n=y.length;if(!n)return'';const w=232,h=44,pad=4;
+  const ymin=Math.min(...y),ymax=Math.max(...y),dy=(ymax-ymin)||1,tmax=t[n-1]||1;
+  const X=i=>pad+(t[i]/tmax)*(w-2*pad),Y=v=>h-pad-((v-ymin)/dy)*(h-2*pad);
+  let d='M'+X(0).toFixed(1)+' '+Y(y[0]).toFixed(1);for(let i=1;i<n;i++)d+=' L'+X(i).toFixed(1)+' '+Y(y[i]).toFixed(1);
+  return'<svg width="'+w+'" height="'+h+'" style="display:block">'
+    +'<path d="'+d+'" fill="none" stroke="'+color+'" stroke-width="1.6"/>'
+    +'<circle cx="'+X(n-1).toFixed(1)+'" cy="'+Y(y[n-1]).toFixed(1)+'" r="2.4" fill="'+color+'"/></svg>'
+    +'<div style="display:flex;justify-content:space-between;font:600 10px/1 var(--mono);color:var(--dim)"><span>'+fmt(y[0])+unit+'</span><span>'+fmt(ymax)+unit+' макс</span><span>'+fmt(y[n-1])+unit+'</span></div>';}
+function s3rows(pairs){return'<ul class="res">'+pairs.map(p=>'<li><span>'+p[0]+'</span><span class="v'+(p[2]?' '+p[2]:'')+'">'+p[1]+'</span></li>').join('')+'</ul>';}
+function renderScenario(d){const o=$('s3-out');
+  let st,cls;if(d.runaway){st='⚠ Тепловой разгон';cls='crit';}else if(d.cascade){st='⚠ Каскадное размагничивание';cls='crit';}
+    else{st='✓ Машина выдержала нагрузку';cls='ok';}
+  const kt=d.kt_drop_est,ktcls=kt>1?'crit':(kt>0.01?'warn':'ok');
+  let html='<div class="reshead" style="color:var(--'+(cls==='crit'?'crit':'good')+')">'+st+'</div>';
+  if(d.runaway||d.cascade)html+='<p class="hint">'+d.stop_reason+'</p>';
+  html+='<div class="reshead">Магнит после нагрева</div>'+s3rows([
+    ['Макс. температура магнита',d.T_magnet_max+' °C'],
+    ['Ячеек за коленом',d.n_past_knee+' / '+d.n_mag,d.n_past_knee>0?'crit':'ok'],
+    ['Сохранённая ремнантность',(d.retention_mean*100).toFixed(1)+'% (мин '+(d.retention_min*100).toFixed(1)+'%)'],
+    ['Падение K_t (по 1-й гармонике)',(kt>0?'−':'')+Math.abs(kt).toFixed(2)+' %',ktcls]]);
+  html+='<div class="reshead">Исправная машина</div>'+s3rows([
+    ['Момент (i='+$('s3-ipk').value+' А)',d.healthy.torque+' Н·м'],
+    ['K_t = (3/2)p·λ_m',d.healthy.Kt+' Н·м/А'],
+    ['K_e = p·λ_m',d.healthy.Ke+' В·с/рад'],
+    ['λ_m (потокосцепление ПМ)',d.healthy.lambda_m+' Вб'],
+    ['Момент на кг магнита',d.healthy.tpm+' Н·м/кг'],
+    ['Масса магнитов',d.magnet_mass_g+' г']]);
+  html+='<div class="reshead">Траектория нагрева</div>'
+    +'<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Температура магнита</div>'+spark(d.trajectory.t,d.trajectory.T_magnet,'#e0a53a',' °C',v=>v.toFixed(0))
+    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая ремнантность</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
+  if(d.losses){const L=d.losses;html+='<div class="reshead">Потери и КПД (n='+L.speed_rpm+' об/мин, f='+L.freq+' Гц)</div>'
+    +'<table class="s3tab"><tr><th></th><th>до</th><th>после</th></tr>'
+    +'<tr><td>Момент средний, Н·м</td><td>'+L.before.torque_mean+'</td><td>'+L.after.torque_mean+'</td></tr>'
+    +'<tr><td>Пульсации момента, %</td><td>'+L.before.ripple+'</td><td>'+L.after.ripple+'</td></tr>'
+    +'<tr><td>Потери железо, Вт</td><td>'+L.before.iron_W+'</td><td>'+L.after.iron_W+'</td></tr>'
+    +'<tr><td>&nbsp;гистерезис / вихревые</td><td>'+L.before.hyst_W+' / '+L.before.eddy_W+'</td><td>'+L.after.hyst_W+' / '+L.after.eddy_W+'</td></tr>'
+    +'<tr><td>Потери медь, Вт</td><td colspan="2" style="text-align:center">'+L.copper_W+'</td></tr>'
+    +'<tr class="hi"><td>КПД, %</td><td>'+L.before.eff+'</td><td>'+L.after.eff+'</td></tr></table>';}
+  o.innerHTML=html;}
+async function runScenario(){const btn=$('s3-run');btn.disabled=true;const t0=Date.now();
+  const body={mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,
+    i_peak:+$('s3-ipk').value,gamma_deg:+$('s3-gamma').value,turns:+$('s3-turns').value,
+    slot_fill:+$('s3-fill').value,T_amb:+$('s3-tamb').value,h:+$('s3-h').value,
+    dt:+$('s3-dt').value,n_steps:+$('s3-nsteps').value,with_losses:$('s3-losses').checked,
+    speed_rpm:+$('s3-rpm').value,n_positions:+$('s3-npos').value};
+  $('s3-out').innerHTML='<p class="hint">Считаю сценарий…</p>';
+  try{const {job_id}=await(await fetch('/api/machine_scenario',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    while(true){await sleep(500);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';
+      const j=await(await fetch('/api/jobs/'+job_id)).json();
+      if(j.status==='running')continue;
+      if(j.status==='done'){renderScenario(j.result);break;}
+      $('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">'+(j.error||'ошибка сценария')+'</p>';break;}
+  }catch(e){$('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
+  finally{btn.disabled=false;btn.textContent='▶ Запустить сценарий';}}
+$('s3-run').onclick=runScenario;
 
 // события вьюпорта
 let drag=false,moved=false,last=[0,0];

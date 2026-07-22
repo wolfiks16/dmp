@@ -11,6 +11,7 @@ from magcore.fem2d.coupled_transient import (
     CoupledTransientResult,
     solve_coupled_magneto_thermal_transient,
 )
+from magcore.fem2d.losses import copper_loss_density
 from magcore.fem2d.machines.excitation import slot_areas, winding_current_density
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES, MachineGeometry, Region
 from magcore.fem2d.machines.scenario import MachineScenario
@@ -136,6 +137,24 @@ def _slot_rms_loss_current(
     i_rms = float(i_peak) / math.sqrt(2.0)
     j[in_slot] = float(turns_per_slot) * i_rms / A[sid[in_slot]] / math.sqrt(float(slot_fill))
     return j
+
+
+def copper_loss_watts(
+    geometry: MachineGeometry, *, i_peak: float, turns_per_slot: float,
+    slot_fill: float, T: float,
+) -> float:
+    """
+    Полные джоулевы потери меди [Вт] в рабочей точке = ∫ρ(T)·J² dV по обмотке.
+
+    Использует тот же СКЗ-ток с поправкой на заполнение паза, что и тепловая часть, поэтому
+    цифра согласована со сценарием нагрева. Нужна для КПД (медь + железо + выход).
+    """
+    j = _slot_rms_loss_current(geometry, i_peak=i_peak, turns_per_slot=turns_per_slot,
+                               slot_fill=slot_fill)
+    nc = geometry.mesh.n_cells
+    areas = np.array([geometry.mesh.cell_area(c) for c in range(nc)], dtype=float)
+    q = copper_loss_density(j, np.full(nc, float(T)))
+    return float((q * areas).sum() * geometry.params.axial_length)
 
 
 def magnet_fundamental_ratio(

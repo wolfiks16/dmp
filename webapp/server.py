@@ -35,7 +35,19 @@ from magcore.fem2d.machines import (
     build_outrunner_spm_pmsm,
     star_of_slots_layout,
 )
+from magcore.fem2d.machines.characteristics import machine_characteristics
+from magcore.fem2d.machines.iron_loss import (
+    SteinmetzCoefficients,
+    efficiency,
+    electrical_frequency,
+    stator_iron_loss,
+)
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES
+from magcore.fem2d.machines.rotor_sweep import RotorDamage
+from magcore.fem2d.machines.thermal_scenario import (
+    copper_loss_watts,
+    run_machine_thermal_demag,
+)
 from magcore.fem2d.model import (
     Air,
     GeoObject,
@@ -198,6 +210,119 @@ def _do_solve(body: dict) -> dict:
         "n_mag": int(risk.cell_indices.size),
         "demag_frac": round(float(op.volume_fraction_below(op.knee_field)), 4),
     }
+
+
+def _do_scenario(body: dict) -> dict:
+    """
+    Сценарий тепловой стойкости магнита (S3) на сечении PMSM — в фон-потоке.
+
+    Тепловая связка магнит↔тепло↔необратимый демаг → характеристики «до/после» → (опц.)
+    потери в железе и КПД. Возвращает структуру для панели S3.
+    """
+    mid = str(body.get("mesh_id", "")) or _DEFAULT_MESH_ID
+    if mid not in _GEOM:
+        raise ValueError("сетка не найдена — постройте её заново.")
+    g, lay, _ = _GEOM[mid]
+    params = g.params
+    magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
+    steel = _steel_by_id(str(body.get("steel", "steel")))
+    scen = MachineScenario(geometry=g, magnet=magnet, steel=steel, layout=lay)
+
+    ipk = float(body.get("i_peak", 60.0))
+    turns = float(body.get("turns", 20.0))
+    gamma = np.deg2rad(float(body.get("gamma_deg", 0.0)))
+    T_amb = float(body.get("T_amb", 20.0))
+    h = float(body.get("h", 60.0))
+    dt = float(body.get("dt", 2.0))
+    n_steps = int(body.get("n_steps", 30))
+    slot_fill = float(body.get("slot_fill", 0.45))
+    dens = float(body.get("magnet_density", 7500.0))
+    with_losses = bool(body.get("with_losses", False))
+    rpm = float(body.get("speed_rpm", 3000.0))
+
+    res = run_machine_thermal_demag(
+        scen, i_peak=ipk, turns_per_slot=turns, gamma_elec=gamma, slot_fill=slot_fill,
+        h=h, T_amb=T_amb, dt=dt, n_steps=n_steps,
+    )
+    ret = res.retention
+    pristine = bool(np.all(ret >= 1.0))
+    tr = res.transient
+
+    # Характеристики ИСПРАВНОЙ машины (одна позиция ротора корректна для симметричной машины).
+    # Ущерб от несимметричного повреждения выражаем ИНВАРИАНТНОЙ к положению ротора оценкой по
+    # 1-й гармонике ремнантности: снимок «после» в одной позиции даёт неверный знак (K_t якобы
+    # растёт), поэтому его сюда НЕ выносим — «после» по моменту/КПД даёт прогонка (потери).
+    healthy = machine_characteristics(
+        scen, retention=None, i_peak=ipk, turns_per_slot=turns, gamma_elec=gamma,
+        T=T_amb, magnet_density=dens,
+    )
+    ratio = float(res.fundamental_ratio)
+
+    out = {
+        "survived": bool(res.survived),
+        "runaway": bool(tr.runaway),
+        "cascade": bool(tr.magnet_cascade),
+        "stop_reason": tr.stop_reason,
+        "T_magnet_max": round(float(res.T_magnet_max), 1),
+        "fundamental_ratio": round(ratio, 4),
+        "kt_drop_est": round(100.0 * res.torque_constant_drop, 2),
+        "n_past_knee": int(tr.n_past_knee[-1]),
+        "n_mag": int(ret.size),
+        "retention_min": round(float(ret.min()), 4),
+        "retention_mean": round(float(ret.mean()), 4),
+        "pristine": pristine,
+        "magnet_mass_g": round(healthy.magnet_mass * 1000.0, 1),
+        "healthy": {"torque": round(abs(healthy.torque), 4),
+                    "Kt": round(healthy.torque_constant, 5),
+                    "Ke": round(healthy.emf_constant, 5),
+                    "lambda_m": round(healthy.flux_linkage, 5),
+                    "tpm": round(abs(healthy.torque_per_magnet_mass), 3)},
+        "trajectory": {
+            "t": np.round(tr.times, 2).tolist(),
+            "T_magnet": np.round(np.nan_to_num(tr.T_magnet), 1).tolist(),
+            "retention_mean": np.round(tr.retention_mean, 4).tolist(),
+            "loss_power": np.round(tr.loss_power, 1).tolist(),
+        },
+    }
+
+    if with_losses:
+        cf = SteinmetzCoefficients.m270_35a()
+        p_cu = copper_loss_watts(g, i_peak=ipk, turns_per_slot=turns,
+                                 slot_fill=slot_fill, T=T_amb)
+        n_pos = int(body.get("n_positions", 12))
+        loss_b, sw_b = stator_iron_loss(
+            params, magnet, steel, speed_rpm=rpm, i_peak=ipk, gamma_elec=gamma,
+            turns_per_slot=turns, T=T_amb, n_positions=n_pos, coeffs=cf,
+        )
+        if pristine:
+            loss_a, sw_a = loss_b, sw_b
+        else:
+            loss_a, sw_a = stator_iron_loss(
+                params, magnet, steel, speed_rpm=rpm, i_peak=ipk, gamma_elec=gamma,
+                turns_per_slot=turns, T=T_amb, damage=RotorDamage(g, ret),
+                n_positions=n_pos, coeffs=cf,
+            )
+        eta_b = efficiency(sw_b.torque_mean, rpm, p_cu, loss_b.total)
+        eta_a = efficiency(sw_a.torque_mean, rpm, p_cu, loss_a.total)
+        out["losses"] = {
+            "speed_rpm": rpm, "freq": round(electrical_frequency(params, rpm), 1),
+            "copper_W": round(p_cu, 2), "iron_mass_g": round(loss_b.iron_mass * 1000.0, 1),
+            "before": {"iron_W": round(loss_b.total, 3), "hyst_W": round(loss_b.hysteresis, 3),
+                       "eddy_W": round(loss_b.eddy, 3), "torque_mean": round(abs(sw_b.torque_mean), 4),
+                       "ripple": round(100.0 * sw_b.torque_ripple, 1), "eff": round(100.0 * eta_b, 2)},
+            "after": {"iron_W": round(loss_a.total, 3), "hyst_W": round(loss_a.hysteresis, 3),
+                      "eddy_W": round(loss_a.eddy, 3), "torque_mean": round(abs(sw_a.torque_mean), 4),
+                      "ripple": round(100.0 * sw_a.torque_ripple, 1), "eff": round(100.0 * eta_a, 2)},
+        }
+    return out
+
+
+@app.post("/api/machine_scenario")
+def api_machine_scenario(body: dict = Body(default={})) -> dict:
+    """Поставить сценарий S3 (тепловая стойкость магнита) в фон-очередь; вернуть job_id."""
+    jid = uuid.uuid4().hex[:12]
+    _JOBS[jid] = _EXEC.submit(_do_scenario, dict(body))
+    return {"job_id": jid}
 
 
 @app.get("/api/mesh_defaults")
