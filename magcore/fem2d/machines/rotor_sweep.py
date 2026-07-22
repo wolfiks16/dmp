@@ -20,7 +20,7 @@ from magcore.fem2d.machines.pmsm_outrunner import (
 from magcore.fem2d.machines.scenario import MachineScenario
 from magcore.fem2d.machines.static_solver import machine_reluctivity
 from magcore.fem2d.machines.winding import star_of_slots_layout
-from magcore.fem2d.model.postproc import torque_arkkio
+from magcore.fem2d.model.postproc import _bary, torque_arkkio
 from magcore.fem2d.model.problem import Solution2D
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -51,6 +51,7 @@ class RotorSweepResult:
     flux_linkage: np.ndarray      # (N,3) потокосцепления фаз [Вб] (nan, если х.х. не считался)
     converged: np.ndarray         # (N,) bool
     n_pole_pairs: int
+    probe_B: np.ndarray | None = None   # (N, P, 2) B в пробных точках статора (для потерь в железе)
 
     @property
     def torque_mean(self) -> float:
@@ -190,6 +191,7 @@ def sweep_rotor(
     T: float = 20.0,
     damage: RotorDamage | None = None,
     no_load: bool = True,
+    probe_points=None,
     relaxation: float = 0.1,
     max_iter: int = 300,
     tol: float = 1.0e-6,
@@ -209,12 +211,18 @@ def sweep_rotor(
     а не вращение машины.
 
     `damage` — повреждение в РОТОРНОЙ системе; поворачивается вместе с магнитами.
+    `probe_points` — (P,2) НЕПОДВИЖНЫЕ точки (обычно в железе статора): в них на каждом угле
+    снимается B из НАГРУЗОЧНОГО решения ⇒ `probe_B` (N,P,2) = волна B(θ) в этих точках.
+    Именно это нужно потерям в железе: размах ΔB и dB/dθ за электрический период по элементу.
     """
     angles = np.asarray(angles, dtype=float).reshape(-1)
     p_pairs = params.n_poles // 2
     torque = np.empty(angles.size, dtype=float)
     lam = np.full((angles.size, 3), np.nan, dtype=float)
     conv = np.empty(angles.size, dtype=bool)
+
+    probes = None if probe_points is None else np.asarray(probe_points, dtype=float).reshape(-1, 2)
+    probe_B = None if probes is None else np.empty((angles.size, probes.shape[0], 2), dtype=float)
 
     have_current = i_peak != 0.0 and turns_per_slot != 0.0
     layout = star_of_slots_layout(params.n_slots, params.n_poles)
@@ -236,6 +244,9 @@ def sweep_rotor(
         )
         ok = bool(em.converged)
 
+        if probes is not None:
+            probe_B[i] = sample_B_at_points(geo.mesh, em.B_cells, probes)
+
         if no_load and turns_per_slot != 0.0:
             em_nl = em if not have_current else _solve_at_angle(
                 geo, magnet, steel, j_cells=None, **kw
@@ -245,8 +256,33 @@ def sweep_rotor(
         conv[i] = ok
 
     return RotorSweepResult(
-        angles=angles, torque=torque, flux_linkage=lam, converged=conv, n_pole_pairs=p_pairs
+        angles=angles, torque=torque, flux_linkage=lam, converged=conv,
+        n_pole_pairs=p_pairs, probe_B=probe_B,
     )
+
+
+def sample_B_at_points(mesh, B_cells: np.ndarray, points: np.ndarray) -> np.ndarray:
+    """
+    Значение (кусочно-постоянного) B в точках: B ячейки, содержащей точку.
+
+    Для внутренних точек железа статора это устойчиво даже при пере-сетке между углами:
+    B на P1 постоянна в ячейке, а сама сетка перестраивается только в роторной части, но
+    точный треугольник статора всё равно меняется ⇒ локализация по вхождению обязательна,
+    с запасным вариантом «ближайший центроид» при попадании точки ровно на ребро.
+    """
+    pts = np.asarray(points, dtype=float).reshape(-1, 2)
+    cent = np.array([mesh.cell_centroid(c) for c in range(mesh.n_cells)], dtype=float)
+    out = np.empty((pts.shape[0], 2), dtype=float)
+    for i, p in enumerate(pts):
+        order = np.argsort(((cent - p) ** 2).sum(axis=1))   # сначала ближайшие центроиды
+        hit = -1
+        for c in order[:12]:                                # вхождение среди ближайших
+            lam = _bary(p, mesh.cell_vertices(int(c)))
+            if lam is not None and min(lam) >= -1e-9:
+                hit = int(c)
+                break
+        out[i] = B_cells[hit if hit >= 0 else int(order[0])]
+    return out
 
 
 def scenario_damage(scenario: MachineScenario, retention: np.ndarray) -> RotorDamage:
