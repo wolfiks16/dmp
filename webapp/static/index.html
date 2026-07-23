@@ -122,6 +122,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .home-back{margin-top:20px;background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px}
 .home-back:hover{color:var(--text)}
 .home-empty{color:var(--dim);font-size:13px}
+.hname{width:100%;background:var(--panel2);border:1px solid var(--line2);color:var(--text);
+  padding:11px 13px;border-radius:8px;font:500 14px/1 var(--ui);margin-bottom:6px}
+.hname:focus{outline:2px solid var(--accent);outline-offset:1px}
+#name-type-lbl{color:var(--accent);font-weight:600;margin:-8px 0 16px}
+#name-err{color:var(--crit);min-height:16px}
 .palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .palette button{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line2);color:var(--muted);padding:6px 9px;border-radius:6px;cursor:pointer;display:grid;place-items:center}
 .palette button:hover{border-color:var(--accent2);color:var(--accent)}
@@ -216,6 +221,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <canvas id="cv"></canvas>
         <div class="vp-overlay" id="vplbl"><b>Геометрия модели</b></div>
         <div class="draw-hint" id="draw-hint" style="display:none"></div>
+        <div class="draw-hint" id="reg-info" style="display:none;top:auto;bottom:14px"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
         <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
       </div>
@@ -231,27 +237,17 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="modal-body">
       <!-- ГЕОМЕТРИЯ -->
       <div class="rp-stage" data-stage="geom">
-        <div class="field"><label>Тип проекта</label><select class="select" id="modekind"><option value="pmsm">Двигатель (спицевой PMSM)</option><option value="objects">Свободная геометрия</option></select></div>
         <div id="geom-pmsm">
           <p class="hint">Размеры двигателя в диаметрах (мм), как в чертеже. Центр — отверстие под вал, не моделируется.</p>
           <div id="geomfields"></div>
         </div>
         <div id="geom-objects" style="display:none">
-          <div class="palette">
-            <button data-add="rect" title="Прямоугольник"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="5.5" width="14" height="9" rx="1"/></svg></button>
-            <button data-add="circle" title="Круг"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="6.6"/></svg></button>
-            <button data-add="ring" title="Кольцо"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7"/><circle cx="10" cy="10" r="3.3"/></svg></button>
-            <button data-add="sector" title="Сектор"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 10 L17.5 10 A7.5 7.5 0 0 0 10 2.5 Z"/></svg></button>
-            <button data-add="polygon" title="Полигон"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="10,3 16.6,8 14,16 6,16 3.4,8"/></svg></button>
-          </div>
-          <p class="hint" style="margin:0 0 9px">Выбери фигуру → нарисуй на холсте мышью (окно свернётся). Параметры потом можно уточнить в полях.</p>
-          <div id="objlist2"></div>
-          <div class="objedit" id="objedit"></div>
-          <div class="objedit">
-            <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
-            <p class="hint">Внешняя граница = A_z=0, т.е. область обрезается. Мало запаса — поток «заперт» и поле занижено (0.4× даёт −28%, 4× ≈ −1.5% по аналитике). Дальнее поле мешится грубо, так что запас почти бесплатен.</p>
-          </div>
-          <p class="hint">При наложении побеждает объект с бОльшим приоритетом.</p>
+          <div class="field"><label>Фигура</label><select class="select" id="figkind">
+            <option value="rect">Прямоугольник</option><option value="circle">Круг</option>
+            <option value="ring">Кольцо</option><option value="sector">Сектор</option><option value="polygon">Полигон</option></select></div>
+          <p class="hint">«Построить фигуру» добавит фигуру выбранного типа. Или нарисуйте мышью палитрой над холстом. Размеры правьте в полях ниже; список фигур и выбор — в дереве «Модель».</p>
+          <div class="objedit" id="objedit"><p class="hint">Выберите фигуру в дереве «Модель» для правки, либо постройте новую.</p></div>
+          <p class="hint" style="margin-top:10px">При наложении фигур побеждает бо́льший приоритет слоя.</p>
         </div>
       </div>
       <!-- СЕТКА -->
@@ -301,6 +297,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       </div>
       <!-- РАСЧЁТ -->
       <div class="rp-stage" data-stage="calc">
+        <div id="calc-free" style="display:none">
+          <div class="field"><label>Название проекта</label><input id="calc-projname" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
+          <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
+          <p class="hint">Внешняя граница = A_z=0 (область обрезается). Мало запаса — поле занижено (0.4× даёт −28%, 4× ≈ −1.5%). Дальнее поле мешится грубо — запас почти бесплатен.</p>
+        </div>
         <div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div>
         <div id="calc-machine">
           <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div></div>
@@ -387,6 +388,14 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     </div>
     <button class="home-back" id="home-back">← Назад</button>
   </div>
+  <div class="home-card" id="home-name" style="display:none">
+    <h2>Название проекта</h2>
+    <p id="name-type-lbl">—</p>
+    <input class="hname" id="proj-name" placeholder="например, outrunner-12N14P" autocomplete="off">
+    <p class="home-empty" id="name-err"></p>
+    <div class="home-btns"><button class="home-b pri" id="proj-create">Создать проект</button></div>
+    <button class="home-back" id="home-back3">← Назад</button>
+  </div>
   <div class="home-card" id="home-solved" style="display:none">
     <h2>Решённые проекты</h2>
     <p class="home-empty">Сохранение и загрузка проектов появятся на следующем этапе.</p>
@@ -405,7 +414,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
-let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
+let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
@@ -448,6 +457,10 @@ function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);if(!SCENE){return;
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let col;if(showF){const v=cellVal(i);col=sgn?diverging(v/VMAX):ramp(v/VMAX);}else col=null;
     ctx.fillStyle=col?'rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')':regColor(''+REG[i]);ctx.fill();}
+  if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
+    const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
+    ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
+    ctx.fillStyle='rgba(47,211,156,0.34)';ctx.fill();}}
   if(MODE==='objects')drawObjects();
   axes();
   if(MODE==='objects')drawHandles();
@@ -606,6 +619,12 @@ function setStage(st){STAGE=st;
   else{
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
     $('modal-title').textContent=STAGE_NAME[st];
+    // Контекстный футер: геометрия/сетка — только «Построить»; расчёт — «Рассчитать». Крестик закрывает.
+    const build=(st==='geom'||st==='mesh'),calc=(st==='calc');
+    $('buildmesh').style.display=build?'':'none';
+    $('m-calc').style.display=calc?'':'none';
+    $('modal-done').style.display='none';
+    if(build)$('buildmesh').textContent=(MODE==='objects'?'Построить фигуру':'Построить модель');
     openModal();$('draw-hint').style.display='none';
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
@@ -649,7 +668,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       d=await(await fetch('/api/spoke_mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:spokeSpec(),sizes_mm:meshSpec()})})).json();
     }
     if(d.error){$('err').textContent=d.error;$('err').style.display='block';setConv('c','● '+d.error);return;}
-    MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;
+    MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;SELREG=null;$('reg-info').style.display='none';
     CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
     BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
     if(MODE==='objects'){
@@ -774,7 +793,25 @@ window.addEventListener('mouseup',e=>{const p=pos(e);
     if(DRAW.start)finishDraw(paramsFromDrag(DRAW.kind,DRAW.start,[w[0],w[1]]));return;}
   if(EDIT){EDIT=null;renderObjects();editHint();draw();return;}
   if(drag&&!moved&&TOOL==='point'){const w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}
+  else if(drag&&!moved&&MODE==='pmsm'&&TOOL==='view'&&SCENE){selectRegionAt(s2w(p[0],p[1]));}
   drag=false;cv.classList.remove('pan');});
+// Выделение элемента двигателя по клику: находим ячейку, её регион, показываем характеристики.
+const REG_RU={air_gap:'Зазор',stator_yoke:'Ярмо статора',tooth:'Зубец (луч)',slot:'Паз (обмотка)',magnet:'Магнит',rotor_yoke:'Обечайка (ярмо ротора)'};
+const REG_MAT={air_gap:'воздух',slot:'медь/воздух',stator_yoke:'сталь',tooth:'сталь',rotor_yoke:'сталь',magnet:'магнит'};
+function selectRegionAt(w){if(!SCENE||!CENT)return;
+  let best=-1,bd=1e30;for(let i=0;i<CENT.length;i++){const dx=CENT[i][0]-w[0],dy=CENT[i][1]-w[1],d=dx*dx+dy*dy;if(d<bd){bd=d;best=i;}}
+  if(best<0){SELREG=null;$('reg-info').style.display='none';draw();return;}
+  const rid=SCENE.region[best],name=((SCENE.regions[rid]||{}).name)||(''+rid);SELREG=rid;
+  // площадь и среднее |B| по региону
+  let area=0,bsum=0,bn=0;const V=SCENE.vertices;
+  for(let i=0;i<SCENE.cells.length;i++){if(SCENE.region[i]!==rid)continue;
+    const t=SCENE.cells[i],ax=V[t[0]][0],ay=V[t[0]][1],bx=V[t[1]][0],by=V[t[1]][1],cx=V[t[2]][0],cy=V[t[2]][1];
+    area+=Math.abs((bx-ax)*(cy-ay)-(cx-ax)*(by-ay))/2;
+    if(BX){bsum+=Math.hypot(BX[i],BY[i]);bn++;}}
+  const matmap={ndfeb:'NdFeB',smco:'SmCo'};const mat=(name==='magnet'?(matmap[$('material').value]||'магнит'):REG_MAT[name]||name);
+  let html='<b>'+(REG_RU[name]||name)+'</b><br>материал: '+mat+'<br>площадь: '+area.toFixed(2)+' мм²';
+  if(bn)html+='<br>среднее |B|: '+(bsum/bn).toFixed(3)+' Тл';
+  $('reg-info').innerHTML=html;$('reg-info').style.display='block';draw();}
 window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H;if(inside){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
   if(DRAW){if(inside){const w=worldSnap(p);DRAW.cur=[w[0],w[1]];draw();}return;}
   if(EDIT){const raw=s2w(p[0],p[1]),w=worldSnap(p);
@@ -786,7 +823,12 @@ $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout'
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
 $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage('result');
-$('m-calc').onclick=()=>{setStage('result');solve();};
+$('m-calc').onclick=async()=>{
+  if(MODE==='objects'){
+    if(!OBJECTS.length){$('err').textContent='Сначала постройте хотя бы одну фигуру.';$('err').style.display='block';return;}
+    const nm=$('calc-projname').value.trim();if(nm){PROJECT.name=nm;$('wbtitle').textContent=nm;}
+    setStage('result');await buildMesh();if(MESH_ID)solve();
+  }else{setStage('result');solve();}};
 $('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
 window.addEventListener('keydown',e=>{
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
@@ -798,6 +840,7 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
 function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
+  $('calc-projname').value=PROJECT.name||'';
   // Магнитостатика — T=20 фикс.; Тепловая статика — T задаёт пользователь.
   const t=$('T');if(scn==='magneto'){t.value=20;t.disabled=true;}else{t.disabled=false;}
   $('calc-scn-hint').textContent=scn==='magneto'?'Поле при T=20 °C (ток по желанию — реакция якоря).'
@@ -836,9 +879,8 @@ function addObject(kind){OBJECTS.push({name:KINDRU[kind]+' '+(OBJECTS.length+1),
 function delObject(i){invalidateField();pushHist();OBJECTS.splice(i,1);if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();draw();}
 function angUnit(k){return(k==='angle'||k==='a1'||k==='a2')?'°':'мм';}
 function renderObjects(){
-  $('objlist2').innerHTML=OBJECTS.map((o,i)=>'<div class="objrow'+(i===SEL?' sel':'')+'" data-i="'+i+'"><span class="sw" style="background:'+matSwatch(o.material)+'"></span><span class="oname">'+o.name+'</span><span class="opri" title="приоритет наложения">P'+(o.priority||1)+'</span><button class="del" data-del="'+i+'">✕</button></div>').join('')||'<p class="hint">Добавьте объект из палитры.</p>';
   const o=OBJECTS[SEL];
-  if(!o){$('objedit').innerHTML='';}
+  if(!o){$('objedit').innerHTML='<p class="hint">Выберите фигуру в дереве «Модель» для правки, либо постройте новую.</p>';}
   else{
     const par=o.kind==='polygon'
       ? '<div class="mrow"><label>Полигон</label><span style="color:var(--muted);font:600 12px/1 var(--mono)">'+o.params.points.length+' вершин</span></div>'
@@ -862,22 +904,22 @@ function renderObjects(){
       else OBJECTS[SEL][f]=v;
       if(f==='material'||f==='name'||f==='priority')renderObjects();draw();};});
   }
-  if(MODE==='objects')$('objlist').innerHTML=OBJECTS.map(o=>'<div class="node i1"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span></div>').join('');
+  if(MODE==='objects'){$('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span><button class="del" data-del="'+i+'" style="margin-left:auto;background:none;border:0;color:var(--dim);cursor:pointer">✕</button></div>').join('')||'<p class="hint" style="padding:6px 10px">Пусто — постройте фигуру.</p>';}
 }
-$('geom-objects').addEventListener('click',e=>{
-  const b=e.target.closest('[data-add]');if(b){startDraw(b.dataset.add);return;}
-  const del=e.target.dataset.del;if(del!==undefined){e.stopPropagation();delObject(+del);return;}
-  const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();draw();}});
-function applyMode(kind){MODE=kind;
-  $('geom-pmsm').style.display=MODE==='pmsm'?'block':'none';
-  $('geom-objects').style.display=MODE==='objects'?'block':'none';
-  $('calc-machine').style.display=MODE==='objects'?'none':'block';
+// Дерево «Модель»: клик по фигуре — выбрать и править; ✕ — удалить.
+$('objlist').addEventListener('click',e=>{if(MODE!=='objects')return;
+  const del=e.target.dataset.del;if(del!==undefined){delObject(+del);editHint();return;}
+  const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;setStage('geom');renderObjects();editHint();draw();}});
+function addFigure(){addObject($('figkind').value);draw();}
+function applyMode(kind){MODE=kind;const free=MODE==='objects';
+  $('geom-pmsm').style.display=free?'none':'block';
+  $('geom-objects').style.display=free?'block':'none';
+  $('calc-machine').style.display=free?'none':'block';
+  $('calc-free').style.display=free?'block':'none';
   // Свободная геометрия: только Магнитостатика + Тепловая статика (динамика — только двигатель).
-  $('node-dynamic').style.display=MODE==='objects'?'none':'flex';
-  if(MODE==='objects'&&!OBJECTS.length)seedObjects();
-  if(MODE==='objects')renderObjects();
-  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'спицевой PMSM';editHint();updateRtools();draw();}
-$('modekind').onchange=e=>applyMode(e.target.value);
+  $('node-dynamic').style.display=free?'none':'flex';
+  if(free)renderObjects();
+  editHint();updateRtools();draw();}
 
 // ---- Библиотека материалов (магниты) ----
 async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
@@ -934,23 +976,36 @@ async function saveMaterial(){const btn=$('mat-save');btn.disabled=true;
 $('mat-save').onclick=saveMaterial;
 $('matlist').addEventListener('click',async e=>{const id=e.target.dataset.delmat;if(id){await fetch('/api/materials/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});await loadMaterials();}});
 
-$('buildmesh').onclick=buildMesh;$('calc').onclick=solve;
+$('buildmesh').onclick=()=>{if(MODE==='objects')addFigure();else buildMesh();};
+$('calc').onclick=solve;
 window.addEventListener('resize',()=>{resize();fit();});
 
 // ---- Экран «Дом»: новый проект / открыть решённый ----
+let PROJECT={name:'',type:''},PENDING_TYPE='';
 function showHome(step){$('home-ov').classList.add('on');
-  $('home-start').style.display=step==='start'?'':'none';
-  $('home-type').style.display=step==='type'?'':'none';
-  $('home-solved').style.display=step==='solved'?'':'none';}
+  ['start','type','name','solved'].forEach(s=>$('home-'+s).style.display=s===step?'':'none');
+  if(step==='name'){$('proj-name').value='';$('name-err').textContent='';setTimeout(()=>$('proj-name').focus(),30);}}
 $('home-new').onclick=()=>showHome('type');
 $('home-open').onclick=()=>showHome('solved');
 $('home-back').onclick=()=>showHome('start');
 $('home-back2').onclick=()=>showHome('start');
-async function startProject(type){$('home-ov').classList.remove('on');
+$('home-back3').onclick=()=>showHome('type');
+document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>{PENDING_TYPE=c.dataset.type;
+  $('name-type-lbl').textContent=(PENDING_TYPE==='motor'?'⚙ Двигатель (спицевой PMSM)':'✎ Свободная геометрия');
+  showHome('name');});
+$('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
+  if(!nm){$('name-err').textContent='Задайте название проекта.';return;}
+  if(SAVED_NAMES.includes(nm)){$('name-err').textContent='Проект с таким именем уже есть — выберите другое.';return;}
+  startProject(PENDING_TYPE,nm);};
+$('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
+let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
+// ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
+function startProject(type,name){$('home-ov').classList.remove('on');
+  PROJECT={name,type};$('wbtitle').textContent=name;
   applyMode(type==='motor'?'pmsm':'objects');
-  setScenario('magneto');setStage('result');setTool('view');
-  await buildMesh();}
-document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>startProject(c.dataset.type));
+  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
+  $('meshinfo').textContent='—';setConv('','● постройте геометрию');
+  setScenario('magneto');setStage('geom');setTool('view');draw();}
 
 (async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
