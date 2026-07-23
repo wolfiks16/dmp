@@ -48,6 +48,11 @@ from magcore.fem2d.machines.rotor_sweep import (
     build_rotor_geometries,
     electrical_period_angles,
 )
+from magcore.fem2d.machines.spoke_pmsm import (
+    MagnetShape,
+    SpokeMotorParams,
+    build_spoke_pmsm,
+)
 from magcore.fem2d.machines.thermal_scenario import (
     copper_loss_watts,
     run_machine_thermal_demag,
@@ -93,6 +98,33 @@ GEOM_UI = [
     ("tooth_width_frac", "Доля зубца в шаге", 0.5, "frac"),
     ("magnet_embrace", "Охват полюса магнитом", 0.83, "frac"),
     ("axial_length", "Осевая длина", 30.0, "mm"),
+]
+
+# СПИЦЕВОЙ двигатель (реальная схема заказчика): параметры в ДИАМЕТРАХ (мм), с выбором формы
+# магнита. Поле SpokeMotorParams, подпись как в чертеже, значение по умолч., вид.
+SPOKE_UI = [
+    ("n_teeth", "Лучи (зубцы)", 12, "int"),
+    ("n_poles", "Магниты (полюса)", 14, "int"),
+    ("D_shell_out_mm", "Внешний ⌀ обечайки", 50.5, "mm"),
+    ("D_shell_in_mm", "Внутренний ⌀ обечайки", 45.4, "mm"),
+    ("D_magnet_in_mm", "Внутренний ⌀ магнита", 41.26, "mm"),
+    ("D_tooth_out_mm", "Внешний ⌀ лучей (верх топорика)", 40.86, "mm"),
+    ("D_shoe_in_mm", "Внутренний ⌀ луча (низ топорика)", 38.5, "mm"),
+    ("D_base_out_mm", "Внешний ⌀ основания луча", 19.5, "mm"),
+    ("D_base_in_mm", "Внутренний ⌀ основания (расточка)", 17.0, "mm"),
+    ("tooth_stem_mm", "Толщина луча (стержня)", 2.5, "mm"),
+    ("shoe_width_mm", "Ширина топорика", 8.55, "mm"),
+    ("stack_length_mm", "Длина пакета (осевая)", 20.0, "mm"),
+    ("magnet_shape", "Форма магнита", "truncated_sector", "shape"),
+    ("sector_angle_deg", "Угол сектора", 25.5, "deg"),
+    ("truncated_width_mm", "Ширина усечённого сектора", 8.0, "mm"),
+    ("prism_width_mm", "Ширина призмы", 8.0, "mm"),
+    ("prism_thickness_mm", "Толщина призмы", 1.5, "mm"),
+]
+SPOKE_SHAPES = [
+    ("sector", "Сектор"),
+    ("truncated_sector", "Усечённый сектор"),
+    ("prism", "Призма"),
 ]
 
 _GEOM: dict = {}          # mesh_id -> (MachineGeometry, layout, steel)
@@ -169,6 +201,44 @@ def _mesh_payload(mid: str) -> dict:
         "n_cells": int(g.mesh.n_cells),
         "region_counts": _region_counts(g),
     }
+
+
+# ---- СПИЦЕВОЙ ДВИГАТЕЛЬ (новый генератор, реальная схема заказчика) ----
+
+def _spoke_params_from(body: dict) -> tuple[SpokeMotorParams, str]:
+    """Собрать SpokeMotorParams из тела запроса + детерминированный mesh_id."""
+    vals = dict(body.get("params") or {})
+    kw: dict = {}
+    for name, _lbl, default, kind in SPOKE_UI:
+        v = vals.get(name, default)
+        if kind == "int":
+            kw[name] = int(v)
+        elif kind == "shape":
+            kw[name] = MagnetShape(str(v))
+        else:                                    # mm | deg — числа
+            kw[name] = float(v)
+    raw = dict(body.get("sizes_mm") or {})
+    sizes = {name: float(raw.get(name, DEFAULT_SIZES_MM[name])) for name in REGION_NAMES.values()}
+    kw["mesh_size_by_region"] = sizes
+    kw["mesh_size_mm"] = min(sizes.values())
+    params = SpokeMotorParams(**kw)
+    key = "spoke#" + "|".join(f"{k}:{v}" for k, v in sorted(
+        (k, (v.value if isinstance(v, MagnetShape) else v)) for k, v in kw.items() if k != "mesh_size_by_region"))
+    key += "#" + "|".join(f"{k}:{sizes[k]:.4g}" for k in sorted(sizes))
+    return params, "sp" + hashlib.sha1(key.encode()).hexdigest()[:10]
+
+
+def _build_spoke_mesh(params: SpokeMotorParams, mid: str) -> str:
+    """Построить (или взять из кэша) спицевую геометрию. ⚠ gmsh — вызывать из главного потока."""
+    if mid in _GEOM:
+        return mid
+    g = build_spoke_pmsm(params)
+    lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
+    _GEOM[mid] = (g, lay, m270_35a_bh_curve())
+    scen = MachineScenario(geometry=g, magnet=n42sh_magnet((1, 0, 0)), steel=_GEOM[mid][2],
+                           layout=lay)
+    _SCENE[mid] = problem_to_scene(scen.to_problem())
+    return mid
 
 
 # Прогрев: построить модель по умолчанию в главном потоке при импорте (быстрый первый показ).
@@ -337,6 +407,27 @@ def api_mesh_defaults() -> dict:
                      for n, lab, v, k in GEOM_UI],
         "regions": [{"name": n, "label": lab, "mm": mm} for n, lab, mm in REGION_UI],
     }
+
+
+@app.get("/api/spoke_defaults")
+def api_spoke_defaults() -> dict:
+    """Дефолты формы двигателя (спицевого): параметры чертежа + формы магнита + регионы сетки."""
+    return {
+        "params": [{"name": n, "label": lab, "value": v, "kind": k} for n, lab, v, k in SPOKE_UI],
+        "shapes": [{"value": v, "label": lab} for v, lab in SPOKE_SHAPES],
+        "regions": [{"name": n, "label": lab, "mm": mm} for n, lab, mm in REGION_UI],
+    }
+
+
+@app.post("/api/spoke_mesh")
+async def api_spoke_mesh(body: dict = Body(default={})) -> dict:
+    """Построить спицевой двигатель (gmsh на главном потоке = поток event-loop) и вернуть сцену."""
+    try:
+        params, mid = _spoke_params_from(dict(body))
+        mid = _build_spoke_mesh(params, mid)
+    except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI, не 500
+        return {"error": str(e)}
+    return _mesh_payload(mid)
 
 
 @app.post("/api/mesh")

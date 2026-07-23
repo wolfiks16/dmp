@@ -100,6 +100,28 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .s3tab td{padding:5px 6px;border-bottom:1px solid var(--line);text-align:right;font:600 12px/1 var(--mono);font-variant-numeric:tabular-nums}
 .s3tab td:first-child{text-align:left;color:var(--muted);font-family:var(--ui)}
 .s3tab tr.hi td{color:var(--accent);border-bottom:0}
+.home-ov{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;
+  background:radial-gradient(1200px 700px at 50% 30%,#12203a,var(--bg2))}
+.home-ov.on{display:flex}
+.home-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:34px 40px;
+  width:min(560px,92vw);text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.home-card h1{margin:14px 0 4px;font-size:24px}.home-card h2{margin:0 0 18px;font-size:18px}
+.home-card p{color:var(--muted);margin:0 0 22px}
+.home-logo{width:52px;height:52px;border-radius:14px;margin:0 auto;display:grid;place-items:center;
+  background:linear-gradient(135deg,var(--accent),var(--accent2));color:#04140e;font-weight:900;font-size:26px}
+.home-btns{display:flex;gap:12px;justify-content:center}
+.home-b{background:var(--panel2);border:1px solid var(--line2);color:var(--text);padding:12px 20px;border-radius:9px;
+  cursor:pointer;font:600 13px/1 var(--ui)}.home-b:hover{border-color:var(--accent)}
+.home-b.pri{background:var(--accent);color:#04140e;border-color:var(--accent)}
+.home-types{display:flex;gap:16px}
+.type-card{flex:1;background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:22px 16px;
+  cursor:pointer;display:flex;flex-direction:column;gap:6px;align-items:center;color:var(--text)}
+.type-card:hover{border-color:var(--accent);background:var(--panel3)}
+.type-card .type-ic{font-size:34px;line-height:1;color:var(--accent)}
+.type-card b{font-size:15px}.type-card span{color:var(--muted);font-size:12px;text-align:center}
+.home-back{margin-top:20px;background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px}
+.home-back:hover{color:var(--text)}
+.home-empty{color:var(--dim);font-size:13px}
 .palette{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .palette button{flex:0 0 auto;background:var(--panel2);border:1px solid var(--line2);color:var(--muted);padding:6px 9px;border-radius:6px;cursor:pointer;display:grid;place-items:center}
 .palette button:hover{border-color:var(--accent2);color:var(--accent)}
@@ -134,7 +156,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 <body>
 <div class="topbar">
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
-  <span class="wb-title" id="wbtitle">outrunner PMSM</span><span class="saved" id="wbsaved">—</span>
+  <span class="wb-title" id="wbtitle">спицевой PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
@@ -144,14 +166,14 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <aside class="left">
     <div class="pane-h">Проект</div>
     <div class="tree" id="ptree">
-      <div class="node"><span class="ic">▾</span>🖿 Модель · outrunner PMSM</div>
+      <div class="node"><span class="ic">▾</span>🖿 Модель · двигатель</div>
       <div class="node i1" data-stage="geom"><span class="ic">◧</span>Геометрия</div>
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
-      <div class="node i1"><span class="ic">⚛</span>Физика</div>
-      <div class="node i2"><span class="dot" style="background:var(--accent)"></span>Магнитостатика (2D)<span class="tag on">актив</span></div>
-      <div class="node i2" data-stage="s3"><span class="dot" style="background:var(--warn)"></span>Тепловая стойкость (S3)<span class="tag ok">К6′</span></div>
-      <div class="node i1" data-stage="calc"><span class="ic">◵</span>Исследование<span class="tag ok">S1/S2</span></div>
+      <div class="node i1"><span class="ic">⚛</span>Сценарии</div>
+      <div class="node i2" data-stage="calc" data-scn="magneto"><span class="dot" style="background:var(--accent)"></span>Магнитостатика</div>
+      <div class="node i2" data-stage="calc" data-scn="thermostatic"><span class="dot" style="background:var(--warn)"></span>Тепловая статика</div>
+      <div class="node i2" data-stage="s3" id="node-dynamic"><span class="dot" style="background:var(--crit)"></span>Тепловая динамика</div>
       <div class="node i1"><span class="ic">▣</span>Результаты</div>
       <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
       <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
@@ -209,9 +231,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="modal-body">
       <!-- ГЕОМЕТРИЯ -->
       <div class="rp-stage" data-stage="geom">
-        <div class="field"><label>Тип модели</label><select class="select" id="modekind"><option value="pmsm">Параметрический PMSM</option><option value="objects">Свободная модель (объекты)</option></select></div>
+        <div class="field"><label>Тип проекта</label><select class="select" id="modekind"><option value="pmsm">Двигатель (спицевой PMSM)</option><option value="objects">Свободная геометрия</option></select></div>
         <div id="geom-pmsm">
-          <p class="hint">Свои размеры мотора. Радиальные толщины считаются наружу от расточки.</p>
+          <p class="hint">Размеры двигателя в диаметрах (мм), как в чертеже. Центр — отверстие под вал, не моделируется.</p>
           <div id="geomfields"></div>
         </div>
         <div id="geom-objects" style="display:none">
@@ -257,7 +279,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div class="row2"><div class="field"><label>Hk (колено), кА/м</label><input class="num" id="mat-Hk" value="1100"></div><div class="field"><label>HcJ, кА/м</label><input class="num" id="mat-Hcj" value="1600"></div></div>
           <div class="row2"><div class="field"><label>α_Br, %/°C</label><input class="num" id="mat-aBr" value="0.03"></div><div class="field"><label>γ_Hc, %/°C</label><input class="num" id="mat-gHc" value="0.20"></div></div>
           <button class="applybtn" id="mat-save">Сохранить магнит</button>
-          <div class="hint" id="mat-info">Br — ремнантность; HcB/HcJ — коэрцитивности; Hk — поле колена (Hk &lt; HcJ). Температурные коэффициенты — падение %/°C.</div>
+          <div class="hint" id="mat-info">Br — остаточная индукция; HcB/HcJ — коэрцитивности; Hk — поле колена (Hk &lt; HcJ). Температурные коэффициенты — падение %/°C.</div>
         </div>
         <hr>
         <h4>Свои материалы · сталь B(H)</h4>
@@ -285,13 +307,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div>
           <p class="hint">i_peak=0 — холостой ход. γ≈180° ≈ демаг-d-ось.</p>
         </div>
-        <p class="hint">Нагрев в статике — заданная T (динамика/тепло — S3).</p>
+        <p class="hint" id="calc-scn-hint">Поле при T=20 °C (ток по желанию — реакция якоря).</p>
         <div class="reshead">Результаты</div>
         <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
       </div>
       <!-- ТЕПЛОВАЯ СТОЙКОСТЬ (S3) -->
       <div class="rp-stage" data-stage="s3">
-        <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть ремнантности теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
+        <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть остаточной индукции B_r теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
         <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="s3-ipk" value="60"></div><div class="field"><label>Угол γ, °</label><input class="num" id="s3-gamma" value="0"></div></div>
         <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
         <div class="row2"><div class="field"><label>T среды, °C</label><input class="num" id="s3-tamb" value="150"></div><div class="field"><label>Конвекция h, Вт/м²K</label><input class="num" id="s3-h" value="400"></div></div>
@@ -343,8 +365,33 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 
 <div class="status">
   <span id="st-conv">● загрузка…</span><span id="st-cells">—</span><span id="st-iters"></span>
-  <span>Магнитостатика 2D · Стационарное S1/S2</span>
+  <span id="st-scn">Магнитостатика · 2D</span>
   <span class="r"><span id="st-mode">Вид: Геометрия</span><span id="st-zoom">масштаб 100 %</span></span>
+</div>
+
+<div class="home-ov on" id="home-ov">
+  <div class="home-card" id="home-start">
+    <div class="home-logo">M</div>
+    <h1>MagField · 2D</h1>
+    <p>Расчёт магнитного поля двигателей и произвольных магнитных систем</p>
+    <div class="home-btns">
+      <button class="home-b pri" id="home-new">＋ Новый проект</button>
+      <button class="home-b" id="home-open">Открыть решённый</button>
+    </div>
+  </div>
+  <div class="home-card" id="home-type" style="display:none">
+    <h2>Тип проекта</h2>
+    <div class="home-types">
+      <button class="type-card" data-type="motor"><div class="type-ic">⚙</div><b>Двигатель</b><span>Параметрический спицевой PMSM по чертежу</span></button>
+      <button class="type-card" data-type="free"><div class="type-ic">✎</div><b>Свободная геометрия</b><span>Произвольные фигуры из примитивов</span></button>
+    </div>
+    <button class="home-back" id="home-back">← Назад</button>
+  </div>
+  <div class="home-card" id="home-solved" style="display:none">
+    <h2>Решённые проекты</h2>
+    <p class="home-empty">Сохранение и загрузка проектов появятся на следующем этапе.</p>
+    <button class="home-back" id="home-back2">← Назад</button>
+  </div>
 </div>
 
 <script>
@@ -357,7 +404,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
-let MODE='pmsm',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
+let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0;
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
@@ -579,11 +626,16 @@ function populateModel(){const seen={};const rs=SCENE.regions;const order=Object
   $('objlist').innerHTML=items.map(r=>'<div class="node i1"><span class="ic">▪</span>'+(RU[r.name]||r.name)+'<span class="tag mat">'+objTag(r)+'</span></div>').join('');
   $('obj-cur').textContent=(MODE==='pmsm'?(+$('i_peak').value||0)+' A':'—');}
 
-async function loadFields(){const r=await(await fetch('/api/mesh_defaults')).json();REGIONS=r.regions;GEOM=r.geometry;
-  $('geomfields').innerHTML=GEOM.map(x=>{const u=x.kind==='mm'?'мм':(x.kind==='int'?'шт':'');return '<div class="mrow"><label>'+x.label+'</label><input class="gsz" data-name="'+x.name+'" value="'+x.value+'"><span class="u">'+u+'</span></div>';}).join('');
+let SPOKE_SHAPES=[];
+async function loadFields(){const r=await(await fetch('/api/spoke_defaults')).json();REGIONS=r.regions;GEOM=r.params;SPOKE_SHAPES=r.shapes;
+  const U={mm:'мм',int:'шт',deg:'°'};
+  $('geomfields').innerHTML=GEOM.map(x=>{
+    if(x.kind==='shape'){const opts=SPOKE_SHAPES.map(s=>'<option value="'+s.value+'"'+(s.value===x.value?' selected':'')+'>'+s.label+'</option>').join('');
+      return '<div class="mrow" style="grid-column:1/3"><label>'+x.label+'</label><select class="gsz select" data-name="'+x.name+'" style="flex:1">'+opts+'</select></div>';}
+    return '<div class="mrow"><label>'+x.label+'</label><input class="gsz" data-name="'+x.name+'" value="'+x.value+'"><span class="u">'+(U[x.kind]||'')+'</span></div>';}).join('');
   $('meshfields').innerHTML=REGIONS.map(x=>'<div class="mrow"><label>'+x.label+'</label><input class="msz" data-name="'+x.name+'" value="'+x.mm+'"><span class="u">мм</span></div>').join('');}
 function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
-function geomSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
+function spokeSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>{s[i.dataset.name]=(i.tagName==='SELECT'?i.value:+i.value);});return s;}
 
 async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';
   try{let d;
@@ -594,7 +646,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
         current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined),priority:(+o.priority||1)}));
       d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({objects:objs,default_mesh_mm:2.0,margin:(+$('dommargin').value||4)})})).json();
     }else{
-      d=await(await fetch('/api/mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({geom:geomSpec(),sizes_mm:meshSpec()})})).json();
+      d=await(await fetch('/api/spoke_mesh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({params:spokeSpec(),sizes_mm:meshSpec()})})).json();
     }
     if(d.error){$('err').textContent=d.error;$('err').style.display='block';setConv('c','● '+d.error);return;}
     MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;
@@ -655,7 +707,7 @@ function renderScenario(d){const o=$('s3-out');
   html+='<div class="reshead">Магнит после нагрева</div>'+s3rows([
     ['Макс. температура магнита',d.T_magnet_max+' °C'],
     ['Ячеек за коленом',d.n_past_knee+' / '+d.n_mag,d.n_past_knee>0?'crit':'ok'],
-    ['Сохранённая ремнантность',(d.retention_mean*100).toFixed(1)+'% (мин '+(d.retention_min*100).toFixed(1)+'%)'],
+    ['Сохранённая B_r',(d.retention_mean*100).toFixed(1)+'% (мин '+(d.retention_min*100).toFixed(1)+'%)'],
     ['Падение K_t (по 1-й гармонике)',(kt>0?'−':'')+Math.abs(kt).toFixed(2)+' %',ktcls]]);
   html+='<div class="reshead">Исправная машина</div>'+s3rows([
     ['Момент (i='+$('s3-ipk').value+' А)',d.healthy.torque+' Н·м'],
@@ -666,7 +718,7 @@ function renderScenario(d){const o=$('s3-out');
     ['Масса магнитов',d.magnet_mass_g+' г']]);
   html+='<div class="reshead">Траектория нагрева</div>'
     +'<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Температура магнита</div>'+spark(d.trajectory.t,d.trajectory.T_magnet,'#e0a53a',' °C',v=>v.toFixed(0))
-    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая ремнантность</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
+    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая остаточная индукция B_r</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
   if(d.losses){const L=d.losses;html+='<div class="reshead">Потери и КПД (n='+L.speed_rpm+' об/мин, f='+L.freq+' Гц)</div>'
     +'<table class="s3tab"><tr><th></th><th>до</th><th>после</th></tr>'
     +'<tr><td>Момент средний, Н·м</td><td>'+L.before.torque_mean+'</td><td>'+L.after.torque_mean+'</td></tr>'
@@ -744,7 +796,16 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){if(SEL>=0){SEL=-1;renderObjects();editHint();}buildMesh();return;}
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
-document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{if(n.dataset.tool)setTool(n.dataset.tool);setStage(n.dataset.stage);};});
+const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
+function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
+  // Магнитостатика — T=20 фикс.; Тепловая статика — T задаёт пользователь.
+  const t=$('T');if(scn==='magneto'){t.value=20;t.disabled=true;}else{t.disabled=false;}
+  $('calc-scn-hint').textContent=scn==='magneto'?'Поле при T=20 °C (ток по желанию — реакция якоря).'
+    :'Поле при заданной температуре: магнит ослаблен по T.';}
+document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{
+  if(n.dataset.tool)setTool(n.dataset.tool);
+  if(n.dataset.scn)setScenario(n.dataset.scn);else if(n.dataset.stage==='s3')setScenario('dynamic');
+  setStage(n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
 $('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
@@ -807,13 +868,16 @@ $('geom-objects').addEventListener('click',e=>{
   const b=e.target.closest('[data-add]');if(b){startDraw(b.dataset.add);return;}
   const del=e.target.dataset.del;if(del!==undefined){e.stopPropagation();delObject(+del);return;}
   const row=e.target.closest('.objrow');if(row){SEL=+row.dataset.i;renderObjects();draw();}});
-$('modekind').onchange=e=>{MODE=e.target.value;
+function applyMode(kind){MODE=kind;
   $('geom-pmsm').style.display=MODE==='pmsm'?'block':'none';
   $('geom-objects').style.display=MODE==='objects'?'block':'none';
   $('calc-machine').style.display=MODE==='objects'?'none':'block';
+  // Свободная геометрия: только Магнитостатика + Тепловая статика (динамика — только двигатель).
+  $('node-dynamic').style.display=MODE==='objects'?'none':'flex';
   if(MODE==='objects'&&!OBJECTS.length)seedObjects();
   if(MODE==='objects')renderObjects();
-  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'outrunner PMSM';editHint();updateRtools();draw();};
+  $('wbtitle').textContent=MODE==='objects'?'свободная модель':'спицевой PMSM';editHint();updateRtools();draw();}
+$('modekind').onchange=e=>applyMode(e.target.value);
 
 // ---- Библиотека материалов (магниты) ----
 async function loadMaterials(){const r=await(await fetch('/api/materials')).json();MAGNETS=r.magnets||[];STEELS=r.steels||[];
@@ -873,5 +937,20 @@ $('matlist').addEventListener('click',async e=>{const id=e.target.dataset.delmat
 $('buildmesh').onclick=buildMesh;$('calc').onclick=solve;
 window.addEventListener('resize',()=>{resize();fit();});
 
-(async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');await buildMesh();})();
+// ---- Экран «Дом»: новый проект / открыть решённый ----
+function showHome(step){$('home-ov').classList.add('on');
+  $('home-start').style.display=step==='start'?'':'none';
+  $('home-type').style.display=step==='type'?'':'none';
+  $('home-solved').style.display=step==='solved'?'':'none';}
+$('home-new').onclick=()=>showHome('type');
+$('home-open').onclick=()=>showHome('solved');
+$('home-back').onclick=()=>showHome('start');
+$('home-back2').onclick=()=>showHome('start');
+async function startProject(type){$('home-ov').classList.remove('on');
+  applyMode(type==='motor'?'pmsm':'objects');
+  setScenario('magneto');setStage('result');setTool('view');
+  await buildMesh();}
+document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>startProject(c.dataset.type));
+
+(async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
