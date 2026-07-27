@@ -18,8 +18,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
+import threading
+import time
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -140,8 +143,107 @@ SPOKE_SHAPES = [
 _GEOM: dict = {}          # mesh_id -> (MachineGeometry, layout, steel)
 _SCENE: dict = {}         # mesh_id -> сцена (геометрия+регионы для рисования)
 _OBJ: dict = {}           # model_id -> Problem2D (объектная произвольная модель)
-_EXEC = ThreadPoolExecutor(max_workers=1)
-_JOBS: dict[str, Future] = {}
+_CORES = os.cpu_count() or 4
+
+try:                                                # ограничение BLAS-потоков на расчёт
+    from threadpoolctl import threadpool_limits as _tpl
+
+    def _limit_threads(n: int):
+        return _tpl(limits=max(1, int(n)))
+except Exception:                                   # noqa: BLE001 — нет threadpoolctl
+    import contextlib
+
+    def _limit_threads(n: int):
+        return contextlib.nullcontext()
+
+
+class _JobManager:
+    """Фоновые расчёты с НАСТРАИВАЕМЫМ числом параллельных задач и очередью.
+
+    Пул потоков большой, но реальную параллельность гейтит ``max_parallel``: лишние
+    задачи ждут в очереди (их конфиг уже сохранён — запустятся, даже если пользователь
+    сменил экран). На каждый расчёт ограничиваем BLAS-потоки (``cores // max_parallel``),
+    чтобы N параллельных расчётов не пересыщали процессор."""
+
+    def __init__(self, max_parallel: int = 1):
+        self.max_parallel = max(1, int(max_parallel))
+        self.jobs: dict[str, dict] = {}
+        self.queue: list[str] = []
+        self.running: set[str] = set()
+        self.lock = threading.Lock()
+        self.pool = ThreadPoolExecutor(max_workers=64)
+
+    def submit(self, kind: str, label: str, fn, body: dict) -> str:
+        jid = uuid.uuid4().hex[:12]
+        with self.lock:
+            self.jobs[jid] = {
+                "id": jid, "kind": kind, "label": label, "status": "queued",
+                "created": time.time(), "started": None, "finished": None,
+                "result": None, "error": None, "_fn": fn, "_body": body,
+            }
+            self.queue.append(jid)
+            self._pump()
+        return jid
+
+    def _pump(self) -> None:                        # вызывать под self.lock
+        while len(self.running) < self.max_parallel and self.queue:
+            jid = self.queue.pop(0)
+            rec = self.jobs[jid]
+            rec["status"] = "running"
+            rec["started"] = time.time()
+            self.running.add(jid)
+            self.pool.submit(self._run, jid)
+
+    def _run(self, jid: str) -> None:
+        rec = self.jobs[jid]
+        per = max(1, _CORES // max(1, self.max_parallel))
+        try:
+            with _limit_threads(per):
+                rec["result"] = rec["_fn"](rec["_body"])
+            rec["status"] = "done"
+        except Exception as e:                      # noqa: BLE001 — перегрев/данные → в UI
+            rec["error"] = str(e)
+            rec["status"] = "error"
+        finally:
+            rec["finished"] = time.time()
+            with self.lock:
+                self.running.discard(jid)
+                self._pump()
+
+    def set_max_parallel(self, n: int) -> int:
+        with self.lock:
+            self.max_parallel = max(1, min(int(n), 64))
+            self._pump()
+            return self.max_parallel
+
+    def status(self, jid: str) -> dict:
+        rec = self.jobs.get(jid)
+        if rec is None:
+            return {"status": "unknown"}
+        if rec["status"] == "done":
+            return {"status": "done", "result": rec["result"]}
+        if rec["status"] == "error":
+            return {"status": "error", "error": rec["error"]}
+        return {"status": rec["status"]}            # queued | running
+
+    @staticmethod
+    def _view(rec: dict) -> dict:
+        return {k: rec[k] for k in ("id", "kind", "label", "status",
+                                    "created", "started", "finished", "error")}
+
+    def listing(self) -> list[dict]:
+        with self.lock:
+            recs = sorted(self.jobs.values(), key=lambda r: r["created"], reverse=True)
+            return [self._view(r) for r in recs]
+
+    def clear_finished(self) -> None:
+        with self.lock:
+            for jid in [j for j, r in self.jobs.items()
+                        if r["status"] in ("done", "error")]:
+                del self.jobs[jid]
+
+
+_JM = _JobManager(max_parallel=1)
 
 
 def _spec_from(body: dict) -> dict[str, float]:
@@ -404,8 +506,8 @@ def _do_scenario(body: dict) -> dict:
 @app.post("/api/machine_scenario")
 def api_machine_scenario(body: dict = Body(default={})) -> dict:
     """Поставить сценарий S3 (тепловая стойкость магнита) в фон-очередь; вернуть job_id."""
-    jid = uuid.uuid4().hex[:12]
-    _JOBS[jid] = _EXEC.submit(_do_scenario, dict(body))
+    label = str(body.get("label") or "Тепловая динамика")
+    jid = _JM.submit("scenario", label, _do_scenario, dict(body))
     return {"job_id": jid}
 
 
@@ -454,22 +556,40 @@ async def api_mesh(body: dict = Body(default={})) -> dict:
 @app.post("/api/solve")
 def api_solve(body: dict = Body(default={})) -> dict:
     """Поставить расчёт на выбранной сетке в фон-очередь; вернуть job_id для опроса."""
-    jid = uuid.uuid4().hex[:12]
-    _JOBS[jid] = _EXEC.submit(_do_solve, dict(body))
+    label = str(body.get("label") or "Расчёт")
+    jid = _JM.submit("solve", label, _do_solve, dict(body))
     return {"job_id": jid}
+
+
+@app.get("/api/settings")
+def api_settings() -> dict:
+    """Настройки менеджера: лимит параллельных расчётов, ядра, рекомендация (по 2 ядра на расчёт)."""
+    return {"max_parallel": _JM.max_parallel, "cores": _CORES, "recommended": max(1, _CORES // 2)}
+
+
+@app.post("/api/settings")
+def api_set_settings(body: dict = Body(default={})) -> dict:
+    if "max_parallel" in body:
+        _JM.set_max_parallel(body["max_parallel"])
+    return {"max_parallel": _JM.max_parallel, "cores": _CORES, "recommended": max(1, _CORES // 2)}
+
+
+@app.get("/api/jobs")
+def api_jobs() -> dict:
+    """Список всех задач (для индикатора и переподключения после перезагрузки)."""
+    return {"jobs": _JM.listing(), "max_parallel": _JM.max_parallel}
+
+
+@app.post("/api/jobs_clear")
+def api_jobs_clear() -> dict:
+    """Убрать из списка завершённые/ошибочные задачи."""
+    _JM.clear_finished()
+    return {"ok": True}
 
 
 @app.get("/api/jobs/{jid}")
 def api_job(jid: str) -> dict:
-    fut = _JOBS.get(jid)
-    if fut is None:
-        return {"status": "unknown"}
-    if not fut.done():
-        return {"status": "running"}
-    try:
-        return {"status": "done", "result": fut.result()}
-    except Exception as e:  # noqa: BLE001 — перегрев магнита и пр. → в UI
-        return {"status": "error", "error": str(e)}
+    return _JM.status(jid)
 
 
 # ---- ОБЪЕКТНАЯ ПРОИЗВОЛЬНАЯ ГЕОМЕТРИЯ (свободная модель из примитивов) ----
@@ -634,8 +754,8 @@ async def api_object_model(body: dict = Body(default={})) -> dict:
 
 @app.post("/api/object_solve")
 def api_object_solve(body: dict = Body(default={})) -> dict:
-    jid = uuid.uuid4().hex[:12]
-    _JOBS[jid] = _EXEC.submit(_do_object_solve, dict(body))
+    label = str(body.get("label") or "Расчёт")
+    jid = _JM.submit("object_solve", label, _do_object_solve, dict(body))
     return {"job_id": jid}
 
 

@@ -87,6 +87,25 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .pc-row .pc-v{color:var(--text);font-family:var(--mono);text-align:right}
 .pc-name-inp{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:5px 9px;border-radius:6px;font:600 12px/1 var(--ui);width:210px;text-align:right}
 .pc-name-inp:focus{outline:none;border-color:var(--accent)}
+/* Настройки (поповер) */
+.pop{position:fixed;top:52px;right:14px;width:262px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 34px rgba(0,0,0,.5);padding:13px;z-index:60;display:none}
+.pop.on{display:block}
+.pop-h{font:700 12px/1 var(--ui);color:var(--text);margin-bottom:11px}
+.pop-row{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.pop-row label{font:500 12px/1 var(--ui);color:var(--muted);flex:1}
+.pop-hint{font:500 11px/1.45 var(--ui);color:var(--dim);margin-bottom:11px}
+.pop-foot{display:flex;justify-content:flex-end}
+/* Индикатор задач */
+.jobw{position:fixed;bottom:34px;right:14px;width:274px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:55;overflow:hidden}
+.jobw-h{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--panel2);border-bottom:1px solid var(--line);font:700 11.5px/1 var(--ui);color:var(--text)}
+.jobw-clr{background:none;border:0;color:var(--dim);font:500 11px/1 var(--ui);cursor:pointer}.jobw-clr:hover{color:var(--text)}
+.jobw-item{display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px solid var(--line);font:500 12px/1.3 var(--ui)}
+.jobw-item:first-child{border-top:0}
+.jobw-ic{width:14px;text-align:center;flex:0 0 14px}
+.jobw-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.jobw-st{font:600 10.5px/1 var(--mono);color:var(--muted)}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
 .res{list-style:none;margin:8px 0 0;padding:0}
 .res li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
 .res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
@@ -174,7 +193,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
-  <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
+  <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" id="set-btn" title="Настройки">⚙</button><button class="tbtn" title="скоро">?</button></div>
 </div>
 
 <div class="body">
@@ -394,6 +413,20 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <span id="st-conv">● загрузка…</span><span id="st-cells">—</span><span id="st-iters"></span>
   <span id="st-scn">Магнитостатика · 2D</span>
   <span class="r"><span id="st-mode">Вид: Геометрия</span><span id="st-zoom">масштаб 100 %</span></span>
+</div>
+
+<!-- Настройки: лимит параллельных расчётов -->
+<div class="pop" id="settings-pop">
+  <div class="pop-h">Параллельные расчёты</div>
+  <div class="pop-row"><label>Одновременно</label><input class="num" id="set-par" value="1" style="width:54px;text-align:center"><button class="btn" id="set-auto">Авто</button></div>
+  <div class="pop-hint" id="set-rec">—</div>
+  <div class="pop-foot"><button class="btn pri" id="set-save">Применить</button></div>
+</div>
+
+<!-- Индикатор фоновых расчётов -->
+<div class="jobw" id="jobw" style="display:none">
+  <div class="jobw-h"><span id="jobw-title">Расчёты</span><button class="jobw-clr" id="jobw-clear" title="Убрать завершённые">очистить</button></div>
+  <div id="jobw-list"></div>
 </div>
 
 <div class="home-ov on" id="home-ov">
@@ -734,18 +767,20 @@ function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true
   summary(rows);setTool(TOOL);updateRtools();updateResults();}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
-  const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
+  $('err').style.display='none';const t0=Date.now();
   const url=MODE==='objects'?'/api/object_solve':'/api/solve';
-  const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value}
-    :{mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value};
+  const label=(PROJECT.name||'Проект')+' · '+SCN_NAME[SCENARIO];
+  const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value,label}
+    :{mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,label};
   try{const {job_id}=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    while(true){await sleep(400);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');
+    pollJobs();                                             // сразу показать в индикаторе
+    while(true){await sleep(500);
       const j=await(await fetch('/api/jobs/'+job_id)).json();
-      if(j.status==='running')continue;
+      if(j.status==='queued'){setConv('','◷ В очереди…');continue;}
+      if(j.status==='running'){setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');continue;}
       if(j.status==='done'){applyResult(j.result);break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
-  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
-  finally{btn.disabled=false;btn.textContent='Рассчитать';}}
+  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}}
 
 // ---- СЦЕНАРИЙ ТЕПЛОВОЙ СТОЙКОСТИ (S3) ----
 $('s3-losses').addEventListener('change',e=>{$('s3-speed-row').style.display=e.target.checked?'grid':'none';$('s3-slowhint').style.display=e.target.checked?'block':'none';});
@@ -1158,5 +1193,38 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   updateResults();updateExcitations();
   setScenario('magneto');setStage('result');setTool('view');resize();defaultView();}
 
-(async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');showHome('start');})();
+// ---- ЭТАП 3: НАСТРОЙКИ (лимит параллельных расчётов) ----
+let SETTINGS={max_parallel:1,cores:4,recommended:1};
+async function loadSettings(){try{SETTINGS=await(await fetch('/api/settings')).json();}catch(e){}
+  $('set-par').value=SETTINGS.max_parallel;
+  $('set-rec').textContent='Ядер процессора: '+SETTINGS.cores+'. Рекомендуется не больше '+SETTINGS.recommended+' (по 2 ядра на расчёт).';}
+$('set-btn').onclick=e=>{e.stopPropagation();$('settings-pop').classList.toggle('on');};
+$('set-auto').onclick=()=>{$('set-par').value=SETTINGS.recommended;};
+$('set-save').onclick=async()=>{const n=Math.max(1,Math.min(64,Math.round(+$('set-par').value||1)));
+  try{SETTINGS=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({max_parallel:n})})).json();}catch(e){}
+  $('set-par').value=SETTINGS.max_parallel;$('settings-pop').classList.remove('on');};
+document.addEventListener('click',e=>{const p=$('settings-pop');
+  if(p.classList.contains('on')&&!p.contains(e.target)&&e.target!==$('set-btn'))p.classList.remove('on');});
+
+// ---- ЭТАП 3: ИНДИКАТОР ФОНОВЫХ РАСЧЁТОВ (переживает перезагрузку — задачи живут на сервере) ----
+let JOBS_TIMER=null;
+function jobIcon(s){return s==='running'?'<span class="spin"></span>':s==='queued'?'◷'
+  :s==='done'?'<span style="color:var(--good)">✓</span>':s==='error'?'<span style="color:var(--crit)">✕</span>':'•';}
+function jobStatusText(s){return {running:'идёт',queued:'в очереди',done:'готово',error:'ошибка'}[s]||s;}
+function renderJobs(jobs){const w=$('jobw');
+  if(!jobs||!jobs.length){w.style.display='none';$('jobw-list').innerHTML='';return;}
+  w.style.display='';
+  const active=jobs.filter(j=>j.status==='running'||j.status==='queued').length;
+  $('jobw-title').textContent=active?('Расчёты · '+active+' активн.'):'Расчёты';
+  $('jobw-list').innerHTML=jobs.slice(0,8).map(j=>
+    '<div class="jobw-item"><span class="jobw-ic">'+jobIcon(j.status)+'</span><span class="jobw-lbl" title="'+j.label+'">'+j.label
+    +'</span><span class="jobw-st">'+jobStatusText(j.status)+'</span></div>').join('');}
+async function pollJobs(){let anyActive=false;
+  try{const d=await(await fetch('/api/jobs')).json();renderJobs(d.jobs);
+    anyActive=d.jobs.some(j=>j.status==='running'||j.status==='queued');}catch(e){}
+  clearTimeout(JOBS_TIMER);JOBS_TIMER=setTimeout(pollJobs,anyActive?1000:4000);}
+$('jobw-clear').onclick=async()=>{try{await fetch('/api/jobs_clear',{method:'POST'});}catch(e){}pollJobs();};
+
+(async()=>{await loadFields();await loadMaterials();await loadSettings();pollJobs();
+  setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
