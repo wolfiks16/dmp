@@ -404,6 +404,54 @@ def _do_solve(body: dict) -> dict:
     }
 
 
+def _do_torque_sweep(body: dict) -> dict:
+    """Прогонка ротора спицевого двигателя: момент(угол) + K_t/K_e/λ_m. Тяжёлый фон-джоб —
+    геометрия ПЕРЕСТРАИВАЕТСЯ на каждом положении (конформная сетка ⇒ пульсации физичны).
+    Ток едет вместе с ротором: γ_abs = γ + p·α, иначе средний момент вышел бы нулём."""
+    params, _ = _spoke_params_from(dict(body))
+    magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
+    steel = _steel_by_id(str(body.get("steel", "steel")))
+    T = float(body.get("T", 20.0))
+    i_peak = float(body.get("i_peak", 0.0))
+    gamma = math.radians(float(body.get("gamma_deg", 0.0)))
+    turns = float(body.get("turns", 40.0))
+    n_pos = max(4, min(int(body.get("n_pos", 12)), 48))
+    p = params.n_poles // 2
+    angles = np.arange(n_pos) * (2.0 * math.pi / p) / n_pos     # один эл. период, равномерно
+    lay = star_of_slots_layout(params.n_slots, params.n_poles)
+    have_current = i_peak != 0.0 and turns != 0.0
+    torque = np.empty(n_pos)
+    lam_a = np.full(n_pos, np.nan)
+    conv = np.empty(n_pos, dtype=bool)
+    for i, a in enumerate(angles):
+        geo = build_spoke_pmsm(replace(params, rotor_angle=float(a)))
+        scen = MachineScenario(geometry=geo, magnet=magnet, steel=steel, layout=lay)
+        g_abs = gamma + p * float(a)
+        sol = scen.solve(T=T, i_peak=i_peak, gamma_elec=g_abs, turns_per_slot=turns, max_iter=60)
+        torque[i] = float(scen.torque(sol))
+        conv[i] = bool(sol.converged)
+        sol_nl = (scen.solve(T=T, i_peak=0.0, gamma_elec=g_abs, turns_per_slot=turns, max_iter=60)
+                  if have_current else sol)                     # х.х. для потокосцепления ПМ
+        lam_a[i] = float(scen.phase_flux_linkage(sol_nl, turns_per_slot=turns)[0])
+    t_mean = float(np.mean(torque))
+    t_span = float(np.max(torque) - np.min(torque))
+    lam_m = float(2.0 * np.abs(np.sum(lam_a * np.exp(-1j * p * angles))) / n_pos)  # 1-я гармоника
+    return {
+        "angles_deg": np.round(np.degrees(angles), 2).tolist(),
+        "torque": np.round(torque, 4).tolist(),
+        "torque_mean": round(t_mean, 4),
+        "torque_span": round(t_span, 4),
+        "torque_ripple": (round(t_span / abs(t_mean), 4) if abs(t_mean) > 1e-4 else None),
+        "torque_min": round(float(np.min(torque)), 4),
+        "torque_max": round(float(np.max(torque)), 4),
+        "lam_m": round(lam_m, 6),
+        "Ke": round(float(p * lam_m), 5),
+        "Kt": round(float(1.5 * p * lam_m), 4),
+        "n_pos": n_pos, "p": int(p), "loaded": bool(have_current),
+        "all_converged": bool(np.all(conv)),
+    }
+
+
 def _do_scenario(body: dict) -> dict:
     """
     Сценарий тепловой стойкости магнита (S3) на сечении PMSM — в фон-потоке.
@@ -564,6 +612,14 @@ def api_solve(body: dict = Body(default={})) -> dict:
     """Поставить расчёт на выбранной сетке в фон-очередь; вернуть job_id для опроса."""
     label = str(body.get("label") or "Расчёт")
     jid = _JM.submit("solve", label, _do_solve, dict(body))
+    return {"job_id": jid}
+
+
+@app.post("/api/torque_sweep")
+def api_torque_sweep(body: dict = Body(default={})) -> dict:
+    """Момент от угла ротора (спицевой двигатель) — тяжёлый фон-джоб через менеджер задач."""
+    label = str(body.get("label") or "Момент от угла")
+    jid = _JM.submit("torque_sweep", label, _do_torque_sweep, dict(body))
     return {"job_id": jid}
 
 

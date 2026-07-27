@@ -412,6 +412,12 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <button class="applybtn" id="apply-circle">Построить распределение</button>
         </div>
         <div id="presult"></div>
+        <div id="torque-panel" style="display:none">
+          <hr><h4>⟳ Момент от угла ротора</h4>
+          <div class="mrow"><label>Положений</label><input class="num" id="tq-npos" value="12" style="width:56px"><span class="u">за эл. период</span></div>
+          <button class="applybtn" id="tq-run">▶ Рассчитать момент</button>
+          <div id="tq-out"></div>
+        </div>
       </div>
       <div class="needsolve" id="needsolve"></div>
     </div>
@@ -982,7 +988,32 @@ function collapsible(hdrId,bodyId){const h=$(hdrId),b=$(bodyId);if(!h||!b)return
     const ic=h.querySelector('.ic');if(ic)ic.textContent=open?'▸':'▾';};}
 collapsible('res-hdr','res-tools');collapsible('obj-hdr','objlist');collapsible('exc-hdr','exc-body');
 // Правый блок результатов виден только после расчёта; иначе — подсказка.
-function updateResults(){const has=!!BX;$('res-stage').style.display=has?'':'none';$('res-empty').style.display=has?'none':'';}
+function updateResults(){const has=!!BX;$('res-stage').style.display=has?'':'none';$('res-empty').style.display=has?'none':'';
+  const tp=$('torque-panel');if(tp)tp.style.display=(MODE==='pmsm'&&has)?'':'none';}   // момент — только двигатель
+// Момент от угла ротора (тяжёлая прогонка — фон-джоб через менеджер задач).
+function renderTorque(d){const out=$('tq-out');const n=d.torque.length;
+  const pts=d.torque.map((y,i)=>[n>1?i/(n-1):0,y]);const se=[{pts,color:'#4d8bff',label:'M(θ)'}];
+  const ripple=(d.torque_ripple==null)?('размах '+d.torque_span.toFixed(3)+' Н·м'):((d.torque_ripple*100).toFixed(1)+' %');
+  const rows=[['Средний момент',d.torque_mean.toFixed(3)+' Н·м'],
+    ['Пульсации',ripple,(d.torque_ripple!=null&&d.torque_ripple>0.3)?'warn':''],
+    ['Мин / Макс',d.torque_min.toFixed(3)+' / '+d.torque_max.toFixed(3)],
+    ['K_t (момент/ток)',d.Kt.toFixed(4)+' Н·м/А'],['K_e (ЭДС)',d.Ke.toFixed(5)+' В·с/рад'],
+    ['λ_m (ПМ)',d.lam_m.toFixed(5)+' Вб'],['Сходимость',d.all_converged?'да':'частично',d.all_converged?'ok':'crit']];
+  out.innerHTML='<div class="reshead">'+(d.loaded?'Момент под нагрузкой':'Зубцовый момент (х.х.)')+' · '+d.n_pos+' полож./эл.период</div>'
+    +chart(se,'0°','360° эл.')+leg(se)+s3rows(rows);}
+$('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=$('tq-out');btn.disabled=true;
+  out.innerHTML='<p class="hint">Считаю момент по положениям ротора: на каждом угле сетка строится заново — это несколько минут. Можно продолжать работать, следите за индикатором расчётов.</p>';
+  const body={params:spokeSpec(),sizes_mm:meshSpec(),material:$('material').value,steel:$('steel').value,
+    T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,
+    n_pos:Math.max(4,Math.min(48,+$('tq-npos').value||12)),label:(PROJECT.name||'Двигатель')+' · момент от угла'};
+  try{const {job_id}=await(await fetch('/api/torque_sweep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    pollJobs();
+    while(true){await sleep(800);const j=await(await fetch('/api/jobs/'+job_id)).json();
+      if(j.status==='queued'||j.status==='running')continue;
+      if(j.status==='done'){renderTorque(j.result);break;}
+      out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
+  }catch(e){out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
+  finally{btn.disabled=false;}};
 // Возбуждения: если ток не задан — так и пишем «не задано».
 function updateExcitations(){const body=$('exc-body');if(!body)return;
   if(MODE==='pmsm'){const i=+($('i_peak')?.value)||0;
