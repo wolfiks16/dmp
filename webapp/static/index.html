@@ -171,7 +171,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <aside class="left">
     <div class="pane-h">Проект</div>
     <div class="tree" id="ptree">
-      <div class="node"><span class="ic">▾</span>🖿 Модель · двигатель</div>
+      <div class="node"><span class="ic">▾</span>🖿 <span id="proj-tree-name">Проект</span></div>
       <div class="node i1" data-stage="geom"><span class="ic">◧</span>Геометрия</div>
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
@@ -457,7 +457,12 @@ function overlays(){ctx.lineWidth=1.7;
   else if(TOOL==='line'){const a=w2s(P.line.x1,P.line.y1),b=w2s(P.line.x2,P.line.y2);ctx.strokeStyle='#fff';ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#2fd39c';const n=Math.min(P.line.n,40);for(let i=0;i<=n;i++){const s=w2s(lerp(P.line.x1,P.line.x2,i/n),lerp(P.line.y1,P.line.y2,i/n));ctx.beginPath();ctx.arc(s[0],s[1],1.5,0,7);ctx.fill();}}
   else if(TOOL==='circle'){ctx.strokeStyle='#2fd39c';ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}}
 function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);
-  if(!SCENE){grid();axes();overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';return;}
+  if(!SCENE){grid();
+    if(MODE==='objects'){drawObjects();}          // контуры фигур видны ДО сборки сетки
+    axes();
+    if(MODE==='objects'){drawHandles();}
+    if(DRAW)drawPreview();
+    overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';return;}
   grid();
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
   for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
@@ -1035,7 +1040,7 @@ $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create'
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
-  PROJECT={name,type};$('wbtitle').textContent=name;
+  PROJECT={name,type};$('wbtitle').textContent=name;$('proj-tree-name').textContent=name;
   applyMode(type==='motor'?'pmsm':'objects');
   MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
