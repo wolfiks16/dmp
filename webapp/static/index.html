@@ -170,23 +170,25 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <aside class="left">
     <div class="pane-h">Проект</div>
     <div class="tree" id="ptree">
-      <div class="node"><span class="ic">▾</span>🖿 <span id="proj-tree-name">Проект</span></div>
+      <div class="node" style="padding-left:8px"><span class="ic">🖿</span><span id="proj-tree-name">Проект</span></div>
       <div class="node i1" data-stage="geom"><span class="ic">◧</span>Геометрия</div>
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
-      <div class="node i1"><span class="ic">⚛</span>Сценарии</div>
-      <div class="node i2" data-stage="calc"><span class="dot" style="background:var(--accent)"></span>Выбрать и рассчитать<span class="tag mat" id="tree-scn">—</span></div>
-      <div class="node i1"><span class="ic">▣</span>Результаты</div>
-      <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
-      <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
-      <div class="node i2" data-stage="result" data-tool="circle"><span class="ic">▸</span>Вдоль окружности</div>
+      <div class="node i1" data-stage="calc"><span class="ic">⚛</span>Сценарии</div>
+      <div class="node i2" data-stage="calc"><span class="dot" style="background:var(--accent)"></span><span id="tree-scn">Выберите сценарий</span></div>
+      <div class="node i1" id="res-hdr"><span class="ic">▾</span>Результаты</div>
+      <div id="res-tools">
+        <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
+        <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
+        <div class="node i2" data-stage="result" data-tool="circle"><span class="ic">▸</span>Вдоль окружности</div>
+      </div>
     </div>
     <div class="mtree"><div class="pane-h">Модель</div>
       <div class="tree" id="mtree">
-        <div class="node"><span class="ic">▾</span>Объекты</div>
+        <div class="node" id="obj-hdr"><span class="ic">▾</span>Объекты</div>
         <div id="objlist"></div>
-        <div class="node"><span class="ic">▾</span>Возбуждения</div>
-        <div class="node i1"><span class="ic">↯</span>Ток обмотки <span class="tag mat" id="obj-cur">—</span></div>
+        <div class="node" id="exc-hdr"><span class="ic">▾</span>Возбуждения</div>
+        <div id="exc-body"><div class="node i1" id="exc-row"><span class="ic">↯</span><span id="obj-cur">не задано</span></div></div>
       </div>
     </div>
   </aside>
@@ -339,7 +341,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
       </div></div>
       <!-- РЕЗУЛЬТАТЫ -->
-      <div class="rp-stage on" data-stage="result">
+      <div id="res-empty" style="display:none;padding:14px;color:var(--muted);font-size:12.5px;line-height:1.5">Сначала произведите расчёт («Рассчитать»). Затем здесь появятся поля, распределения и графики.</div>
+      <div class="rp-stage on" id="res-stage" data-stage="result">
         <div id="field-ctrls" style="display:none">
           <h4>Отображение поля</h4>
           <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option></select></div>
@@ -530,7 +533,7 @@ function updateRtools(){const solved=!!BX;
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
   $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
-function invalidateField(){if(!BX)return;BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();}
+function invalidateField(){if(!BX)return;BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -663,7 +666,7 @@ function populateModel(){const seen={};const rs=SCENE.regions;const order=Object
   const items=order.map(id=>rs[id]).filter(r=>{if(seen[r.name])return false;seen[r.name]=1;return true;});
   const RU={air_gap:'Зазор',magnet:'Магниты',tooth:'Зубцы',slot:'Пазы',stator_yoke:'Ярмо статора',rotor_yoke:'Ярмо ротора',domain:'Воздух (домен)'};
   $('objlist').innerHTML=items.map(r=>'<div class="node i1"><span class="ic">▪</span>'+(RU[r.name]||r.name)+'<span class="tag mat">'+objTag(r)+'</span></div>').join('');
-  $('obj-cur').textContent=(MODE==='pmsm'?(+$('i_peak').value||0)+' A':'—');}
+  updateExcitations();}
 
 let SPOKE_SHAPES=[];
 async function loadFields(){const r=await(await fetch('/api/spoke_defaults')).json();REGIONS=r.regions;GEOM=r.params;SPOKE_SHAPES=r.shapes;
@@ -714,7 +717,7 @@ function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true
   if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
   rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'});
   if(d.Bd_mean!==undefined)rows.push({k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'});
-  summary(rows);setTool(TOOL);updateRtools();}
+  summary(rows);setTool(TOOL);updateRtools();updateResults();}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
   const btn=$('calc');btn.disabled=true;$('err').style.display='none';const t0=Date.now();
@@ -879,9 +882,25 @@ function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' �
 // Выбор сценария в окне: переключает статику (calc) ↔ динамику (s3), заголовок — имя сценария.
 function onScnChange(v){setScenario(v);setStage(v==='dynamic'?'s3':'calc');}
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{
+  // Результаты доступны только после расчёта — иначе предупреждаем.
+  if(n.dataset.stage==='result'&&!BX){setConv('c','● сначала произведите расчёт («Рассчитать»)');return;}
   if(n.dataset.tool)setTool(n.dataset.tool);
   // Пункт «Расчёт»: открываем окно под ТЕКУЩИЙ сценарий (статика или динамика).
   setStage(n.dataset.stage==='calc'?(SCENARIO==='dynamic'?'s3':'calc'):n.dataset.stage);};});
+// Сворачиваемые секции дерева (Результаты / Объекты / Возбуждения) по клику на заголовок.
+function collapsible(hdrId,bodyId){const h=$(hdrId),b=$(bodyId);if(!h||!b)return;
+  h.style.cursor='pointer';h.onclick=()=>{const open=b.style.display!=='none';b.style.display=open?'none':'';
+    const ic=h.querySelector('.ic');if(ic)ic.textContent=open?'▸':'▾';};}
+collapsible('res-hdr','res-tools');collapsible('obj-hdr','objlist');collapsible('exc-hdr','exc-body');
+// Правый блок результатов виден только после расчёта; иначе — подсказка.
+function updateResults(){const has=!!BX;$('res-stage').style.display=has?'':'none';$('res-empty').style.display=has?'none':'';}
+// Возбуждения: если ток не задан — так и пишем «не задано».
+function updateExcitations(){const body=$('exc-body');if(!body)return;
+  if(MODE==='pmsm'){const i=+($('i_peak')?.value)||0;
+    body.innerHTML='<div class="node i1"><span class="ic">↯</span>Ток обмотки <span class="tag mat">'+(i>0?i+' A':'не задано')+'</span></div>';
+  }else{const ex=OBJECTS.filter(o=>!isMagnet(o.material)&&Math.abs(o.current||0)>0);
+    body.innerHTML=ex.length?ex.map(o=>'<div class="node i1"><span class="ic">↯</span>'+o.name+' <span class="tag mat">'+(o.current/1e6)+' А/мм²</span></div>').join('')
+      :'<div class="node i1" style="color:var(--dim)"><span class="ic">↯</span>не задано</div>';}}
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
 $('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
@@ -946,16 +965,22 @@ function renderMeshObjList(){if(MODE!=='objects')return;
   $('mesh-obj-list').innerHTML=OBJECTS.map((o,i)=>'<div class="mrow"><label>'+o.name+'</label><input class="num mobjsz" data-i="'+i+'" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>').join('')||'<p class="hint" style="padding:2px 0">Нет фигур — постройте на шаге «Геометрия».</p>';
   $('mesh-obj-list').querySelectorAll('.mobjsz').forEach(inp=>inp.onchange=()=>{const v=inp.value;OBJECTS[+inp.dataset.i].mesh_size_mm=(v===''?'':+v);invalidateField();});}
 function renderTree(){if(MODE!=='objects')return;
-  $('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span><button class="del" data-del="'+i+'" style="margin-left:auto;background:none;border:0;color:var(--dim);cursor:pointer">✕</button></div>').join('')||'<p class="hint" style="padding:6px 10px">Пусто — постройте фигуру.</p>';}
+  $('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+o.name+'</span><span class="tag mat">'+matTag(o.material)+'</span>'
+    +'<button class="oedit-btn" data-edit="'+i+'" title="Изменить" style="background:none;border:0;color:var(--dim);cursor:pointer;padding:0 3px;font-size:13px">✎</button>'
+    +'<button class="del" data-del="'+i+'" title="Удалить" style="background:none;border:0;color:var(--dim);cursor:pointer;padding:0 3px">✕</button></div>').join('')||'<p class="hint" style="padding:6px 10px">Пусто — постройте фигуру.</p>';
+  updateExcitations();}
 function renderObjects(){
   if(SEL>=0&&OBJECTS[SEL])objForm(OBJECTS[SEL],false);
   else if(DRAFT)objForm(DRAFT,true);
   else $('objedit').innerHTML='';
   renderTree();}
-// Дерево «Модель»: клик по фигуре — выбрать и править в форме; ✕ — удалить.
+// Дерево «Модель»: клик по фигуре — выделить; ✎ — открыть окно правки; ✕ — удалить (с подтверждением).
 $('objlist').addEventListener('click',e=>{if(MODE!=='objects')return;
-  const del=e.target.dataset.del;if(del!==undefined){delObject(+del);if(SEL<0)newDraft();editHint();return;}
-  const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;setStage('geom');renderObjects();editHint();draw();}});
+  const del=e.target.dataset.del;
+  if(del!==undefined){if(!confirm('Удалить «'+OBJECTS[+del].name+'»?'))return;delObject(+del);if(SEL<0)newDraft();editHint();return;}
+  const ed=e.target.dataset.edit;
+  if(ed!==undefined){SEL=+ed;DRAFT=null;setStage('geom');renderObjects();editHint();draw();return;}
+  const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;renderObjects();draw();}});
 $('figkind').onchange=()=>{if(SEL<0)newDraft();else{SEL=-1;newDraft();}};   // сменил тип → черновик новой фигуры
 // «Построить фигуру»: добавить черновик в модель и ЗАКРЫТЬ окно (полигон — только мышью).
 function addFigure(){if(!DRAFT)newDraft();
@@ -1074,6 +1099,7 @@ $('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
   if(SAVED_NAMES.includes(nm)){$('name-err').textContent='Проект с таким именем уже есть — выберите другое.';return;}
   startProject(PENDING_TYPE,nm);};
 $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
+$('i_peak').addEventListener('input',()=>{if(MODE==='pmsm')updateExcitations();});
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
@@ -1081,6 +1107,7 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   applyMode(type==='motor'?'pmsm':'objects');
   MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
+  updateResults();updateExcitations();
   setScenario('magneto');setStage('result');setTool('view');resize();defaultView();}
 
 (async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');showHome('start');})();
