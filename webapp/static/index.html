@@ -936,11 +936,12 @@ $('objlist').addEventListener('click',e=>{if(MODE!=='objects')return;
   const del=e.target.dataset.del;if(del!==undefined){delObject(+del);if(SEL<0)newDraft();editHint();return;}
   const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;setStage('geom');renderObjects();editHint();draw();}});
 $('figkind').onchange=()=>{if(SEL<0)newDraft();else{SEL=-1;newDraft();}};   // сменил тип → черновик новой фигуры
-// «Построить фигуру»: добавить черновик в модель (полигон — только мышью).
+// «Построить фигуру»: добавить черновик в модель и ЗАКРЫТЬ окно (полигон — только мышью).
 function addFigure(){if(!DRAFT)newDraft();
   if(DRAFT.kind==='polygon'){$('err').textContent='Полигон рисуется мышью — палитра над холстом.';$('err').style.display='block';return;}
   $('err').style.display='none';invalidateField();pushHist();
-  OBJECTS.push({...DRAFT,params:{...DRAFT.params}});SEL=-1;newDraft();draw();}
+  OBJECTS.push({...DRAFT,params:{...DRAFT.params}});SEL=-1;newDraft();
+  setStage('result');draw();}
 function applyMode(kind){MODE=kind;const free=MODE==='objects';
   $('geom-pmsm').style.display=free?'none':'block';
   $('geom-objects').style.display=free?'block':'none';
