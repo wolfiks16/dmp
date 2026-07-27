@@ -161,7 +161,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 <body>
 <div class="topbar">
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
-  <span class="wb-title" id="wbtitle">спицевой PMSM</span><span class="saved" id="wbsaved">—</span>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" title="скоро">⚙</button><button class="tbtn" title="скоро">?</button></div>
@@ -307,10 +306,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <option value="thermostatic">Тепловая статика — поле при заданной T</option>
           <option value="dynamic" id="scn-opt-dyn">Тепловая динамика — нагрев во времени</option></select></div>
         <div id="calc-free" style="display:none">
-          <div class="field"><label>Название проекта</label><input id="calc-projname" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
-          <p class="hint">Сетка строится на шаге «Сетка». Здесь — запуск расчёта на построенной сетке.</p>
+          <p class="hint">Сетка строится на шаге «Сетка». Выберите сценарий и нажмите «Выбрать» — расчёт запускается кнопкой «Рассчитать» в шапке.</p>
         </div>
-        <div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div>
+        <div class="field" id="t-row"><label>T, °C</label><input class="num" id="T" value="20"></div>
         <div id="calc-machine">
           <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="i_peak" value="0"></div><div class="field"><label>Угол γ, °</label><input class="num" id="gamma_deg" value="180"></div></div>
           <div class="field"><label>Витков/паз</label><input class="num" id="turns" value="40"></div>
@@ -642,7 +640,7 @@ function setStage(st){STAGE=st;
     // Контекстный футер: геометрия/сетка — только «Построить»; расчёт — «Рассчитать». Крестик закрывает.
     const build=(st==='geom'||st==='mesh'),calc=(st==='calc');
     $('buildmesh').style.display=build?'':'none';
-    $('m-calc').style.display=calc?'':'none';
+    $('m-calc').style.display=calc?'':'none';if(calc)$('m-calc').textContent='Выбрать';
     $('modal-done').style.display='none';
     if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
       : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
@@ -700,7 +698,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
     }
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
-    $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
+    populateModel();
     // Сначала ЗАКРЫВАЕМ окно, затем рисуем холст в финальном размере — иначе draw() шёл бы за
     // открытой модалкой и требовал повторного перерисова (Enter). Из «Рассчитать» окно уже
     // закрыто (idempotent), после чего идёт solve.
@@ -849,12 +847,9 @@ $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout'
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
 $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage('result');
-$('m-calc').onclick=async()=>{
-  if(MODE==='objects'){
-    if(!OBJECTS.length){$('err').textContent='Сначала постройте хотя бы одну фигуру.';$('err').style.display='block';return;}
-    const nm=$('calc-projname').value.trim();if(nm){PROJECT.name=nm;$('wbtitle').textContent=nm;}
-    setStage('result');await buildMesh();if(MESH_ID)solve();
-  }else{setStage('result');solve();}};
+// «Выбрать»: сценарий выбран (дропдаун + тег в дереве), окно закрывается. Расчёт — кнопкой
+// «Рассчитать» в шапке, ПО ВЫБРАННОМУ сценарию.
+$('m-calc').onclick=()=>setStage('result');
 $('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
 window.addEventListener('keydown',e=>{
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
@@ -865,16 +860,19 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&$('modal-ov').classList.contains('on')&&(t==='INPUT'||t==='SELECT')){
     document.activeElement.blur();e.preventDefault();
     if(STAGE==='geom'||STAGE==='mesh')$('buildmesh').click();else if(STAGE==='calc')$('m-calc').click();return;}
-  if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){if(SEL>=0){SEL=-1;newDraft();editHint();draw();}return;}
+  if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){const hadMesh=!!SCENE;
+    if(SEL>=0){SEL=-1;newDraft();editHint();}
+    if(hadMesh)buildMesh();else draw();return;}   // применить правку геометрии: пересобрать сетку
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
 function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
   ['scn-select','scn-select-s3'].forEach(id=>{const s=$(id);if(s)s.value=scn;});
   const tag=$('tree-scn');if(tag)tag.textContent=SCN_NAME[scn];
-  $('calc-projname').value=PROJECT.name||'';
-  // Магнитостатика — T=20 фикс.; Тепловая статика — T задаёт пользователь.
-  const t=$('T');if(scn==='magneto'){t.value=20;t.disabled=true;}else{t.disabled=false;}
+  // Магнитостатика — T=20 фикс. (поле СКРЫТО); Тепловая статика — T задаёт пользователь;
+  // Тепловая динамика — T в своей панели.
+  const t=$('T');t.value=(scn==='magneto'?20:t.value);
+  $('t-row').style.display=(scn==='thermostatic')?'':'none';
   $('calc-scn-hint').textContent=scn==='magneto'?'Поле при T=20 °C (ток по желанию — реакция якоря).'
     :'Поле при заданной температуре: магнит ослаблен по T.';
   if(STAGE==='calc'||STAGE==='s3')$('modal-title').textContent=SCN_NAME[scn];}
@@ -1041,7 +1039,19 @@ function onBuildBtn(){
   if(SEL>=0){setStage('result');draw();return;}   // правка существующей фигуры применяется live → закрыть
   addFigure();}
 $('buildmesh').onclick=onBuildBtn;
-$('calc').onclick=solve;
+// Верхняя «Рассчитать» — по ВЫБРАННОМУ сценарию. Статика: сетка (если нет) + solve; динамика:
+// открыть панель S3 (расчёт её кнопкой внутри — там же результаты/анимация).
+async function runByScenario(){
+  if(SCENARIO==='dynamic'){setStage('s3');return;}
+  if(MODE==='objects'){
+    if(!OBJECTS.length){setConv('c','● нет фигур — постройте геометрию');return;}
+    if(!MESH_ID)await buildMesh();
+    if(MESH_ID)solve();
+  }else{
+    if(!MESH_ID){setConv('c','● постройте модель');return;}
+    solve();
+  }}
+$('calc').onclick=runByScenario;
 $('scn-select').onchange=e=>onScnChange(e.target.value);
 $('scn-select-s3').onchange=e=>onScnChange(e.target.value);
 window.addEventListener('resize',()=>{resize();fit();});
@@ -1067,7 +1077,7 @@ $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create'
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
-  PROJECT={name,type};$('wbtitle').textContent=name;$('proj-tree-name').textContent=name;
+  PROJECT={name,type};$('proj-tree-name').textContent=name;
   applyMode(type==='motor'?'pmsm':'objects');
   MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
