@@ -586,6 +586,17 @@ def _do_scenario(body: dict) -> dict:
         },
     }
 
+    # ТЕПЛОВОЕ ПОЛЕ: финальное узловое поле → поячеечно (в порядке ячеек сетки = порядок BX),
+    # чтобы фронтенд отрисовал карту температуры поверх той же геометрии.
+    T_final = np.asarray(tr.T_hist[-1], dtype=float)[g.mesh.cells].mean(axis=1)
+    out["T_cells"] = np.round(T_final, 1).tolist()
+    out["T_min"] = round(float(T_final.min()), 1)
+    out["T_max"] = round(float(T_final.max()), 1)
+    out["T_amb"] = round(T_amb, 1)
+    # Признак выхода на установившийся режим: |dT/dt| в конце горизонта [°C/с].
+    dT_end = (float(tr.T_max[-1]) - float(tr.T_max[-2])) if tr.T_max.size >= 2 else 0.0
+    out["dTdt_end"] = round(dT_end / dt, 3) if dt else 0.0
+
     if with_losses:
         cf = SteinmetzCoefficients.m270_35a()
         p_cu = copper_loss_watts(g, i_peak=ipk, turns_per_slot=turns,

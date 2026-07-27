@@ -497,6 +497,10 @@ let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
 let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
+let TFIELD=null,TMIN=0,TMAX=1,SHOWTEMP=false;   // тепловое поле (°C по ячейкам) из тепловой динамики
+// Тепловая шкала: синий (холодно) → бирюза → жёлтый → красный (горячо).
+function heatColor(t){t=clamp(t,0,1);const s=[[26,26,120],[40,120,200],[70,200,170],[240,220,70],[220,70,45]];
+  const x=t*4,i=x|0,f=x-i,a=s[i],b=s[Math.min(i+1,4)];return[lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f)];}
 // Карта риска: s=1 безопасно (зелёный) → s=0 у/за коленом (красный). Шкала RdYlGn.
 function riskColor(s){const R=[229,84,78],Y=[224,165,58],G=[66,194,90];
   if(s<0.5){const t=s/0.5;return[lerp(R[0],Y[0],t),lerp(R[1],Y[1],t),lerp(R[2],Y[2],t)];}
@@ -549,10 +553,12 @@ function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);
   grid();
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
   const risk=showF&&COMP==='demag'&&DEMAG;                 // режим карты риска размагничивания
+  const temp=SHOWTEMP&&TFIELD;                             // режим карты температуры
   for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let fill;
-    if(risk){const s=DEMAG[i];
+    if(temp){const col=heatColor((TFIELD[i]-TMIN)/((TMAX-TMIN)||1));fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
+    else if(risk){const s=DEMAG[i];
       if(s===s){const col=riskColor(s);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';} // магнит — цвет риска
       else fill=dimHex(regColor(''+REG[i]),0.42);}                                                // фон приглушён
     else if(showF){const v=cellVal(i),col=sgn?diverging(v/VMAX):ramp(v/VMAX);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
@@ -613,7 +619,7 @@ function updateRtools(){const solved=!!BX;
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
   $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
-function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
+function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -682,16 +688,21 @@ function undo(){restore(HIST,REDO);}
 function redo(){restore(REDO,HIST);}
 
 function stops(f,a,b){let s=[];for(let i=0;i<=8;i++){const t=a+(b-a)*i/8,c=f(t);s.push('rgb('+c.map(x=>x|0).join(',')+') '+(i/8*100|0)+'%');}return s.join(',');}
+// Верхняя цветовая шкала для тепловой карты (°C).
+function tempBars(){const g=stops(heatColor,0,1);
+  $('cscale').style.background='linear-gradient(90deg,'+g+')';
+  $('cmin').textContent=TMIN.toFixed(0);$('cmax').textContent=TMAX.toFixed(0);
+  $('cunit').textContent='°C';$('cbar').classList.remove('hide');}
 function bars(){
   if(SHOWFIELD&&BX&&COMP==='demag'&&DEMAG){            // легенда карты риска: зелёный→красный
     const g=stops(riskColor,0,1);
     $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
-    $('cmin').textContent='за коленом';$('cmax').textContent='безопасно';
+    $('cmin').textContent='за коленом';$('cmax').textContent='безопасно';$('cunit').textContent='';
     $('rp-scale').innerHTML='<span>безопасно</span><span>колено</span><span>за коленом</span>';
     $('cbar').classList.toggle('hide',false);return;}
   const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
   $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
-  $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);
+  $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);$('cunit').textContent='Тл';
   $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
   $('cbar').classList.toggle('hide',!(SHOWFIELD&&BX));}
 
@@ -781,7 +792,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     if(d.error){$('err').textContent=d.error;$('err').style.display='block';setConv('c','● '+d.error);return;}
     MESH_ID=d.mesh_id;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;SELREG=null;$('reg-info').style.display='none';
     CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
-    BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+    BX=null;BY=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
     if(MODE==='objects'){
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+d.regions.length+' обл.'+(d.has_magnet?' · с магнитом':'')+(d.warning?'<br><span style="color:var(--warn)">⚠ '+d.warning+'</span>':'');
     }else{
@@ -799,7 +810,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
-function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
+function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
   // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена.
   DEMAG=null;DEMAG_KNEE_kA=null;
   if(d.demag_cells&&d.demag_cells.length){const knee=d.demag_knee_kA;
@@ -872,7 +883,16 @@ function renderScenario(d){const o=$('s3-out');
     +'<tr><td>&nbsp;гистерезис / вихревые</td><td>'+L.before.hyst_W+' / '+L.before.eddy_W+'</td><td>'+L.after.hyst_W+' / '+L.after.eddy_W+'</td></tr>'
     +'<tr><td>Потери медь, Вт</td><td colspan="2" style="text-align:center">'+L.copper_W+'</td></tr>'
     +'<tr class="hi"><td>КПД, %</td><td>'+L.before.eff+'</td><td>'+L.after.eff+'</td></tr></table>';}
-  o.innerHTML=html;}
+  // Тепловое поле: сохранить поячеечную карту и дать кнопку показа на модели.
+  if(d.T_cells&&d.T_cells.length){TFIELD=d.T_cells;TMIN=d.T_min;TMAX=d.T_max;
+    const steady=Math.abs(d.dTdt_end||0)<0.05;
+    html+='<div class="reshead">Тепловое поле</div>'
+      +'<div class="hint" style="margin-bottom:6px">Диапазон '+d.T_min.toFixed(0)+'…'+d.T_max.toFixed(0)+' °C (среда '+d.T_amb.toFixed(0)+' °C). '
+      +(steady?'Вышло на установившийся режим (|dT/dt|→0).':'⚠ Не установилось: |dT/dt|='+Math.abs(d.dTdt_end).toFixed(2)+' °C/с — увеличьте число шагов.')+'</div>'
+      +'<button class="applybtn" id="temp-btn">🌡 Показать тепловое поле</button>';}
+  else TFIELD=null;
+  o.innerHTML=html;
+  const tb=$('temp-btn');if(tb)tb.onclick=()=>setTemp(!SHOWTEMP);}
 async function runScenario(){const btn=$('s3-run');btn.disabled=true;const t0=Date.now();
   const body={mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,
     i_peak:+$('s3-ipk').value,gamma_deg:+$('s3-gamma').value,turns:+$('s3-turns').value,
@@ -1070,7 +1090,14 @@ $('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
 $('snapstep').onchange=e=>{SNAPSTEP=Math.max(0.1,+e.target.value||1);draw();};
 $('moveen').onchange=e=>{MOVEEN=e.target.checked;};
-$('showfield').onclick=()=>{SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
+$('showfield').onclick=()=>{if(SHOWTEMP){setTemp(false);return;}   // из тепловой карты — назад к полю/геометрии
+  SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
+// Тепловая карта: включить/выключить. Закрывает окно сценария (модалка перекрывает холст).
+function setTemp(on){SHOWTEMP=on&&!!TFIELD;
+  if(SHOWTEMP){SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+    setStage('result');tempBars();$('vplbl').innerHTML='<b>🌡 Тепловое поле, °C</b>';draw();}
+  else{$('vplbl').innerHTML='<b>Геометрия модели</b>';bars();setTool(TOOL);draw();}
+  const b=$('temp-btn');if(b)b.textContent=SHOWTEMP?'⭯ Скрыть тепловое поле':'🌡 Показать тепловое поле';}
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};
@@ -1301,7 +1328,7 @@ let SAVED_NAMES=[];   // имена решённых проектов (для у
 function startProject(type,name){$('home-ov').classList.remove('on');
   PROJECT={name,type};$('proj-tree-name').textContent=name;
   applyMode(type==='motor'?'pmsm':'objects');
-  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
+  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
   updateResults();updateExcitations();
   setScenario('magneto');setStage('result');setTool('view');resize();defaultView();}
