@@ -316,6 +316,30 @@ def test_substepping_is_engaged_but_idle_when_not_needed():
 
 # -------------------------------------------------------------- (6) прочие негативные
 
+def test_steady_stop_matches_long_run():
+    # ОРАКУЛ авто-стопа: остановка по |dT/dt|<tol даёт то же УСТАНОВИВШЕЕСЯ поле, что и длинный
+    # прогон (неявный Эйлер для нагрева монотонно приближается к равновесию), но за меньше шагов.
+    # Чисто тепловая связка (magnet=None): равновесие = баланс медных потерь и конвекции.
+    space, _magnet_mask, copper_mask = _segment()
+    kw = dict(
+        k_cells=np.where(copper_mask, 400.0, 1.0),
+        capacity_cells=np.where(copper_mask, 3.45e6, 1.2e6),
+        h=25.0, T_amb=20.0, dt=5.0, j_cells=np.where(copper_mask, 3.0e6, 0.0),
+    )
+    # Длинный горизонт = эталон установившегося поля; допуск по скорости мал ⇒ остаточный
+    # недобор до равновесия ~steady_tol·τ тоже мал (пропорционален допуску).
+    long = solve_coupled_magneto_thermal_transient(space, n_steps=3000, **kw)
+    fast = solve_coupled_magneto_thermal_transient(space, n_steps=3000, steady_tol=1e-4, **kw)
+    assert not long.runaway and not fast.runaway            # ниже порога — равновесие есть
+    assert not fast.magnet_cascade
+    assert "установившийся" in fast.stop_reason
+    assert fast.times.size < long.times.size                # остановился РАНЬШЕ полного горизонта
+    assert abs(fast.T_max[-1] - long.T_max[-1]) < 0.15      # поле практически стационарно
+    # negative: без допуска ранней остановки нет — проходит все шаги и завершается штатно.
+    full = solve_coupled_magneto_thermal_transient(space, n_steps=8, **kw)
+    assert full.times.size == 9 and full.stop_reason == "завершено"
+
+
 def test_zero_current_keeps_ambient_and_pristine_magnet():
     space, magnet_mask, copper_mask = _segment()
     magnet = n42sh_magnet((1.0, 0.0, 0.0))

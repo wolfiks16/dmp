@@ -373,6 +373,7 @@ def solve_coupled_magneto_thermal_transient(
     T_bin: float = 0.5,
     max_substeps: int = 32,
     em_abort_residual: float = 1.0e-2,
+    steady_tol: float | None = None,
 ) -> CoupledTransientResult:
     """
     Связанный магнитотепловой расчёт ВО ВРЕМЕНИ с необратимым размагничиванием в петле.
@@ -403,6 +404,11 @@ def solve_coupled_magneto_thermal_transient(
     em_abort_residual — невязка, выше которой решение считается бессмысленным и расчёт
                 останавливается (`magnet_cascade=True`). Промах по `em_tol` на доли порядка
                 остановкой не считается — он отражается в `em_converged`/`em_residual`.
+    steady_tol — если задан [°C/с], расчёт ОСТАНАВЛИВАЕТСЯ по выходу на установившийся режим:
+                как только |ΔT_max|/dt между соседними шагами падает ниже него (после ≥2 шагов
+                нагрева). Это НЕ аварийная остановка (runaway=cascade=False) — поле уже стационарно
+                с точностью ~steady_tol·τ; `n_steps` служит верхним пределом. Неявный Эйлер для
+                нагрева монотонно приближается к равновесию, поэтому первое срабатывание — оно.
 
     Возвращает `CoupledTransientResult`. Разгон (`runaway=True`) — это НЕ ошибка расчёта,
     а результат: история до момента срыва сохраняется целиком.
@@ -592,6 +598,13 @@ def solve_coupled_magneto_thermal_transient(
             runaway = True
             reason = ("тепловой разгон: T=%.1f C достигла порога %.1f C" % (T_peak, T_cap)
                       if np.isfinite(T_peak) else "тепловой разгон: температура разошлась")
+            break
+
+        # ВЫХОД НА УСТАНОВИВШИЙСЯ РЕЖИМ: скорость роста упала ниже допуска (не авария).
+        if (steady_tol is not None and len(T_max) >= 3
+                and abs(T_max[-1] - T_max[-2]) < steady_tol * float(dt)):
+            reason = ("установившийся режим: |dT/dt|=%.3g C/с < допуска %.3g C/с"
+                      % (abs(T_max[-1] - T_max[-2]) / float(dt), steady_tol))
             break
 
     return CoupledTransientResult(

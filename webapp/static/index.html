@@ -104,6 +104,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .jobw-ic{width:14px;text-align:center;flex:0 0 14px}
 .jobw-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
 .jobw-st{font:600 10.5px/1 var(--mono);color:var(--muted)}
+.heat-anim{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:9px;background:rgba(14,20,32,.92);border:1px solid var(--line);border-radius:9px;padding:6px 11px;z-index:6}
+.heat-anim input[type=range]{width:180px;accent-color:var(--accent)}
+.heat-anim #heat-time{font:600 11px/1 var(--mono);color:var(--muted);min-width:46px;text-align:right}
 .spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
 /* Список решённых проектов (Открыть решённый) */
@@ -261,6 +264,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="draw-hint" id="draw-hint" style="display:none"></div>
         <div class="draw-hint" id="reg-info" style="display:none;top:auto;bottom:14px"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
+        <div class="heat-anim" id="heat-anim" style="display:none"><button class="zbtn" id="heat-play" title="Пуск/пауза нагрева">▶</button><input type="range" id="heat-slider" min="0" max="0" value="0" step="1"><span id="heat-time">0 с</span></div>
         <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
       </div>
       <div class="vp-cbar hide" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" id="cunit" style="color:var(--dim)">Тл</span></div>
@@ -367,7 +371,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="s3-ipk" value="60"></div><div class="field"><label>Угол γ, °</label><input class="num" id="s3-gamma" value="0"></div></div>
         <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
         <div class="row2"><div class="field"><label>T среды, °C</label><input class="num" id="s3-tamb" value="150"></div><div class="field"><label>Конвекция h, Вт/м²K</label><input class="num" id="s3-h" value="400"></div></div>
-        <div class="row2"><div class="field"><label>Шаг dt, с</label><input class="num" id="s3-dt" value="2"></div><div class="field"><label>Число шагов</label><input class="num" id="s3-nsteps" value="6"></div></div>
+        <div class="row2"><div class="field"><label>Шаг dt, с</label><input class="num" id="s3-dt" value="2"></div><div class="field"><label>Макс. шагов</label><input class="num" id="s3-nsteps" value="120"></div></div>
+        <p class="hint" style="margin:-2px 0 6px">Расчёт останавливается по выходу на установившуюся T (или на макс. шагах / перегреве).</p>
         <label class="chk" style="margin:4px 0"><input type="checkbox" id="s3-losses">Потери и КПД (+вращение ротора)</label>
         <div class="row2" id="s3-speed-row" style="display:none"><div class="field"><label>Обороты n, об/мин</label><input class="num" id="s3-rpm" value="3000"></div><div class="field"><label>Позиций ротора</label><input class="num" id="s3-npos" value="8"></div></div>
         <p class="hint" id="s3-slowhint" style="display:none;color:var(--warn)">Прогонка ротора: несколько минут на тонкой сетке. Для быстрой оценки постройте модель на грубой сетке.</p>
@@ -498,6 +503,7 @@ let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNET
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
 let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
 let TFIELD=null,TMIN=0,TMAX=1,SHOWTEMP=false;   // тепловое поле (°C по ячейкам) из тепловой динамики
+let TFRAMES=null,TFRAME_T=null,TFRAME_I=0,HEAT_TIMER=null;   // кадры анимации нагрева
 // Тепловая шкала: синий (холодно) → бирюза → жёлтый → красный (горячо).
 function heatColor(t){t=clamp(t,0,1);const s=[[26,26,120],[40,120,200],[70,200,170],[240,220,70],[220,70,45]];
   const x=t*4,i=x|0,f=x-i,a=s[i],b=s[Math.min(i+1,4)];return[lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f)];}
@@ -883,21 +889,22 @@ function renderScenario(d){const o=$('s3-out');
     +'<tr><td>&nbsp;гистерезис / вихревые</td><td>'+L.before.hyst_W+' / '+L.before.eddy_W+'</td><td>'+L.after.hyst_W+' / '+L.after.eddy_W+'</td></tr>'
     +'<tr><td>Потери медь, Вт</td><td colspan="2" style="text-align:center">'+L.copper_W+'</td></tr>'
     +'<tr class="hi"><td>КПД, %</td><td>'+L.before.eff+'</td><td>'+L.after.eff+'</td></tr></table>';}
-  // Тепловое поле: сохранить поячеечную карту и дать кнопку показа на модели.
-  if(d.T_cells&&d.T_cells.length){TFIELD=d.T_cells;TMIN=d.T_min;TMAX=d.T_max;
-    const steady=Math.abs(d.dTdt_end||0)<0.05;
+  // Тепловое поле: сохранить кадры нагрева + карту; шкала фиксирована [T_среды … T_макс].
+  if(d.T_cells&&d.T_cells.length){TFRAMES=d.temp_frames||[d.T_cells];TFRAME_T=d.temp_frame_t||[0];
+    TFRAME_I=TFRAMES.length-1;TFIELD=d.T_cells;TMIN=d.T_amb;TMAX=d.T_max;
+    const steady=d.steady!==undefined?d.steady:(Math.abs(d.dTdt_end||0)<0.05);
     html+='<div class="reshead">Тепловое поле</div>'
       +'<div class="hint" style="margin-bottom:6px">Диапазон '+d.T_min.toFixed(0)+'…'+d.T_max.toFixed(0)+' °C (среда '+d.T_amb.toFixed(0)+' °C). '
-      +(steady?'Вышло на установившийся режим (|dT/dt|→0).':'⚠ Не установилось: |dT/dt|='+Math.abs(d.dTdt_end).toFixed(2)+' °C/с — увеличьте число шагов.')+'</div>'
-      +'<button class="applybtn" id="temp-btn">🌡 Показать тепловое поле</button>';}
-  else TFIELD=null;
+      +(steady?'✓ Вышло на установившийся режим за '+(TFRAME_T[TFRAME_T.length-1])+' с.':'⚠ Не установилось: |dT/dt|='+Math.abs(d.dTdt_end).toFixed(2)+' °C/с — увеличьте макс. число шагов.')+'</div>'
+      +'<button class="applybtn" id="temp-btn">🌡 Показать тепловое поле · анимация нагрева</button>';}
+  else{TFIELD=null;TFRAMES=null;}
   o.innerHTML=html;
   const tb=$('temp-btn');if(tb)tb.onclick=()=>setTemp(!SHOWTEMP);}
 async function runScenario(){const btn=$('s3-run');btn.disabled=true;const t0=Date.now();
   const body={mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,
     i_peak:+$('s3-ipk').value,gamma_deg:+$('s3-gamma').value,turns:+$('s3-turns').value,
     slot_fill:+$('s3-fill').value,T_amb:+$('s3-tamb').value,h:+$('s3-h').value,
-    dt:+$('s3-dt').value,n_steps:+$('s3-nsteps').value,with_losses:$('s3-losses').checked,
+    dt:+$('s3-dt').value,n_steps:+$('s3-nsteps').value,steady_tol:0.05,with_losses:$('s3-losses').checked,
     speed_rpm:+$('s3-rpm').value,n_positions:+$('s3-npos').value};
   $('s3-out').innerHTML='<p class="hint">Считаю сценарий…</p>';
   try{const {job_id}=await(await fetch('/api/machine_scenario',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
@@ -1093,11 +1100,24 @@ $('moveen').onchange=e=>{MOVEEN=e.target.checked;};
 $('showfield').onclick=()=>{if(SHOWTEMP){setTemp(false);return;}   // из тепловой карты — назад к полю/геометрии
   SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
 // Тепловая карта: включить/выключить. Закрывает окно сценария (модалка перекрывает холст).
-function setTemp(on){SHOWTEMP=on&&!!TFIELD;
+function setTemp(on){SHOWTEMP=on&&!!TFIELD;heatStop();
   if(SHOWTEMP){SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
-    setStage('result');tempBars();$('vplbl').innerHTML='<b>🌡 Тепловое поле, °C</b>';draw();}
-  else{$('vplbl').innerHTML='<b>Геометрия модели</b>';bars();setTool(TOOL);draw();}
+    setStage('result');tempBars();$('vplbl').innerHTML='<b>🌡 Тепловое поле, °C</b>';
+    if(TFRAMES&&TFRAMES.length>1){$('heat-anim').style.display='flex';$('heat-slider').max=TFRAMES.length-1;heatFrame(TFRAMES.length-1);}
+    else{$('heat-anim').style.display='none';draw();}}
+  else{$('heat-anim').style.display='none';$('vplbl').innerHTML='<b>Геометрия модели</b>';bars();setTool(TOOL);draw();}
   const b=$('temp-btn');if(b)b.textContent=SHOWTEMP?'⭯ Скрыть тепловое поле':'🌡 Показать тепловое поле';}
+// Анимация нагрева: показать кадр i (поячеечное поле T на выборке времени).
+function heatFrame(i){if(!TFRAMES)return;TFRAME_I=Math.max(0,Math.min(TFRAMES.length-1,i|0));
+  TFIELD=TFRAMES[TFRAME_I];$('heat-slider').value=TFRAME_I;
+  $('heat-time').textContent=(TFRAME_T?TFRAME_T[TFRAME_I]:0)+' с';draw();}
+function heatStop(){if(HEAT_TIMER){clearInterval(HEAT_TIMER);HEAT_TIMER=null;}const p=$('heat-play');if(p)p.textContent='▶';}
+function heatPlay(){if(HEAT_TIMER){heatStop();return;}if(!TFRAMES)return;
+  if(TFRAME_I>=TFRAMES.length-1)heatFrame(0);                 // с конца — заново от старта
+  $('heat-play').textContent='⏸';
+  HEAT_TIMER=setInterval(()=>{if(TFRAME_I>=TFRAMES.length-1){heatStop();return;}heatFrame(TFRAME_I+1);},180);}
+$('heat-play').onclick=heatPlay;
+$('heat-slider').oninput=e=>{heatStop();heatFrame(+e.target.value);};
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};

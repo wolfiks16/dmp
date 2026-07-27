@@ -541,9 +541,12 @@ def _do_scenario(body: dict) -> dict:
     with_losses = bool(body.get("with_losses", False))
     rpm = float(body.get("speed_rpm", 3000.0))
 
+    # n_steps = ВЕРХНИЙ предел; steady_tol>0 останавливает по выходу на установившуюся T.
+    steady_tol = float(body.get("steady_tol", 0.05))
     res = run_machine_thermal_demag(
         scen, i_peak=ipk, turns_per_slot=turns, gamma_elec=gamma, slot_fill=slot_fill,
         h=h, T_amb=T_amb, dt=dt, n_steps=n_steps,
+        steady_tol=(steady_tol if steady_tol > 0 else None),
     )
     ret = res.retention
     pristine = bool(np.all(ret >= 1.0))
@@ -586,14 +589,25 @@ def _do_scenario(body: dict) -> dict:
         },
     }
 
-    # ТЕПЛОВОЕ ПОЛЕ: финальное узловое поле → поячеечно (в порядке ячеек сетки = порядок BX),
-    # чтобы фронтенд отрисовал карту температуры поверх той же геометрии.
-    T_final = np.asarray(tr.T_hist[-1], dtype=float)[g.mesh.cells].mean(axis=1)
-    out["T_cells"] = np.round(T_final, 1).tolist()
+    # ТЕПЛОВОЕ ПОЛЕ: узловое поле T → поячеечно (в порядке ячеек сетки = порядок BX), чтобы
+    # фронтенд отрисовал карту поверх той же геометрии. Кадры анимации — равномерная выборка
+    # истории нагрева (≤24 кадра), финальный кадр = установившееся поле.
+    cells = g.mesh.cells
+    T_hist = np.asarray(tr.T_hist, dtype=float)                 # (n+1, ndofs)
+    nfr = T_hist.shape[0]
+    step = max(1, math.ceil(nfr / 24))
+    sel = list(range(0, nfr, step))
+    if sel[-1] != nfr - 1:
+        sel.append(nfr - 1)
+    frames = [np.round(T_hist[s][cells].mean(axis=1), 1).tolist() for s in sel]
+    T_final = np.asarray(frames[-1], dtype=float)
+    out["T_cells"] = frames[-1]
+    out["temp_frames"] = frames
+    out["temp_frame_t"] = [round(float(tr.times[s]), 1) for s in sel]
     out["T_min"] = round(float(T_final.min()), 1)
     out["T_max"] = round(float(T_final.max()), 1)
     out["T_amb"] = round(T_amb, 1)
-    # Признак выхода на установившийся режим: |dT/dt| в конце горизонта [°C/с].
+    out["steady"] = bool("установившийся" in (tr.stop_reason or ""))
     dT_end = (float(tr.T_max[-1]) - float(tr.T_max[-2])) if tr.T_max.size >= 2 else 0.0
     out["dTdt_end"] = round(dT_end / dt, 3) if dt else 0.0
 
