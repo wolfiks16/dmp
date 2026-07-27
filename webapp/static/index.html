@@ -85,6 +85,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .pc-row{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font:500 12px/1.4 var(--ui);color:var(--muted);border-top:1px solid var(--line)}
 .pc-row:first-child{border-top:0}
 .pc-row .pc-v{color:var(--text);font-family:var(--mono);text-align:right}
+.pc-name-inp{background:var(--panel);border:1px solid var(--line);color:var(--text);padding:5px 9px;border-radius:6px;font:600 12px/1 var(--ui);width:210px;text-align:right}
+.pc-name-inp:focus{outline:none;border-color:var(--accent)}
 .res{list-style:none;margin:8px 0 0;padding:0}
 .res li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
 .res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
@@ -1100,7 +1102,8 @@ function pcSec(title,rows,open){return '<details class="pc-sec"'+(open?' open':'
 function pcRow(k,v){return '<div class="pc-row"><span>'+k+'</span><span class="pc-v">'+v+'</span></div>';}
 function openPrecalc(){
   const cells=(SCENE&&SCENE.cells)?SCENE.cells.length:0;
-  let html=pcSec('Проект',pcRow('Название',PROJECT.name||'—')+pcRow('Тип',MODE==='pmsm'?'Двигатель (спицевой PMSM)':'Свободная геометрия'),true);
+  const nameRow='<div class="pc-row"><span>Название</span><input class="pc-name-inp" id="pc-name" value="'+(PROJECT.name||'')+'"></div>';
+  let html=pcSec('Проект',nameRow+pcRow('Тип',MODE==='pmsm'?'Двигатель (спицевой PMSM)':'Свободная геометрия'),true);
   // сетка по элементам
   let m='';
   if(MODE==='objects')m=OBJECTS.map(o=>pcRow(o.name,(o.mesh_size_mm||'авто')+' мм')).join('');
@@ -1118,6 +1121,7 @@ function openPrecalc(){
   if(MODE==='pmsm')sc+=pcRow('Ток i_peak',(+$('i_peak').value)+' А')+pcRow('Угол γ',(+$('gamma_deg').value)+' °')+pcRow('Витков/паз',(+$('turns').value));
   html+=pcSec('Параметры сценария',sc);
   $('precalc-body').innerHTML=html;
+  const nm=$('pc-name');if(nm)nm.oninput=()=>{PROJECT.name=nm.value.trim();$('proj-tree-name').textContent=PROJECT.name||'—';};
   setStage('precalc');
 }
 $('pc-start').onclick=()=>{setStage('result');solve();};   // запуск расчёта
