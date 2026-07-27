@@ -19,6 +19,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import threading
 import time
 import uuid
@@ -590,6 +591,100 @@ def api_jobs_clear() -> dict:
 @app.get("/api/jobs/{jid}")
 def api_job(jid: str) -> dict:
     return _JM.status(jid)
+
+
+# ---- ЭТАП 4: ПЕРСИСТЕНТНОСТЬ РЕШЁННЫХ ПРОЕКТОВ (полные поля на диск) ----
+# Папка на проект: meta.json (мета+геометрия+скаляры поля) + fields.npz (крупные массивы:
+# вершины/ячейки/регион сетки + Bx/By по ячейкам). Так «полные поля» хранятся компактно,
+# а фронтенд получает единый JSON. Проекты живут между запусками → «Открыть решённый».
+_PROJECTS_DIR = Path(__file__).parent / "projects"
+_PROJECTS_DIR.mkdir(exist_ok=True)
+_ARR_SCENE = ("vertices", "cells", "region")     # крупные массивы сцены → в .npz
+_ARR_FIELD = ("Bx", "By")                        # поле по ячейкам → в .npz
+
+
+def _project_slug(name: str) -> str:
+    """ФС-безопасное имя папки: очищенное имя + короткий хеш (разводит коллизии слагов)."""
+    cleaned = "".join(c if (c.isalnum() or c in "-_ ") else "_" for c in name.strip())
+    cleaned = cleaned.replace(" ", "_")[:60] or "проект"
+    return cleaned + "-" + hashlib.md5(name.encode("utf-8")).hexdigest()[:6]
+
+
+@app.get("/api/projects")
+def api_projects_list() -> dict:
+    """Список решённых проектов (для «Открыть решённый» и проверки уникальности имён)."""
+    out = []
+    for d in _PROJECTS_DIR.iterdir():
+        mp = d / "meta.json"
+        if not mp.exists():
+            continue
+        try:
+            m = json.loads(mp.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001 — битый файл пропускаем
+            continue
+        out.append({"slug": d.name, "name": m.get("name", ""), "type": m.get("type", ""),
+                    "mode": m.get("mode", ""), "scenario": m.get("scenario", ""),
+                    "saved_at": m.get("saved_at", 0)})
+    out.sort(key=lambda r: r.get("saved_at", 0), reverse=True)
+    return {"projects": out}
+
+
+@app.post("/api/projects")
+def api_projects_save(body: dict = Body(default={})) -> dict:
+    """Сохранить решённый проект: крупные массивы → fields.npz, остальное → meta.json."""
+    name = str(body.get("name") or "проект")
+    slug = _project_slug(name)
+    folder = _PROJECTS_DIR / slug
+    folder.mkdir(parents=True, exist_ok=True)
+    scene = dict(body.get("scene") or {})
+    field = dict(body.get("field") or {})
+    arrays: dict = {}
+    for k in _ARR_SCENE:
+        if scene.get(k) is not None:
+            arrays["scene_" + k] = np.asarray(scene[k])
+    for k in _ARR_FIELD:
+        if field.get(k) is not None:
+            arrays["field_" + k] = np.asarray(field[k], dtype=float)
+    np.savez_compressed(folder / "fields.npz", **arrays)
+    meta = json.loads(json.dumps(body, ensure_ascii=False))     # глубокая копия
+    for k in _ARR_SCENE:
+        meta.get("scene", {}).pop(k, None)
+    for k in _ARR_FIELD:
+        meta.get("field", {}).pop(k, None)
+    meta["saved_at"] = time.time()
+    meta["version"] = 1
+    (folder / "meta.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    return {"slug": slug, "ok": True}
+
+
+@app.get("/api/projects/{slug}")
+def api_projects_load(slug: str) -> dict:
+    """Загрузить проект: собрать meta.json + fields.npz обратно в единый JSON-бандл."""
+    folder = _PROJECTS_DIR / slug
+    mp = folder / "meta.json"
+    if not mp.exists():
+        return {"error": "проект не найден"}
+    meta = json.loads(mp.read_text(encoding="utf-8"))
+    meta.setdefault("scene", {})
+    meta.setdefault("field", {})
+    npz_path = folder / "fields.npz"
+    if npz_path.exists():
+        with np.load(npz_path) as npz:
+            for k in _ARR_SCENE:
+                if ("scene_" + k) in npz:
+                    meta["scene"][k] = npz["scene_" + k].tolist()
+            for k in _ARR_FIELD:
+                if ("field_" + k) in npz:
+                    meta["field"][k] = npz["field_" + k].tolist()
+    return meta
+
+
+@app.delete("/api/projects/{slug}")
+def api_projects_delete(slug: str) -> dict:
+    folder = _PROJECTS_DIR / slug
+    if folder.exists() and folder.parent == _PROJECTS_DIR:
+        shutil.rmtree(folder, ignore_errors=True)
+    return {"ok": True}
 
 
 # ---- ОБЪЕКТНАЯ ПРОИЗВОЛЬНАЯ ГЕОМЕТРИЯ (свободная модель из примитивов) ----

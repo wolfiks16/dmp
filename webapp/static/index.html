@@ -106,6 +106,15 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .jobw-st{font:600 10.5px/1 var(--mono);color:var(--muted)}
 .spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* Список решённых проектов (Открыть решённый) */
+.solved-list{display:flex;flex-direction:column;gap:7px;margin:8px 0 16px;max-height:340px;overflow:auto;text-align:left}
+.solved-item{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;cursor:pointer}
+.solved-item:hover{border-color:var(--accent)}
+.si-ic{font-size:17px;flex:0 0 20px;text-align:center}
+.si-main{flex:1;display:flex;flex-direction:column;gap:3px;overflow:hidden}
+.si-main b{font:600 13px/1.2 var(--ui);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.si-sub{font:500 11px/1 var(--ui);color:var(--muted)}
+.si-del{background:none;border:0;color:var(--dim);cursor:pointer;font-size:13px}.si-del:hover{color:var(--crit)}
 .res{list-style:none;margin:8px 0 0;padding:0}
 .res li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
 .res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
@@ -457,7 +466,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   </div>
   <div class="home-card" id="home-solved" style="display:none">
     <h2>Решённые проекты</h2>
-    <p class="home-empty">Сохранение и загрузка проектов появятся на следующем этапе.</p>
+    <div id="solved-list" class="solved-list"><p class="home-empty">Загрузка…</p></div>
     <button class="home-back" id="home-back2">← Назад</button>
   </div>
 </div>
@@ -778,7 +787,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'){setConv('','◷ В очереди…');continue;}
       if(j.status==='running'){setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');continue;}
-      if(j.status==='done'){applyResult(j.result);break;}
+      if(j.status==='done'){applyResult(j.result);saveProject(j.result);break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}}
 
@@ -1168,7 +1177,8 @@ window.addEventListener('resize',()=>{resize();fit();});
 let PROJECT={name:'',type:''},PENDING_TYPE='';
 function showHome(step){$('home-ov').classList.add('on');
   ['start','type','name','solved'].forEach(s=>$('home-'+s).style.display=s===step?'':'none');
-  if(step==='name'){$('proj-name').value='';$('name-err').textContent='';setTimeout(()=>$('proj-name').focus(),30);}}
+  if(step==='name'){$('proj-name').value='';$('name-err').textContent='';setTimeout(()=>$('proj-name').focus(),30);}
+  if(step==='solved')loadSolvedList();}
 $('home-new').onclick=()=>showHome('type');
 $('home-open').onclick=()=>showHome('solved');
 $('home-back').onclick=()=>showHome('start');
@@ -1225,6 +1235,54 @@ async function pollJobs(){let anyActive=false;
   clearTimeout(JOBS_TIMER);JOBS_TIMER=setTimeout(pollJobs,anyActive?1000:4000);}
 $('jobw-clear').onclick=async()=>{try{await fetch('/api/jobs_clear',{method:'POST'});}catch(e){}pollJobs();};
 
-(async()=>{await loadFields();await loadMaterials();await loadSettings();pollJobs();
+// ---- ЭТАП 4: ПЕРСИСТЕНТНОСТЬ (сохранение решённых проектов + «Открыть решённый») ----
+// Собрать определение геометрии для повторного открытия (свободная — фигуры; двигатель — поля).
+function geomDef(){const g=MODE==='objects'
+    ? {objects:OBJECTS.map(o=>({...o})), margin:+$('dommargin').value||4}
+    : {spoke:spokeSpec(), sizes:meshSpec(), material:$('material').value, steel:$('steel').value};
+  g.T=+$('T').value;
+  if(MODE==='pmsm'){g.i_peak=+$('i_peak').value;g.gamma_deg=+$('gamma_deg').value;g.turns=+$('turns').value;}
+  return g;}
+// Автосохранение после успешного расчёта: полные поля (Bx/By) + сцена + определение.
+async function saveProject(field){if(!SCENE||!PROJECT.name)return;
+  const bundle={name:PROJECT.name,type:PROJECT.type,mode:MODE,scenario:SCENARIO,scene:SCENE,field,geom:geomDef()};
+  try{await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)});
+    loadSavedNames();}catch(e){}}
+// Открыть решённый проект: восстановить сцену, поле и определение — без сервера (пробы клиентские).
+async function openSolved(slug){let m;try{m=await(await fetch('/api/projects/'+slug)).json();}catch(e){return;}
+  if(!m||m.error){$('name-err')&&($('name-err').textContent='');return;}
+  $('home-ov').classList.remove('on');
+  PROJECT={name:m.name,type:m.type};$('proj-tree-name').textContent=m.name;
+  applyMode(m.mode==='objects'||m.type==='free'?'objects':'pmsm');
+  const g=m.geom||{};
+  if(MODE==='objects'){OBJECTS=(g.objects||[]).map(o=>({...o}));SEL=-1;if(g.margin!==undefined&&$('dommargin'))$('dommargin').value=g.margin;}
+  else{if(g.spoke)document.querySelectorAll('.gsz').forEach(i=>{if(g.spoke[i.dataset.name]!==undefined)i.value=g.spoke[i.dataset.name];});
+    if(g.sizes)document.querySelectorAll('.msz').forEach(i=>{if(g.sizes[i.dataset.name]!==undefined)i.value=g.sizes[i.dataset.name];});
+    if(g.material)$('material').value=g.material;if(g.steel)$('steel').value=g.steel;}
+  if(g.T!==undefined)$('T').value=g.T;
+  if(MODE==='pmsm'){if(g.i_peak!==undefined)$('i_peak').value=g.i_peak;if(g.gamma_deg!==undefined)$('gamma_deg').value=g.gamma_deg;if(g.turns!==undefined)$('turns').value=g.turns;}
+  SCENE=m.scene;MESH_ID=null;                       // сервер-сетка не нужна: пробы считаются на клиенте
+  CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
+  setScenario(m.scenario||'magneto');
+  if(MODE==='objects')renderTree();else populateModel();
+  applyResult(m.field);                             // BX/BY, сводка, поле, updateResults
+  setStage('result');setTool('view');resize();fit();draw();
+  setConv('g','● Открыт решённый проект');}
+// Список сохранённых для экрана «Открыть решённый».
+async function loadSolvedList(){const box=$('solved-list');box.innerHTML='<p class="home-empty">Загрузка…</p>';
+  let d;try{d=await(await fetch('/api/projects')).json();}catch(e){box.innerHTML='<p class="home-empty">Не удалось загрузить список.</p>';return;}
+  if(!d.projects||!d.projects.length){box.innerHTML='<p class="home-empty">Пока нет сохранённых проектов.<br>Создайте новый и запустите расчёт — он появится здесь.</p>';return;}
+  box.innerHTML=d.projects.map(p=>{const ic=p.type==='motor'?'⚙':'✎';
+    const dt=p.saved_at?new Date(p.saved_at*1000).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+    return '<div class="solved-item" data-slug="'+p.slug+'"><span class="si-ic">'+ic+'</span><div class="si-main"><b>'+p.name
+      +'</b><span class="si-sub">'+(SCN_NAME[p.scenario]||p.scenario||'')+' · '+dt+'</span></div>'
+      +'<button class="si-del" data-del="'+p.slug+'" title="Удалить">✕</button></div>';}).join('');}
+$('solved-list').addEventListener('click',async e=>{const del=e.target.dataset.del;
+  if(del){if(!confirm('Удалить сохранённый проект?'))return;try{await fetch('/api/projects/'+del,{method:'DELETE'});}catch(err){}loadSolvedList();loadSavedNames();return;}
+  const row=e.target.closest('[data-slug]');if(row)openSolved(row.dataset.slug);});
+// Имена сохранённых проектов — для проверки уникальности при создании.
+async function loadSavedNames(){try{const d=await(await fetch('/api/projects')).json();SAVED_NAMES=(d.projects||[]).map(p=>p.name);}catch(e){}}
+
+(async()=>{await loadFields();await loadMaterials();await loadSettings();await loadSavedNames();pollJobs();
   setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
