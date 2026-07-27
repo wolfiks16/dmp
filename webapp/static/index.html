@@ -175,7 +175,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
       <div class="node i1" data-stage="calc"><span class="ic">⚛</span>Сценарии</div>
-      <div class="node i2" data-stage="calc"><span class="dot" style="background:var(--accent)"></span><span id="tree-scn">Выберите сценарий</span></div>
+      <div class="node i2" style="cursor:default"><span class="dot" id="scn-dot" style="background:var(--good)"></span><span id="tree-scn">Выберите сценарий</span></div>
       <div class="node i1" id="res-hdr"><span class="ic">▾</span>Результаты</div>
       <div id="res-tools">
         <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
@@ -853,7 +853,7 @@ $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage
 // «Выбрать»: сценарий выбран (дропдаун + тег в дереве), окно закрывается. Расчёт — кнопкой
 // «Рассчитать» в шапке, ПО ВЫБРАННОМУ сценарию.
 $('m-calc').onclick=()=>setStage('result');
-$('modal-ov').onclick=e=>{if(e.target===$('modal-ov'))setStage('result');};
+// Окно закрывается только крестиком — клик вне окна НЕ закрывает.
 window.addEventListener('keydown',e=>{
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();e.shiftKey?redo():undo();return;}
@@ -871,7 +871,10 @@ window.addEventListener('keydown',e=>{
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
 function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
   ['scn-select','scn-select-s3'].forEach(id=>{const s=$(id);if(s)s.value=scn;});
-  const tag=$('tree-scn');if(tag)tag.textContent=SCN_NAME[scn];
+  // Цвет сценария: магнитостатика — зелёный, тепловая статика — жёлтый, динамика — красный.
+  const col={magneto:'var(--good)',thermostatic:'var(--warn)',dynamic:'var(--crit)'}[scn]||'var(--good)';
+  const tag=$('tree-scn');if(tag){tag.textContent=SCN_NAME[scn];tag.style.color=col;}
+  const dot=$('scn-dot');if(dot)dot.style.background=col;
   // Магнитостатика — T=20 фикс. (поле СКРЫТО); Тепловая статика — T задаёт пользователь;
   // Тепловая динамика — T в своей панели.
   const t=$('T');t.value=(scn==='magneto'?20:t.value);
