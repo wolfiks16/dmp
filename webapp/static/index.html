@@ -176,9 +176,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
       <div class="node i1"><span class="ic">⚛</span>Сценарии</div>
-      <div class="node i2" data-stage="calc" data-scn="magneto"><span class="dot" style="background:var(--accent)"></span>Магнитостатика</div>
-      <div class="node i2" data-stage="calc" data-scn="thermostatic"><span class="dot" style="background:var(--warn)"></span>Тепловая статика</div>
-      <div class="node i2" data-stage="s3" id="node-dynamic"><span class="dot" style="background:var(--crit)"></span>Тепловая динамика</div>
+      <div class="node i2" data-stage="calc"><span class="dot" style="background:var(--accent)"></span>Выбрать и рассчитать<span class="tag mat" id="tree-scn">—</span></div>
       <div class="node i1"><span class="ic">▣</span>Результаты</div>
       <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
       <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
@@ -297,6 +295,10 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       </div>
       <!-- РАСЧЁТ -->
       <div class="rp-stage" data-stage="calc">
+        <div class="field"><label>Сценарий расчёта</label><select class="select" id="scn-select">
+          <option value="magneto">Магнитостатика — поле при T=20 °C</option>
+          <option value="thermostatic">Тепловая статика — поле при заданной T</option>
+          <option value="dynamic" id="scn-opt-dyn">Тепловая динамика — нагрев во времени</option></select></div>
         <div id="calc-free" style="display:none">
           <div class="field"><label>Название проекта</label><input id="calc-projname" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
           <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
@@ -312,8 +314,12 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="reshead">Результаты</div>
         <ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul>
       </div>
-      <!-- ТЕПЛОВАЯ СТОЙКОСТЬ (S3) -->
+      <!-- ТЕПЛОВАЯ ДИНАМИКА (S3) -->
       <div class="rp-stage" data-stage="s3">
+        <div class="field"><label>Сценарий расчёта</label><select class="select" id="scn-select-s3">
+          <option value="magneto">Магнитостатика — поле при T=20 °C</option>
+          <option value="thermostatic">Тепловая статика — поле при заданной T</option>
+          <option value="dynamic">Тепловая динамика — нагрев во времени</option></select></div>
         <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть остаточной индукции B_r теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
         <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="s3-ipk" value="60"></div><div class="field"><label>Угол γ, °</label><input class="num" id="s3-gamma" value="0"></div></div>
         <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
@@ -618,7 +624,7 @@ function setStage(st){STAGE=st;
   if(st==='result'){closeModal();editHint();}
   else{
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
-    $('modal-title').textContent=STAGE_NAME[st];
+    $('modal-title').textContent=(st==='calc'||st==='s3')?SCN_NAME[SCENARIO]:STAGE_NAME[st];
     // Контекстный футер: геометрия/сетка — только «Построить»; расчёт — «Рассчитать». Крестик закрывает.
     const build=(st==='geom'||st==='mesh'),calc=(st==='calc');
     $('buildmesh').style.display=build?'':'none';
@@ -680,6 +686,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
     resize();fit();bars();setTool(TOOL);updateRtools();
+    setStage('result');   // после «Построить модель»/«Построить сетку» окно закрывается
   }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
@@ -840,15 +847,20 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
 function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
+  ['scn-select','scn-select-s3'].forEach(id=>{const s=$(id);if(s)s.value=scn;});
+  const tag=$('tree-scn');if(tag)tag.textContent=SCN_NAME[scn];
   $('calc-projname').value=PROJECT.name||'';
   // Магнитостатика — T=20 фикс.; Тепловая статика — T задаёт пользователь.
   const t=$('T');if(scn==='magneto'){t.value=20;t.disabled=true;}else{t.disabled=false;}
   $('calc-scn-hint').textContent=scn==='magneto'?'Поле при T=20 °C (ток по желанию — реакция якоря).'
-    :'Поле при заданной температуре: магнит ослаблен по T.';}
+    :'Поле при заданной температуре: магнит ослаблен по T.';
+  if(STAGE==='calc'||STAGE==='s3')$('modal-title').textContent=SCN_NAME[scn];}
+// Выбор сценария в окне: переключает статику (calc) ↔ динамику (s3), заголовок — имя сценария.
+function onScnChange(v){setScenario(v);setStage(v==='dynamic'?'s3':'calc');}
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{
   if(n.dataset.tool)setTool(n.dataset.tool);
-  if(n.dataset.scn)setScenario(n.dataset.scn);else if(n.dataset.stage==='s3')setScenario('dynamic');
-  setStage(n.dataset.stage);};});
+  // Пункт «Расчёт»: открываем окно под ТЕКУЩИЙ сценарий (статика или динамика).
+  setStage(n.dataset.stage==='calc'?(SCENARIO==='dynamic'?'s3':'calc'):n.dataset.stage);};});
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
 $('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
@@ -917,7 +929,8 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects';
   $('calc-machine').style.display=free?'none':'block';
   $('calc-free').style.display=free?'block':'none';
   // Свободная геометрия: только Магнитостатика + Тепловая статика (динамика — только двигатель).
-  $('node-dynamic').style.display=free?'none':'flex';
+  const dyn=$('scn-opt-dyn');if(dyn)dyn.style.display=free?'none':'';
+  if(free&&SCENARIO==='dynamic')setScenario('magneto');
   if(free)renderObjects();
   editHint();updateRtools();draw();}
 
@@ -978,6 +991,8 @@ $('matlist').addEventListener('click',async e=>{const id=e.target.dataset.delmat
 
 $('buildmesh').onclick=()=>{if(MODE==='objects')addFigure();else buildMesh();};
 $('calc').onclick=solve;
+$('scn-select').onchange=e=>onScnChange(e.target.value);
+$('scn-select-s3').onchange=e=>onScnChange(e.target.value);
 window.addEventListener('resize',()=>{resize();fit();});
 
 // ---- Экран «Дом»: новый проект / открыть решённый ----
