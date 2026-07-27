@@ -248,8 +248,14 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       </div>
       <!-- СЕТКА -->
       <div class="rp-stage" data-stage="mesh">
-        <p class="hint">Размер элемента по регионам, мм. Мельче — точнее и дольше. Сгущайте зазор/магниты.</p>
-        <div id="meshfields"></div>
+        <div id="mesh-machine">
+          <p class="hint">Размер элемента по регионам, мм. Мельче — точнее и дольше. Сгущайте зазор/магниты.</p>
+          <div id="meshfields"></div>
+        </div>
+        <div id="mesh-free" style="display:none">
+          <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
+          <p class="hint">Внешняя граница = A_z=0 (область обрезается). Размер сетки каждой фигуры — в её полях. «Построить сетку» соберёт триангуляцию из всех фигур.</p>
+        </div>
         <div class="meshinfo" id="meshinfo"></div>
       </div>
       <!-- МАТЕРИАЛЫ -->
@@ -299,8 +305,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <option value="dynamic" id="scn-opt-dyn">Тепловая динамика — нагрев во времени</option></select></div>
         <div id="calc-free" style="display:none">
           <div class="field"><label>Название проекта</label><input id="calc-projname" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
-          <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
-          <p class="hint">Внешняя граница = A_z=0 (область обрезается). Мало запаса — поле занижено (0.4× даёт −28%, 4× ≈ −1.5%). Дальнее поле мешится грубо — запас почти бесплатен.</p>
+          <p class="hint">Сетка строится на шаге «Сетка». Здесь — запуск расчёта на построенной сетке.</p>
         </div>
         <div class="field"><label>T, °C</label><input class="num" id="T" value="20"></div>
         <div id="calc-machine">
@@ -636,7 +641,8 @@ function setStage(st){STAGE=st;
     $('buildmesh').style.display=build?'':'none';
     $('m-calc').style.display=calc?'':'none';
     $('modal-done').style.display='none';
-    if(build)$('buildmesh').textContent=(MODE==='objects'?'Построить фигуру':'Построить модель');
+    if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
+      : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
     openModal();$('draw-hint').style.display='none';
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
@@ -691,10 +697,10 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     }
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
-    // Двигатель: сначала ЗАКРЫВАЕМ окно (мотор строит модель), затем рисуем холст в финальном
-    // размере — иначе draw() шёл за открытой модалкой и требовал повторного перерисова (Enter).
-    // Свободная модель: окно НЕ закрываем (buildMesh зовётся из «Рассчитать», уже на result).
-    if(MODE!=='objects')setStage('result');
+    // Сначала ЗАКРЫВАЕМ окно, затем рисуем холст в финальном размере — иначе draw() шёл бы за
+    // открытой модалкой и требовал повторного перерисова (Enter). Из «Рассчитать» окно уже
+    // закрыто (idempotent), после чего идёт solve.
+    setStage('result');
     resize();fit();bars();setTool(TOOL);updateRtools();
   }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
@@ -851,6 +857,10 @@ window.addEventListener('keydown',e=>{
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();e.shiftKey?redo():undo();return;}
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y'||e.key==='н'||e.key==='Н')){e.preventDefault();redo();return;}
   const t=document.activeElement&&document.activeElement.tagName;
+  // Enter в поле окна = применить действие окна (Построить / Рассчитать).
+  if(e.key==='Enter'&&$('modal-ov').classList.contains('on')&&(t==='INPUT'||t==='SELECT')){
+    document.activeElement.blur();e.preventDefault();
+    if(STAGE==='geom'||STAGE==='mesh')$('buildmesh').click();else if(STAGE==='calc')$('m-calc').click();return;}
   if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){if(SEL>=0){SEL=-1;newDraft();editHint();draw();}return;}
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
@@ -952,6 +962,8 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects';
   $('geom-objects').style.display=free?'block':'none';
   $('calc-machine').style.display=free?'none':'block';
   $('calc-free').style.display=free?'block':'none';
+  $('mesh-machine').style.display=free?'none':'block';
+  $('mesh-free').style.display=free?'block':'none';
   // Свободная геометрия: только Магнитостатика + Тепловая статика (динамика — только двигатель).
   const dyn=$('scn-opt-dyn');if(dyn)dyn.style.display=free?'none':'';
   if(free&&SCENARIO==='dynamic')setScenario('magneto');
@@ -1013,7 +1025,14 @@ async function saveMaterial(){const btn=$('mat-save');btn.disabled=true;
 $('mat-save').onclick=saveMaterial;
 $('matlist').addEventListener('click',async e=>{const id=e.target.dataset.delmat;if(id){await fetch('/api/materials/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});await loadMaterials();}});
 
-$('buildmesh').onclick=()=>{if(MODE==='objects')addFigure();else buildMesh();};
+// Кнопка построения — контекстная: двигатель→модель/сетка; свободная: сетка (шаг «Сетка»),
+// новая фигура или «Применить» правку существующей (шаг «Геометрия»).
+function onBuildBtn(){
+  if(MODE!=='objects'){buildMesh();return;}
+  if(STAGE==='mesh'){buildMesh();return;}
+  if(SEL>=0){setStage('result');draw();return;}   // правка существующей фигуры применяется live → закрыть
+  addFigure();}
+$('buildmesh').onclick=onBuildBtn;
 $('calc').onclick=solve;
 $('scn-select').onchange=e=>onScnChange(e.target.value);
 $('scn-select-s3').onchange=e=>onScnChange(e.target.value);
