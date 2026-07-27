@@ -253,8 +253,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <div id="meshfields"></div>
         </div>
         <div id="mesh-free" style="display:none">
-          <div class="mrow"><label>Запас домена (воздух)</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
-          <p class="hint">Внешняя граница = A_z=0 (область обрезается). Размер сетки каждой фигуры — в её полях. «Построить сетку» соберёт триангуляцию из всех фигур.</p>
+          <div class="mrow"><label>Запас воздуха</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
+          <p class="hint">Внешняя граница = A_z=0 (область обрезается). «Построить сетку» соберёт триангуляцию из всех фигур.</p>
+          <div class="reshead">Размер сетки по фигурам</div>
+          <div id="mesh-obj-list"></div>
+          <p class="hint">Пусто — авто (по размеру фигуры). Мельче — точнее и дольше.</p>
         </div>
         <div class="meshinfo" id="meshinfo"></div>
       </div>
@@ -643,6 +646,7 @@ function setStage(st){STAGE=st;
     $('modal-done').style.display='none';
     if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
       : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
+    if(st==='mesh'&&MODE==='objects')renderMeshObjList();
     openModal();$('draw-hint').style.display='none';
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
@@ -939,6 +943,10 @@ function objForm(o,isDraft){
     draw();};});
 }
 function newDraft(){const k=$('figkind').value;DRAFT={name:KINDRU[k]+' '+(OBJECTS.length+1),kind:k,params:{...OBJDEF[k]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10};SEL=-1;objForm(DRAFT,true);renderTree();}
+// Поэлементная сетка в окне «Сетка» (свободная модель): размер по каждой фигуре.
+function renderMeshObjList(){if(MODE!=='objects')return;
+  $('mesh-obj-list').innerHTML=OBJECTS.map((o,i)=>'<div class="mrow"><label>'+o.name+'</label><input class="num mobjsz" data-i="'+i+'" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>').join('')||'<p class="hint" style="padding:2px 0">Нет фигур — постройте на шаге «Геометрия».</p>';
+  $('mesh-obj-list').querySelectorAll('.mobjsz').forEach(inp=>inp.onchange=()=>{const v=inp.value;OBJECTS[+inp.dataset.i].mesh_size_mm=(v===''?'':+v);invalidateField();});}
 function renderTree(){if(MODE!=='objects')return;
   $('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span>'+o.name+'<span class="tag mat">'+matTag(o.material)+'</span><button class="del" data-del="'+i+'" style="margin-left:auto;background:none;border:0;color:var(--dim);cursor:pointer">✕</button></div>').join('')||'<p class="hint" style="padding:6px 10px">Пусто — постройте фигуру.</p>';}
 function renderObjects(){
