@@ -418,6 +418,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
           <button class="applybtn" id="tq-run">▶ Рассчитать момент</button>
           <div id="tq-out"></div>
         </div>
+        <div id="loss-panel" style="display:none">
+          <hr><h4>⚡ Потери и КПД</h4>
+          <div class="row2"><div class="field"><label>Скорость, об/мин</label><input class="num" id="loss-rpm" value="3000"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="loss-fill" value="0.45"></div></div>
+          <div class="mrow"><label>Положений</label><input class="num" id="loss-npos" value="24" style="width:56px"><span class="u">за эл. период</span></div>
+          <button class="applybtn" id="loss-run">▶ Рассчитать потери</button>
+          <div id="loss-out"></div>
+        </div>
       </div>
       <div class="needsolve" id="needsolve"></div>
     </div>
@@ -989,7 +996,9 @@ function collapsible(hdrId,bodyId){const h=$(hdrId),b=$(bodyId);if(!h||!b)return
 collapsible('res-hdr','res-tools');collapsible('obj-hdr','objlist');collapsible('exc-hdr','exc-body');
 // Правый блок результатов виден только после расчёта; иначе — подсказка.
 function updateResults(){const has=!!BX;$('res-stage').style.display=has?'':'none';$('res-empty').style.display=has?'none':'';
-  const tp=$('torque-panel');if(tp)tp.style.display=(MODE==='pmsm'&&has)?'':'none';}   // момент — только двигатель
+  const motor=(MODE==='pmsm'&&has);                                    // момент и потери — только двигатель
+  if($('torque-panel'))$('torque-panel').style.display=motor?'':'none';
+  if($('loss-panel'))$('loss-panel').style.display=motor?'':'none';}
 // Момент от угла ротора (тяжёлая прогонка — фон-джоб через менеджер задач).
 function renderTorque(d){const out=$('tq-out');const n=d.torque.length;
   const pts=d.torque.map((y,i)=>[n>1?i/(n-1):0,y]);const se=[{pts,color:'#4d8bff',label:'M(θ)'}];
@@ -1011,6 +1020,41 @@ $('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=
     while(true){await sleep(800);const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'||j.status==='running')continue;
       if(j.status==='done'){renderTorque(j.result);break;}
+      out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
+  }catch(e){out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
+  finally{btn.disabled=false;}};
+// Потери и КПД: разбивка выход/медь/железо + η (тяжёлая прогонка — фон-джоб).
+function renderLoss(d){const out=$('loss-out');const pin=d.p_in||1;
+  const seg=(w,c,lbl)=>'<div style="width:'+(100*Math.max(w,0)/pin).toFixed(1)+'%;background:'+c+'" title="'+lbl+'"></div>';
+  const bar='<div style="display:flex;height:16px;border-radius:5px;overflow:hidden;margin:8px 0;border:1px solid var(--line)">'
+    +seg(d.p_out,'#42c25a','Выход')+seg(d.p_copper,'#e0a53a','Медь')+seg(d.p_iron,'#4d8bff','Железо')+'</div>';
+  const leg='<div style="display:flex;gap:12px;font:600 10px/1 var(--mono);color:var(--muted);margin-bottom:2px">'
+    +'<span style="color:#42c25a">■ выход</span><span style="color:#e0a53a">■ медь</span><span style="color:#4d8bff">■ железо</span></div>';
+  const ec=d.efficiency>0.85?'ok':(d.efficiency>0.6?'warn':'crit');
+  const rows=[['КПД η',(d.efficiency*100).toFixed(1)+' %',ec],
+    ['Полезная мощность',d.p_out.toFixed(1)+' Вт'],
+    ['Потери в меди',d.p_copper.toFixed(1)+' Вт'],
+    ['Потери в железе',d.p_iron.toFixed(1)+' Вт'],
+    ['— гистерезис',d.p_iron_hyst.toFixed(1)+' Вт'],
+    ['— вихревые',d.p_iron_eddy.toFixed(1)+' Вт'],
+    ['Суммарные потери',d.p_loss_total.toFixed(1)+' Вт'],
+    ['Потребляемая',d.p_in.toFixed(1)+' Вт'],
+    ['Средний момент',d.torque_mean.toFixed(3)+' Н·м'],
+    ['Частота поля',d.freq.toFixed(1)+' Гц'],
+    ['Сходимость',d.all_converged?'да':'частично',d.all_converged?'ok':'crit']];
+  out.innerHTML='<div class="reshead">η = '+(d.efficiency*100).toFixed(1)+' % · '+d.rpm+' об/мин</div>'+leg+bar+s3rows(rows);}
+$('loss-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('loss-run'),out=$('loss-out');
+  if((+$('i_peak').value||0)===0){out.innerHTML='<p class="hint" style="color:var(--warn)">Задайте ток (i_peak > 0) в сценарии — без нагрузки КПД не определён.</p>';return;}
+  btn.disabled=true;out.innerHTML='<p class="hint">Считаю потери: прогонка ротора за электрический период (сетка строится на каждом угле) — несколько минут. Можно продолжать работать, следите за индикатором.</p>';
+  const body={params:spokeSpec(),sizes_mm:meshSpec(),material:$('material').value,steel:$('steel').value,
+    T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,
+    slot_fill:Math.max(0.1,Math.min(0.9,+$('loss-fill').value||0.45)),rpm:Math.max(1,+$('loss-rpm').value||3000),
+    n_pos:Math.max(6,Math.min(48,+$('loss-npos').value||24)),label:(PROJECT.name||'Двигатель')+' · потери и КПД'};
+  try{const {job_id}=await(await fetch('/api/loss_sweep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    pollJobs();
+    while(true){await sleep(900);const j=await(await fetch('/api/jobs/'+job_id)).json();
+      if(j.status==='queued'||j.status==='running')continue;
+      if(j.status==='done'){renderLoss(j.result);break;}
       out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
   }catch(e){out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
   finally{btn.disabled=false;}};

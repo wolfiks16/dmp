@@ -44,13 +44,15 @@ from magcore.fem2d.machines.iron_loss import (
     SteinmetzCoefficients,
     efficiency,
     electrical_frequency,
+    iron_loss_from_probe_waveform,
     stator_iron_loss,
 )
-from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES
+from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES, Region
 from magcore.fem2d.machines.rotor_sweep import (
     RotorDamage,
     build_rotor_geometries,
     electrical_period_angles,
+    sample_B_at_points,
 )
 from magcore.fem2d.machines.spoke_pmsm import (
     MagnetShape,
@@ -452,6 +454,65 @@ def _do_torque_sweep(body: dict) -> dict:
     }
 
 
+def _do_loss_sweep(body: dict) -> dict:
+    """Разбивка потерь и КПД спицевого двигателя в рабочей точке (ток + скорость) — фон-джоб.
+
+    Прогонка ротора на один эл. период с током: волна B в НЕПОДВИЖНЫХ точках железа статора ⇒
+    потери в железе по Штейнмецу (гистерезис по пику + вихревые по фактической dB/dθ). Медь =
+    ∫ρ(T)·J² по обмотке. Выход = |M_ср|·ω. η = P_вых/(P_вых+медь+железо)."""
+    params, _ = _spoke_params_from(dict(body))
+    magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
+    steel = _steel_by_id(str(body.get("steel", "steel")))
+    T = float(body.get("T", 20.0))
+    i_peak = float(body.get("i_peak", 0.0))
+    gamma = math.radians(float(body.get("gamma_deg", 0.0)))
+    turns = float(body.get("turns", 40.0))
+    slot_fill = float(body.get("slot_fill", 0.45))
+    rpm = max(1.0, float(body.get("rpm", 3000.0)))
+    n_pos = max(6, min(int(body.get("n_pos", 24)), 48))
+    p = params.n_poles // 2
+    angles = np.arange(n_pos) * (2.0 * math.pi / p) / n_pos
+    lay = star_of_slots_layout(params.n_slots, params.n_poles)
+    # неподвижные пробы в железе статора (зубцы + ярмо эталонной геометрии)
+    geo0 = build_spoke_pmsm(params)
+    stator = np.where(np.isin(geo0.region, [int(Region.STATOR_YOKE), int(Region.TOOTH)]))[0]
+    pts = np.array([geo0.mesh.cell_centroid(int(c)) for c in stator], dtype=float)
+    areas = np.array([geo0.mesh.cell_area(int(c)) for c in stator], dtype=float)
+    torque = np.empty(n_pos)
+    probe_B = np.empty((n_pos, pts.shape[0], 2))
+    conv = np.empty(n_pos, dtype=bool)
+    for i, a in enumerate(angles):
+        geo = build_spoke_pmsm(replace(params, rotor_angle=float(a)))
+        scen = MachineScenario(geometry=geo, magnet=magnet, steel=steel, layout=lay)
+        sol = scen.solve(T=T, i_peak=i_peak, gamma_elec=gamma + p * float(a),
+                         turns_per_slot=turns, max_iter=60)
+        torque[i] = float(scen.torque(sol))
+        conv[i] = bool(sol.converged)
+        probe_B[i] = sample_B_at_points(geo.mesh, sol.field.B_cells, pts)
+    t_mean = float(np.mean(torque))
+    freq = p * rpm / 60.0
+    iron = iron_loss_from_probe_waveform(
+        probe_B, areas, freq=freq, axial_length=params.axial_length,
+        coeffs=SteinmetzCoefficients.m270_35a(),
+    )
+    p_cu = float(copper_loss_watts(geo0, i_peak=i_peak, turns_per_slot=turns,
+                                   slot_fill=slot_fill, T=T))
+    p_out = abs(t_mean) * (2.0 * math.pi * rpm / 60.0)
+    p_fe = float(iron.total)
+    p_in = p_out + p_cu + p_fe
+    return {
+        "rpm": round(rpm, 0), "freq": round(freq, 1), "n_pos": n_pos,
+        "torque_mean": round(t_mean, 4),
+        "p_out": round(p_out, 2), "p_copper": round(p_cu, 2), "p_iron": round(p_fe, 2),
+        "p_iron_hyst": round(float(iron.hysteresis), 2),
+        "p_iron_eddy": round(float(iron.eddy), 2),
+        "p_loss_total": round(p_cu + p_fe, 2), "p_in": round(p_in, 2),
+        "efficiency": round(float(p_out / p_in) if p_in > 0 else 0.0, 4),
+        "iron_mass": round(float(iron.iron_mass), 4),
+        "all_converged": bool(np.all(conv)),
+    }
+
+
 def _do_scenario(body: dict) -> dict:
     """
     Сценарий тепловой стойкости магнита (S3) на сечении PMSM — в фон-потоке.
@@ -620,6 +681,14 @@ def api_torque_sweep(body: dict = Body(default={})) -> dict:
     """Момент от угла ротора (спицевой двигатель) — тяжёлый фон-джоб через менеджер задач."""
     label = str(body.get("label") or "Момент от угла")
     jid = _JM.submit("torque_sweep", label, _do_torque_sweep, dict(body))
+    return {"job_id": jid}
+
+
+@app.post("/api/loss_sweep")
+def api_loss_sweep(body: dict = Body(default={})) -> dict:
+    """Разбивка потерь и КПД (спицевой двигатель) — тяжёлый фон-джоб через менеджер задач."""
+    label = str(body.get("label") or "Потери и КПД")
+    jid = _JM.submit("loss_sweep", label, _do_loss_sweep, dict(body))
     return {"job_id": jid}
 
 
