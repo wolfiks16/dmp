@@ -685,8 +685,11 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
     }
     setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     $('wbsaved').textContent=d.n_cells+' эл.';populateModel();
+    // Двигатель: сначала ЗАКРЫВАЕМ окно (мотор строит модель), затем рисуем холст в финальном
+    // размере — иначе draw() шёл за открытой модалкой и требовал повторного перерисова (Enter).
+    // Свободная модель: окно НЕ закрываем (buildMesh зовётся из «Рассчитать», уже на result).
+    if(MODE!=='objects')setStage('result');
     resize();fit();bars();setTool(TOOL);updateRtools();
-    setStage('result');   // после «Построить модель»/«Построить сетку» окно закрывается
   }catch(e){$('err').textContent='Ошибка сетки: '+e;$('err').style.display='block';}
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
@@ -1020,7 +1023,7 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   applyMode(type==='motor'?'pmsm':'objects');
   MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
-  setScenario('magneto');setStage('geom');setTool('view');draw();}
+  setScenario('magneto');setStage('result');setTool('view');draw();}
 
 (async()=>{await loadFields();await loadMaterials();setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
