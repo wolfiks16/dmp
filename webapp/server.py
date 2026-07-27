@@ -72,6 +72,16 @@ from magcore.fem2d.model import (
 
 app = FastAPI(title="MagField web")
 
+
+@app.middleware("http")
+async def _no_cache(request, call_next):
+    """Не кэшировать HTML/UI: правки интерфейса сразу видны при перезагрузке (без Ctrl+Shift+R)."""
+    resp = await call_next(request)
+    path = request.url.path
+    if path == "/" or path.endswith((".html", ".js", ".css")):
+        resp.headers["Cache-Control"] = "no-store, must-revalidate"
+    return resp
+
 # Регионы для посегментной сетки: порядок отображения, подпись, размер по умолчанию (мм).
 # Сгущаем там, где важна физика (зазор/магниты — градиенты поля, демаг), ярма — грубее.
 REGION_UI = [
