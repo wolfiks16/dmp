@@ -396,6 +396,11 @@ def _do_solve(body: dict) -> dict:
         "n_demag": int(risk.n_demagnetized),
         "n_mag": int(risk.cell_indices.size),
         "demag_frac": round(float(op.volume_fraction_below(op.knee_field)), 4),
+        # Поячеечная карта риска: глобальные индексы ячеек магнита + рабочее поле H_op (кА/м) +
+        # колено H_knee(T). Фронтенд красит магнит: H_op у колена ⇒ красный, много выше ⇒ зелёный.
+        "demag_cells": op.cell_indices.astype(int).tolist(),
+        "demag_hop_kA": np.round(op.H_op / 1e3, 1).tolist(),
+        "demag_knee_kA": round(float(op.knee_field) / 1e3, 1),
     }
 
 
@@ -823,6 +828,9 @@ def _do_object_solve(body: dict) -> dict:
             "Bd_worst": round(float(op.B_op.min()), 3),
             "n_demag": int(risk.n_demagnetized), "n_mag": int(risk.cell_indices.size),
             "demag_frac": round(float(op.volume_fraction_below(op.knee_field)), 4),
+            "demag_cells": op.cell_indices.astype(int).tolist(),
+            "demag_hop_kA": np.round(op.H_op / 1e3, 1).tolist(),
+            "demag_knee_kA": round(float(op.knee_field) / 1e3, 1),
         })
     return out
 

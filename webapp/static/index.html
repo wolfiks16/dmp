@@ -386,7 +386,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
       <div class="rp-stage on" id="res-stage" data-stage="result">
         <div id="field-ctrls" style="display:none">
           <h4>Отображение поля</h4>
-          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option></select></div>
+          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option><option value="demag" disabled>⚠ Риск размагничивания</option></select></div>
           <div class="field"><label>Палитра</label><select class="select" id="pal"><option value="rainbow">Rainbow</option><option value="viridis">Viridis</option></select></div>
           <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div><hr>
         </div>
@@ -483,6 +483,12 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
+let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
+// Карта риска: s=1 безопасно (зелёный) → s=0 у/за коленом (красный). Шкала RdYlGn.
+function riskColor(s){const R=[229,84,78],Y=[224,165,58],G=[66,194,90];
+  if(s<0.5){const t=s/0.5;return[lerp(R[0],Y[0],t),lerp(R[1],Y[1],t),lerp(R[2],Y[2],t)];}
+  const t=(s-0.5)/0.5;return[lerp(Y[0],G[0],t),lerp(Y[1],G[1],t),lerp(Y[2],G[2],t)];}
+function dimHex(hex,f){const n=parseInt(hex.slice(1),16);return'rgb('+[((n>>16&255)*f|0),((n>>8&255)*f|0),((n&255)*f|0)].join(',')+')';}
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
@@ -529,10 +535,16 @@ function draw(){ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);
     overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';return;}
   grid();
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
+  const risk=showF&&COMP==='demag'&&DEMAG;                 // режим карты риска размагничивания
   for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
-    let col;if(showF){const v=cellVal(i);col=sgn?diverging(v/VMAX):ramp(v/VMAX);}else col=null;
-    ctx.fillStyle=col?'rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')':regColor(''+REG[i]);ctx.fill();}
+    let fill;
+    if(risk){const s=DEMAG[i];
+      if(s===s){const col=riskColor(s);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';} // магнит — цвет риска
+      else fill=dimHex(regColor(''+REG[i]),0.42);}                                                // фон приглушён
+    else if(showF){const v=cellVal(i),col=sgn?diverging(v/VMAX):ramp(v/VMAX);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
+    else fill=regColor(''+REG[i]);
+    ctx.fillStyle=fill;ctx.fill();}
   if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
     const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
@@ -588,7 +600,7 @@ function updateRtools(){const solved=!!BX;
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
   $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
-function invalidateField(){if(!BX)return;BX=null;BY=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
+function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -657,7 +669,14 @@ function undo(){restore(HIST,REDO);}
 function redo(){restore(REDO,HIST);}
 
 function stops(f,a,b){let s=[];for(let i=0;i<=8;i++){const t=a+(b-a)*i/8,c=f(t);s.push('rgb('+c.map(x=>x|0).join(',')+') '+(i/8*100|0)+'%');}return s.join(',');}
-function bars(){const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
+function bars(){
+  if(SHOWFIELD&&BX&&COMP==='demag'&&DEMAG){            // легенда карты риска: зелёный→красный
+    const g=stops(riskColor,0,1);
+    $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
+    $('cmin').textContent='за коленом';$('cmax').textContent='безопасно';
+    $('rp-scale').innerHTML='<span>безопасно</span><span>колено</span><span>за коленом</span>';
+    $('cbar').classList.toggle('hide',false);return;}
+  const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
   $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
   $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);
   $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
@@ -712,7 +731,7 @@ function setTool(t){TOOL=t;
   document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
   cv.classList.toggle('pt',t==='point');
   $('st-mode').textContent='Вид: '+({view:'Геометрия',point:'Точка',line:'Линия',circle:'Окружность'})[t];
-  $('vplbl').innerHTML=(SHOWFIELD&&BX)?('<b>Поле '+({mag:'|B|',bx:'B_x',by:'B_y',br:'B_r',bt:'B_θ'}[COMP])+'</b>'):'<b>Геометрия модели</b>';
+  $('vplbl').innerHTML=(SHOWFIELD&&BX)?(COMP==='demag'?'<b>⚠ Карта риска размагничивания</b>':('<b>Поле '+({mag:'|B|',bx:'B_x',by:'B_y',br:'B_r',bt:'B_θ'}[COMP])+'</b>')):'<b>Геометрия модели</b>';
   $('needsolve').textContent=(t!=='view'&&!BX)?'⚠ сначала «Рассчитать»':'';
   if(STAGE==='result')runProbe();draw();}
 
@@ -767,7 +786,16 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
-function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';bars();
+function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
+  // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена.
+  DEMAG=null;DEMAG_KNEE_kA=null;
+  if(d.demag_cells&&d.demag_cells.length){const knee=d.demag_knee_kA;
+    const arr=new Float32Array(BX.length).fill(NaN);
+    for(let k=0;k<d.demag_cells.length;k++)arr[d.demag_cells[k]]=Math.max(0,Math.min(1,(d.demag_hop_kA[k]-knee)/(-knee)));
+    DEMAG=arr;DEMAG_KNEE_kA=knee;}
+  const demOpt=$('comp').querySelector('option[value="demag"]');if(demOpt)demOpt.disabled=!DEMAG;
+  if(!DEMAG&&COMP==='demag'){COMP='mag';$('comp').value='mag';}
+  bars();
   setConv(d.converged?'g':'c',(d.converged?'● Решение сошлось':'● Не сошлось'));$('st-iters').textContent=d.iters+' итераций';
   const rows=[{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'}];
   if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
