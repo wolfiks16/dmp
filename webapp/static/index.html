@@ -76,6 +76,15 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .hint{color:var(--dim);font-size:11px;margin:2px 0 10px}
 .meshinfo{font:600 11px/1.6 var(--mono);color:var(--dim);margin-top:9px}.meshinfo .tot{color:var(--accent)}.meshinfo b{color:var(--muted)}
 .err{color:var(--crit);font-size:12px;margin-top:8px;display:none}.needsolve{color:var(--warn);font-size:11.5px;margin-top:6px}
+.pc-sec{border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden;background:var(--panel2)}
+.pc-sec>summary{cursor:pointer;padding:10px 12px;font:700 12px/1 var(--ui);color:var(--text);list-style:none;display:flex;align-items:center;gap:8px;user-select:none}
+.pc-sec>summary::-webkit-details-marker{display:none}
+.pc-sec>summary::before{content:'▸';color:var(--muted);font-size:10px;transition:transform .12s}
+.pc-sec[open]>summary::before{transform:rotate(90deg)}
+.pc-body{padding:0 12px 8px}
+.pc-row{display:flex;justify-content:space-between;gap:12px;padding:5px 0;font:500 12px/1.4 var(--ui);color:var(--muted);border-top:1px solid var(--line)}
+.pc-row:first-child{border-top:0}
+.pc-row .pc-v{color:var(--text);font-family:var(--mono);text-align:right}
 .res{list-style:none;margin:8px 0 0;padding:0}
 .res li{display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:1px solid var(--line);font-size:12px}
 .res li span:first-child{color:var(--muted)}.res .v{font:700 12px/1 var(--mono);font-variant-numeric:tabular-nums;text-align:right}
@@ -255,10 +264,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         </div>
         <div id="mesh-free" style="display:none">
           <div class="mrow"><label>Запас воздуха</label><input class="num" id="dommargin" value="4"><span class="u">×</span></div>
-          <p class="hint">Внешняя граница = A_z=0 (область обрезается). «Построить сетку» соберёт триангуляцию из всех фигур.</p>
           <div class="reshead">Размер сетки по фигурам</div>
           <div id="mesh-obj-list"></div>
-          <p class="hint">Пусто — авто (по размеру фигуры). Мельче — точнее и дольше.</p>
         </div>
         <div class="meshinfo" id="meshinfo"></div>
       </div>
@@ -337,8 +344,12 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <button class="applybtn" id="s3-run">▶ Запустить сценарий</button>
         <div id="s3-out"></div>
       </div>
+      <!-- ПРОВЕРКА ПЕРЕД РАСЧЁТОМ -->
+      <div class="rp-stage" data-stage="precalc">
+        <div id="precalc-body"></div>
+      </div>
         </div>
-        <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
+        <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="pc-start" style="display:none">▶ Старт расчёта</button><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
       </div></div>
       <!-- РЕЗУЛЬТАТЫ -->
       <div id="res-empty" style="display:none;padding:14px;color:var(--muted);font-size:12.5px;line-height:1.5">Сначала произведите расчёт («Рассчитать»). Затем здесь появятся поля, распределения и графики.</div>
@@ -632,7 +643,7 @@ function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';ret
     R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else R.innerHTML='';}
 
-const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',s3:'Тепловая стойкость (S3)',result:'Результаты'};
+const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',s3:'Тепловая стойкость (S3)',precalc:'Проверка перед расчётом',result:'Результаты'};
 function openModal(){$('modal-ov').classList.add('on');}
 function closeModal(){$('modal-ov').classList.remove('on');}
 function setStage(st){STAGE=st;
@@ -641,13 +652,14 @@ function setStage(st){STAGE=st;
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
     $('modal-title').textContent=(st==='calc'||st==='s3')?SCN_NAME[SCENARIO]:STAGE_NAME[st];
     // Контекстный футер: геометрия/сетка — только «Построить»; расчёт — «Рассчитать». Крестик закрывает.
-    const build=(st==='geom'||st==='mesh'),calc=(st==='calc');
+    const build=(st==='geom'||st==='mesh'),calc=(st==='calc'),pc=(st==='precalc');
     $('buildmesh').style.display=build?'':'none';
     $('m-calc').style.display=calc?'':'none';if(calc)$('m-calc').textContent='Выбрать';
+    $('pc-start').style.display=pc?'':'none';
     $('modal-done').style.display='none';
     if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
       : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
-    if(st==='mesh'&&MODE==='objects')renderMeshObjList();
+    if(st==='mesh'){$('meshinfo').style.display=(MODE==='pmsm')?'':'none';if(MODE==='objects')renderMeshObjList();}
     openModal();$('draw-hint').style.display='none';
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));}
@@ -1074,12 +1086,41 @@ async function runByScenario(){
   if(MODE==='objects'){
     if(!OBJECTS.length){setConv('c','● нет фигур — постройте геометрию');return;}
     if(!MESH_ID)await buildMesh();
-    if(MESH_ID)solve();
+    if(!MESH_ID)return;
   }else{
     if(!MESH_ID){setConv('c','● постройте модель');return;}
-    solve();
-  }}
+  }
+  openPrecalc();                                        // окно проверки → «Старт расчёта»
+}
 $('calc').onclick=runByScenario;
+// Человеко-читаемое имя материала по id.
+function matName(mid){if(mid==='air')return'Воздух';const s=STEELS.find(x=>x.id===mid);if(s)return s.name;const m=MAGNETS.find(x=>x.id===mid);if(m)return m.name;return mid;}
+// Окно «Проверка перед расчётом»: выпадающие секции (проект/сетка/материалы/сценарий) + «Старт расчёта».
+function pcSec(title,rows,open){return '<details class="pc-sec"'+(open?' open':'')+'><summary>'+title+'</summary><div class="pc-body">'+rows+'</div></details>';}
+function pcRow(k,v){return '<div class="pc-row"><span>'+k+'</span><span class="pc-v">'+v+'</span></div>';}
+function openPrecalc(){
+  const cells=(SCENE&&SCENE.cells)?SCENE.cells.length:0;
+  let html=pcSec('Проект',pcRow('Название',PROJECT.name||'—')+pcRow('Тип',MODE==='pmsm'?'Двигатель (спицевой PMSM)':'Свободная геометрия'),true);
+  // сетка по элементам
+  let m='';
+  if(MODE==='objects')m=OBJECTS.map(o=>pcRow(o.name,(o.mesh_size_mm||'авто')+' мм')).join('');
+  else{const ms=meshSpec(),AB={air_gap:'Зазор',magnet:'Магниты',tooth:'Зубцы',slot:'Пазы',stator_yoke:'Ярмо статора',rotor_yoke:'Ярмо ротора',domain:'Домен'};
+    m=REGIONS.map(x=>pcRow(AB[x.name]||x.label||x.name,(ms[x.name]||'—')+' мм')).join('');}
+  m+=pcRow('<b>Всего ячеек</b>','<b>'+cells+'</b>');
+  html+=pcSec('Сетка по элементам',m);
+  // материалы
+  let mat='';
+  if(MODE==='objects')mat=OBJECTS.map(o=>pcRow(o.name,matName(o.material))).join('');
+  else mat=pcRow('Магнит',matName($('material').value))+pcRow('Сталь',matName($('steel').value));
+  html+=pcSec('Материалы',mat);
+  // параметры сценария
+  let sc=pcRow('Сценарий',SCN_NAME[SCENARIO])+pcRow('Температура T',(SCENARIO==='thermostatic'?(+$('T').value):20)+' °C');
+  if(MODE==='pmsm')sc+=pcRow('Ток i_peak',(+$('i_peak').value)+' А')+pcRow('Угол γ',(+$('gamma_deg').value)+' °')+pcRow('Витков/паз',(+$('turns').value));
+  html+=pcSec('Параметры сценария',sc);
+  $('precalc-body').innerHTML=html;
+  setStage('precalc');
+}
+$('pc-start').onclick=()=>{setStage('result');solve();};   // запуск расчёта
 $('scn-select').onchange=e=>onScnChange(e.target.value);
 $('scn-select-s3').onchange=e=>onScnChange(e.target.value);
 window.addEventListener('resize',()=>{resize();fit();});
