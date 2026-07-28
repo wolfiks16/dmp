@@ -1437,10 +1437,14 @@ let SAVED_NAMES=[];   // имена решённых проектов (для у
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
   PROJECT={name,type,id:genId(),created:nowIso(),status:'new',file:null};$('proj-tree-name').textContent=name;   // R2: новый расчёт
+  // Полный сброс состояния ДО applyMode — иначе дерево/поле перерисуются со СТАРЫМИ данными (баг: остатки готового расчёта).
+  MESH_ID=null;SCENE=null;CENT=null;BX=null;BY=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;
+  OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};
+  SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+  $('objlist').innerHTML='';$('reg-info').style.display='none';
+  $('meshinfo').textContent='—';$('st-iters').textContent='';$('st-cells').textContent='';setConv('','● постройте геометрию');
   applyMode(type==='motor'?'pmsm':'objects');
-  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
-  $('meshinfo').textContent='—';setConv('','● постройте геометрию');
-  updateResults();updateExcitations();
+  renderTree();updateResults();updateExcitations();
   setScenario('magneto');setStage('result');setTool('view');resize();defaultView();updateCta();}
 
 // ---- ЭТАП 3: НАСТРОЙКИ (лимит параллельных расчётов) ----
