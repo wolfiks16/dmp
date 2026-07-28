@@ -156,7 +156,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 .s3tab td:first-child{text-align:left;color:var(--muted);font-family:var(--ui)}
 .s3tab tr.hi td{color:var(--accent);border-bottom:0}
 .home-ov{position:fixed;inset:0;z-index:80;display:none;align-items:center;justify-content:center;
-  background:radial-gradient(1200px 700px at 50% 30%,#12203a,var(--bg2))}
+  background:rgba(6,10,18,.66)}
 .home-ov.on{display:flex}
 .home-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:34px 40px;
   width:min(560px,92vw);text-align:center;box-shadow:0 24px 60px rgba(0,0,0,.5)}
@@ -175,6 +175,19 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 .type-card .type-ic{font-size:34px;line-height:1;color:var(--accent)}
 .type-card b{font-size:15px}.type-card span{color:var(--muted);font-size:12px;text-align:center}
 .home-back{margin-top:20px;background:none;border:0;color:var(--muted);cursor:pointer;font-size:12px}
+.toast{position:fixed;top:60px;left:50%;transform:translateX(-50%) translateY(-12px);z-index:120;
+  background:var(--panel);border:1px solid var(--line2);border-left:3px solid var(--accent);color:var(--text);
+  padding:11px 18px;border-radius:9px;font:600 13px/1.4 var(--ui);box-shadow:0 12px 34px rgba(0,0,0,.45);
+  opacity:0;pointer-events:none;max-width:min(560px,90vw);transition:opacity .18s,transform .18s}
+.toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.warn{border-left-color:var(--warn)}
+@keyframes pulseb{0%,100%{box-shadow:0 0 0 0 rgba(52,211,153,0)}50%{box-shadow:0 0 0 4px rgba(52,211,153,.55)}}
+.pulse{animation:pulseb 1s ease 2}
+.cta-hint{position:absolute;inset:0;display:none;align-items:center;justify-content:center;pointer-events:none;z-index:6;text-align:center;padding:20px}
+.cta-hint .cta-card{background:rgba(20,28,44,.82);border:1px solid var(--line2);border-radius:14px;padding:26px 34px;max-width:460px;box-shadow:0 18px 44px rgba(0,0,0,.4)}
+.cta-hint h3{margin:0 0 8px;font-size:17px;color:var(--text)}
+.cta-hint p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}
+.cta-hint b{color:var(--accent)}
 .home-back:hover{color:var(--text)}
 .home-empty{color:var(--dim);font-size:13px}
 .hname{width:100%;background:var(--panel2);border:1px solid var(--line2);color:var(--text);
@@ -277,6 +290,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
         <canvas id="cv"></canvas>
         <div class="vp-overlay" id="vplbl"><b>Геометрия модели</b></div>
         <div class="draw-hint" id="draw-hint" style="display:none"></div>
+        <div class="cta-hint" id="cta-hint"><div class="cta-card"><h3>Проект не создан</h3><p>Нажмите <b>«Расчёты»</b> вверху, чтобы создать <b>новый проект</b> или открыть сохранённый расчёт.</p></div></div>
         <div class="draw-hint" id="reg-info" style="display:none;top:auto;bottom:14px"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
         <div class="heat-anim" id="heat-anim" style="display:none"><button class="zbtn" id="heat-play" title="Пуск/пауза нагрева">▶</button><input type="range" id="heat-slider" min="0" max="0" value="0" step="1"><span id="heat-time">0 с</span></div>
@@ -472,7 +486,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 <!-- R3: менеджер расчётов (выпадающий из шапки) -->
 <div class="calc-menu" id="calc-menu"></div>
 
-<div class="home-ov on" id="home-ov">
+<div class="home-ov" id="home-ov">
   <div class="home-card" id="home-start">
     <div class="home-logo">M</div>
     <h1>MagField · 2D</h1>
@@ -505,6 +519,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
     <button class="home-back" id="home-back2">← Назад</button>
   </div>
 </div>
+<div class="toast" id="toast"></div>
 
 <script>
 const $=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t;
@@ -639,7 +654,18 @@ function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:''
 
 // ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
 let EDIT=null;
-function editable(){return MODE==='objects'&&!DRAW&&TOOL==='view'&&!BX&&!$('modal-ov').classList.contains('on');}
+function editable(){return !noProject()&&MODE==='objects'&&!DRAW&&TOOL==='view'&&!BX&&!$('modal-ov').classList.contains('on');}
+// ---- Гейты редактирования: проект не создан / расчёт готов (правки — только после «Редактировать») ----
+function noProject(){return !PROJECT||!PROJECT.id;}
+function locked(){return !VIEWER&&!!BX;}                 // есть результат — модель заблокирована
+let _toastT=null;
+function toast(msg,kind){const t=$('toast');if(!t)return;t.textContent=msg;t.className='toast '+(kind||'')+' on';
+  if(_toastT)clearTimeout(_toastT);_toastT=setTimeout(()=>t.classList.remove('on'),3600);}
+function pulse(id){const el=$(id);if(!el)return;el.classList.remove('pulse');void el.offsetWidth;el.classList.add('pulse');}
+function warnLock(){toast('Расчёт завершён. Чтобы вносить изменения, нажмите «Редактировать» на строке проекта.','warn');pulse('proj-edit');}
+function warnNoProj(){toast('Проект не создан. Нажмите «Расчёты» → «Новый проект» (или откройте сохранённый расчёт).','warn');pulse('calc-menu-btn');}
+function editGuard(){if(noProject()){warnNoProj();return true;}if(locked()){warnLock();return true;}return false;}
+function updateCta(){const c=$('cta-hint');if(c)c.style.display=noProject()?'flex':'none';}
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
@@ -1014,8 +1040,8 @@ $('m-calc').onclick=()=>setStage('result');
 // Окно закрывается только крестиком — клик вне окна НЕ закрывает.
 window.addEventListener('keydown',e=>{
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
-  if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();e.shiftKey?redo():undo();return;}
-  if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y'||e.key==='н'||e.key==='Н')){e.preventDefault();redo();return;}
+  if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();if(locked()){warnLock();return;}e.shiftKey?redo():undo();return;}
+  if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y'||e.key==='н'||e.key==='Н')){e.preventDefault();if(locked()){warnLock();return;}redo();return;}
   const t=document.activeElement&&document.activeElement.tagName;
   // Enter в поле окна = применить действие окна (Построить / Рассчитать).
   if(e.key==='Enter'&&$('modal-ov').classList.contains('on')&&(t==='INPUT'||t==='SELECT')){
@@ -1043,11 +1069,14 @@ function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' �
 // Выбор сценария в окне: переключает статику (calc) ↔ динамику (s3), заголовок — имя сценария.
 function onScnChange(v){setScenario(v);setStage(v==='dynamic'?'s3':'calc');}
 document.querySelectorAll('#ptree .node').forEach(n=>{if(n.dataset.stage&&!n.classList.contains('dis'))n.onclick=()=>{
+  const st=n.dataset.stage;
   // Результаты доступны только после расчёта — иначе предупреждаем.
-  if(n.dataset.stage==='result'&&!BX){setConv('c','● сначала произведите расчёт («Рассчитать»)');return;}
+  if(st==='result'&&!BX){setConv('c','● сначала произведите расчёт («Рассчитать»)');return;}
+  // Правка модели: нет проекта / расчёт готов → блок + подсказка (нужно «Редактировать»).
+  if((st==='geom'||st==='mesh'||st==='mat'||st==='calc')&&editGuard())return;
   if(n.dataset.tool)setTool(n.dataset.tool);
   // Пункт «Расчёт»: открываем окно под ТЕКУЩИЙ сценарий (статика или динамика).
-  setStage(n.dataset.stage==='calc'?(SCENARIO==='dynamic'?'s3':'calc'):n.dataset.stage);};});
+  setStage(st==='calc'?(SCENARIO==='dynamic'?'s3':'calc'):st);};});
 // Сворачиваемые секции дерева (Результаты / Объекты / Возбуждения) по клику на заголовок.
 function collapsible(hdrId,bodyId){const h=$(hdrId),b=$(bodyId);if(!h||!b)return;
   h.style.cursor='pointer';h.onclick=()=>{const open=b.style.display!=='none';b.style.display=open?'none':'';
@@ -1130,7 +1159,7 @@ function updateExcitations(){const body=$('exc-body');if(!body)return;
     body.innerHTML=ex.length?ex.map(o=>'<div class="node i1"><span class="ic">↯</span>'+o.name+' <span class="tag mat">'+(o.current/1e6)+' А/мм²</span></div>').join('')
       :'<div class="node i1" style="color:var(--dim)"><span class="ic">↯</span>не задано</div>';}}
 document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
-$('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(b)startDraw(b.dataset.add);});
+$('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(!b)return;if(editGuard())return;startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
 $('snapstep').onchange=e=>{SNAPSTEP=Math.max(0.1,+e.target.value||1);draw();};
 $('moveen').onchange=e=>{MOVEEN=e.target.checked;};
@@ -1225,9 +1254,9 @@ function renderObjects(){
 // Дерево «Модель»: клик по фигуре — выделить; ✎ — открыть окно правки; ✕ — удалить (с подтверждением).
 $('objlist').addEventListener('click',e=>{if(MODE!=='objects')return;
   const del=e.target.dataset.del;
-  if(del!==undefined){if(!confirm('Удалить «'+OBJECTS[+del].name+'»?'))return;delObject(+del);if(SEL<0)newDraft();editHint();return;}
+  if(del!==undefined){if(editGuard())return;if(!confirm('Удалить «'+OBJECTS[+del].name+'»?'))return;delObject(+del);if(SEL<0)newDraft();editHint();return;}
   const ed=e.target.dataset.edit;
-  if(ed!==undefined){SEL=+ed;DRAFT=null;setStage('geom');renderObjects();editHint();draw();return;}
+  if(ed!==undefined){if(editGuard())return;SEL=+ed;DRAFT=null;setStage('geom');renderObjects();editHint();draw();return;}
   const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;renderObjects();draw();}});
 $('figkind').onchange=()=>{if(SEL<0)newDraft();else{SEL=-1;newDraft();}};   // сменил тип → черновик новой фигуры
 // «Построить фигуру»: добавить черновик в модель и ЗАКРЫТЬ окно (полигон — только мышью).
@@ -1316,6 +1345,7 @@ $('buildmesh').onclick=onBuildBtn;
 // Верхняя «Рассчитать» — по ВЫБРАННОМУ сценарию. Статика: сетка (если нет) + solve; динамика:
 // открыть панель S3 (расчёт её кнопкой внутри — там же результаты/анимация).
 async function runByScenario(){
+  if(noProject()){warnNoProj();return;}
   if(SCENARIO==='dynamic'){setStage('s3');return;}
   if(MODE==='objects'){
     if(!OBJECTS.length){setConv('c','● нет фигур — постройте геометрию');return;}
@@ -1391,7 +1421,7 @@ function showHome(step){$('home-ov').classList.add('on');
   if(step==='solved')loadSolvedList();}
 $('home-new').onclick=()=>showHome('type');
 $('home-open').onclick=()=>showHome('solved');
-$('home-back').onclick=()=>showHome('start');
+$('home-back').onclick=()=>$('home-ov').classList.remove('on');   // закрыть окно → вернуться к рабочему полю
 $('home-back2').onclick=()=>showHome('start');
 $('home-back3').onclick=()=>showHome('type');
 document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>{PENDING_TYPE=c.dataset.type;
@@ -1411,7 +1441,7 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
   updateResults();updateExcitations();
-  setScenario('magneto');setStage('result');setTool('view');resize();defaultView();}
+  setScenario('magneto');setStage('result');setTool('view');resize();defaultView();updateCta();}
 
 // ---- ЭТАП 3: НАСТРОЙКИ (лимит параллельных расчётов) ----
 let SETTINGS={max_parallel:1,cores:4,recommended:1};
@@ -1504,7 +1534,7 @@ function applyCalcBundle(m){
   if(m.field)applyResult(m.field);                  // готовый — поле/сводка
   else{BX=null;BY=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
   restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
-  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();}
+  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();}
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
@@ -1632,5 +1662,5 @@ $('home-openfile').onclick=async()=>{try{const m=await openCalcFile();if(m)loadC
 
 (async()=>{await loadFields();await loadMaterials();await loadSettings();
   if(VIEW_ID){setStage('result');setTool('view');await enterViewer(VIEW_ID);return;}   // R4: вкладка-просмотр
-  pollJobs();setStage('result');setTool('view');showHome('start');})();
+  pollJobs();applyMode('objects');setStage('result');setTool('view');resize();defaultView();updateCta();})();
 </script></body></html>
