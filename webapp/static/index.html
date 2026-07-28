@@ -511,6 +511,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     <p id="name-type-lbl">—</p>
     <input class="hname" id="proj-name" placeholder="например, outrunner-12N14P" autocomplete="off">
     <p class="home-empty" id="name-err"></p>
+    <p class="home-empty" style="margin:-6px 0 14px;font-size:12px">После «Создать» выберите папку проекта — туда идёт авто-сохранение.</p>
     <div class="home-btns"><button class="home-b pri" id="proj-create">Создать проект</button></div>
     <button class="home-back" id="home-back3">← Назад</button>
   </div>
@@ -684,6 +685,19 @@ function _cfClose(v){$('ui-confirm-ov').classList.remove('on');const r=_cfRes;_c
 $('ui-confirm-yes').onclick=()=>_cfClose(true);
 $('ui-confirm-no').onclick=()=>_cfClose(false);
 $('ui-confirm-ov').onclick=e=>{if(e.target===$('ui-confirm-ov'))_cfClose(false);};
+// ---- Авто-сохранение в папку проекта (debounce ~2 с) + защита от случайного обновления ----
+let AUTOSAVE_T=null;
+function autosaveOn(){return !noProject()&&!!WORKDIR&&!!(PROJECT.name||'').trim();}
+function scheduleAutosave(){if(!autosaveOn())return;clearTimeout(AUTOSAVE_T);AUTOSAVE_T=setTimeout(doAutosave,2000);}
+async function doAutosave(){if(!autosaveOn())return;
+  const name=PROJECT.name.trim(),status=BX?'done':'draft';
+  PROJECT.status=status;PROJECT.id=PROJECT.id||genId();PROJECT.created=PROJECT.created||nowIso();
+  try{const res=await saveCalcToDir(buildCalcBundle(name,status,status==='done'?LAST_FIELD:null));   // только в папку (без фолбэка-скачивания)
+    if(res.via==='dir'){PROJECT.file=res.file;DIRTY=false;setConv('g','● автосохранение');}
+  }catch(e){}}
+function markDirty(){DIRTY=true;scheduleAutosave();}
+// Защита от случайного обновления/закрытия при несохранённых изменениях (окно нативное — стилизовать нельзя).
+window.addEventListener('beforeunload',e=>{if(unsavedWork()){e.preventDefault();e.returnValue='';}});
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
@@ -752,8 +766,8 @@ function editHint(){if(DRAW)return;const on=editable()&&OBJECTS.length;$('draw-h
 // история отмен (Ctrl+Z / Ctrl+Shift+Z)
 let HIST=[],REDO=[],FORMEDIT=false;
 function snap(){return JSON.parse(JSON.stringify(OBJECTS));}
-function pushHist(){DIRTY=true;HIST.push(snap());if(HIST.length>80)HIST.shift();REDO=[];}
-function restore(from,to){if(!from.length)return;DIRTY=true;clearPend();to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
+function pushHist(){markDirty();HIST.push(snap());if(HIST.length>80)HIST.shift();REDO=[];}
+function restore(from,to){if(!from.length)return;markDirty();clearPend();to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
 function undo(){restore(HIST,REDO);}
 function redo(){restore(REDO,HIST);}
 
@@ -870,7 +884,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
     }
-    setConv('','● Модель построена');DIRTY=true;$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
+    setConv('','● Модель построена');markDirty();$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     if(MODE==='objects')renderTree();else populateModel();   // objects: остаются редактируемые фигуры (лок правки — только после расчёта)
     // Сначала ЗАКРЫВАЕМ окно, затем рисуем холст в финальном размере — иначе draw() шёл бы за
     // открытой модалкой и требовал повторного перерисова (Enter). Из «Рассчитать» окно уже
@@ -1390,7 +1404,7 @@ function startEditVersion(){if(VIEWER||!BX)return;                 // тольк
   const nv=bumpVersion(PROJECT.name);
   PROJECT={name:nv,type:PROJECT.type,id:genId(),created:nowIso(),status:'new',file:null};
   $('proj-tree-name').textContent=nv;
-  LAST_FIELD=null;POST={};DIRTY=true;                              // обнулить результаты; новая версия не сохранена
+  LAST_FIELD=null;POST={};markDirty();                             // обнулить результаты; новая версия не сохранена
   invalidateField();                                              // BX/BY/DEMAG/TFIELD=null → поле скрыто, кнопка спрячется
   setStage('result');setTool('view');draw();
   setConv('g','● Новая версия «'+nv+'» — правьте геометрию/параметры и запускайте расчёт');}
@@ -1451,13 +1465,17 @@ document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>{PENDING_TYPE=c
   $('name-type-lbl').textContent=(PENDING_TYPE==='motor'?'⚙ Двигатель (спицевой PMSM)':'✎ Свободная геометрия');
   showHome('name');});
 // R2: имя на входе — лишь предустановка; уникальность проверяется при сохранении/запуске.
-$('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
+$('proj-create').onclick=async()=>{const nm=$('proj-name').value.trim();
   if(!nm){$('name-err').textContent='Задайте название расчёта.';return;}
-  startProject(PENDING_TYPE,nm);};
+  // Всегда выбираем базовую папку заново — туда пойдёт авто-сохранение.
+  if(window.showDirectoryPicker){let dir;try{dir=await pickWorkdir();}catch(e){return;}
+    if(!dir){$('name-err').textContent='Выберите папку для проекта.';return;}}
+  startProject(PENDING_TYPE,nm);
+  doAutosave();};                                        // сразу создаём файл проекта в папке
 $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
 $('i_peak').addEventListener('input',()=>{if(MODE==='pmsm')updateExcitations();});
 $('T').addEventListener('input',()=>{if(SCENARIO==='thermostatic')refreshScnTree();});
-['T','i_peak','gamma_deg','turns','dommargin','material','steel'].forEach(id=>{const el=$(id);if(el)el.addEventListener('change',()=>{DIRTY=true;});});
+['T','i_peak','gamma_deg','turns','dommargin','material','steel'].forEach(id=>{const el=$(id);if(el)el.addEventListener('change',markDirty);});
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
@@ -1687,10 +1705,22 @@ function openCalcFile(){return new Promise(res=>{const inp=document.createElemen
 async function refreshWorkdirStatus(){const el=$('wd-status');if(!el)return;
   if(!window.showDirectoryPicker){el.textContent='Браузер не поддерживает выбор папки — расчёты скачиваются файлами.';$('wd-pick').style.display='none';return;}
   const dir=await ensureWorkdir();
-  el.innerHTML=dir?('Папка: <b style="color:var(--text)">'+dir.name+'</b> — расчёты сохраняются сюда.')
+  el.innerHTML=dir?('Папка: <b style="color:var(--text)">'+dir.name+'</b> — расчёты сохраняются сюда автоматически.')
     :'Не выбрана — расчёты будут скачиваться файлами.';
   $('wd-pick').textContent=dir?'Сменить папку…':'Выбрать папку…';}
-$('wd-pick').onclick=async()=>{try{await pickWorkdir();}catch(e){}refreshWorkdirStatus();};
+// Смена папки: текущий расчёт ПЕРЕНОСИТСЯ (запись в новую + удаление из старой), без дублей.
+async function relocateWorkdir(){const oldDir=WORKDIR,oldFile=PROJECT.file;
+  let nd;try{nd=await pickWorkdir();}catch(e){return;}    // pickWorkdir ставит WORKDIR=nd
+  if(!nd){refreshWorkdirStatus();return;}
+  if(!noProject()&&(PROJECT.name||'').trim()){
+    try{await doAutosave();                                // запись текущего проекта в новую папку
+      if(oldDir&&oldFile){const same=await oldDir.isSameEntry(nd).catch(()=>false);
+        if(!same){try{await oldDir.removeEntry(oldFile);}catch(e){}}}   // удалить из старой
+      setConv('g','● Папка изменена, расчёт перенесён');
+    }catch(e){}}
+  refreshWorkdirStatus();
+  if($('calc-menu').classList.contains('on'))renderCalcMenu();}
+$('wd-pick').onclick=relocateWorkdir;
 // R2: открыть расчёт из файла (.mfz) — бридж до папочного списка в R3.
 $('home-openfile').onclick=async()=>{try{const m=await openCalcFile();if(m)loadCalcBundle(m);}catch(e){}};
 
