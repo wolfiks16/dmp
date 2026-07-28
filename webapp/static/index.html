@@ -116,12 +116,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .cm-sub{font:500 10.5px/1 var(--ui);color:var(--muted);margin-top:3px}
 .cm-del{background:none;border:0;color:var(--dim);cursor:pointer;font-size:12px;padding:0 4px}.cm-del:hover{color:var(--crit)}
 .cm-empty{padding:8px 9px;color:var(--muted);font-size:11.5px;line-height:1.5}.cm-empty a{color:var(--accent);cursor:pointer}
-/* R4: баннер вкладки-просмотра */
-.viewer-banner{display:inline-flex;align-items:center;gap:8px;font:600 12px/1 var(--ui);color:var(--text);background:var(--panel2);border:1px solid var(--line);padding:6px 11px;border-radius:7px}
-.viewer-banner b{color:var(--accent)}
-.viewer-banner .vb-ro{font:600 10px/1 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
-body.viewer #ptree .node[data-stage="geom"],body.viewer #ptree .node[data-stage="mesh"],body.viewer #ptree .node[data-stage="mat"]{opacity:.45;pointer-events:none}
-body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #buildmesh,body.viewer #pc-start,body.viewer #pc-draft{display:none!important}
 /* Список решённых проектов (Открыть решённый) */
 .solved-list{display:flex;flex-direction:column;gap:7px;margin:8px 0 16px;max-height:340px;overflow:auto;text-align:left}
 .solved-item{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;cursor:pointer}
@@ -230,7 +224,6 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 <div class="topbar">
   <div class="brand"><span class="logo">M</span>MagField</div>
   <button class="btn" id="calc-menu-btn" title="Обзор расчётов" style="margin-left:-8px">☰ Обзор<span class="cm-badge" id="calc-badge"></span></button>
-  <span class="viewer-banner" id="viewer-banner" style="display:none">👁 Просмотр: <b id="viewer-name"></b> <span class="vb-ro">только чтение</span></span>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" id="set-btn" title="Настройки">⚙</button><button class="tbtn" title="скоро">?</button></div>
@@ -532,8 +525,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let LAST_FIELD=null;   // R2: полный payload результата (для архива снимка)
-const VIEW_ID=new URLSearchParams(location.search).get('view');   // R4: id просмотра в отдельной вкладке
-let VIEWER=false;
+let VIEWER=false;   // режим просмотра снят; переменная оставлена (гварды !VIEWER безвредны)
 let POST={};   // R5: постобработка снимка {torque, loss, scenario} — пишется в архив расчёта
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
@@ -1492,9 +1484,8 @@ async function renderCalcMenu(){const m=$('calc-menu');
   else{const list=await listCalcsInDir();
     html+='<div class="cm-sec">Сохранённые ('+list.length+')</div>';
     html+=list.length?list.map(c=>{const ic=c.type==='motor'?'⚙':'✎',st=c.status==='draft'?'черновик':(SCN_NAME[c.scenario]||'готово');
-      return '<div class="cm-item" data-view="'+c.file+'" title="Посмотреть в новой вкладке"><span class="cm-ic">'+ic+'</span><div class="cm-main"><div class="cm-name">'+c.name
+      return '<div class="cm-item" data-view="'+c.file+'" title="Открыть расчёт"><span class="cm-ic">'+ic+'</span><div class="cm-main"><div class="cm-name">'+c.name
         +'</div><div class="cm-sub">'+st+' · '+fmtDate(c.saved)+'</div></div>'
-        +'<button class="cm-del" data-edit="'+c.file+'" title="Открыть для правки">✎</button>'
         +'<button class="cm-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('')
       :'<div class="cm-empty">Пусто — постройте геометрию и запустите расчёт.</div>';}
   m.innerHTML=html;
@@ -1507,10 +1498,8 @@ $('calc-menu-btn').onclick=e=>{e.stopPropagation();$('calc-menu').classList.cont
 $('calc-menu').addEventListener('click',async e=>{
   const del=e.target.dataset.del;
   if(del){e.stopPropagation();if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);renderCalcMenu();return;}
-  const ed=e.target.dataset.edit;                       // ✎ — открыть в рабочем поле
-  if(ed){e.stopPropagation();closeCalcMenu();const b=await readCalcFromDir(ed);if(b)loadCalcBundle(b);return;}
-  const row=e.target.closest('[data-view]');            // строка — посмотреть в новой вкладке
-  if(row){closeCalcMenu();viewCalc(row.dataset.view);}});
+  const row=e.target.closest('[data-view]');            // строка — открыть расчёт в рабочем окне
+  if(row){closeCalcMenu();const b=await readCalcFromDir(row.dataset.view);if(b)loadCalcBundle(b);}});
 document.addEventListener('click',e=>{const m=$('calc-menu');
   if(m.classList.contains('on')&&!m.contains(e.target)&&!$('calc-menu-btn').contains(e.target))closeCalcMenu();});
 
@@ -1548,22 +1537,6 @@ function applyCalcBundle(m){
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
-// R4: «Посмотреть» — открыть расчёт в ОТДЕЛЬНОЙ вкладке (read-only), не трогая рабочее поле.
-// Бандл кладём в IndexedDB (общий для вкладок одного origin); новая вкладка его подхватывает.
-async function viewCalc(file){const vid='v'+genId();
-  window.open(location.pathname+'?view='+vid,'_blank');   // открыть СИНХРОННО (в рамках жеста)
-  try{const b=await readCalcFromDir(file);if(b)await idbSet('view:'+vid,b);}catch(e){}}
-// R4: инициализация вкладки-просмотра — дождаться бандл из IndexedDB и показать read-only.
-async function enterViewer(id){VIEWER=true;document.body.classList.add('viewer');
-  $('home-ov').classList.remove('on');                                     // убрать домашний экран
-  $('calc').style.display='none';$('calc-menu-btn').style.display='none';   // без запуска и менеджера
-  let b=null;for(let i=0;i<60;i++){try{b=await idbGet('view:'+id);}catch(e){}if(b)break;await sleep(120);}
-  if(!b){setConv('c','● Не удалось загрузить расчёт для просмотра');return;}
-  try{idbDel('view:'+id);}catch(e){}                       // одноразовый ключ
-  applyCalcBundle(b);
-  $('viewer-name').textContent=b.name;$('viewer-banner').style.display='';
-  document.title='Просмотр: '+b.name+' — MagField';
-  setConv('g','● Просмотр «'+b.name+'»'+(b.status==='draft'?' (черновик)':' (только чтение)'));}
 
 // R2: имя расчёта уже занято в рабочей папке?
 async function calcNameExists(name){try{return (await listCalcsInDir()).some(l=>l.name===name);}catch(e){return false;}}
@@ -1671,6 +1644,5 @@ $('wd-pick').onclick=async()=>{try{await pickWorkdir();}catch(e){}refreshWorkdir
 $('home-openfile').onclick=async()=>{try{const m=await openCalcFile();if(m)loadCalcBundle(m);}catch(e){}};
 
 (async()=>{await loadFields();await loadMaterials();await loadSettings();
-  if(VIEW_ID){setStage('result');setTool('view');await enterViewer(VIEW_ID);return;}   // R4: вкладка-просмотр
   pollJobs();applyMode('objects');setStage('result');setTool('view');resize();defaultView();updateCta();})();
 </script></body></html>
