@@ -274,10 +274,9 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
           <button data-add="sector" title="Сектор"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 10 L17.5 10 A7.5 7.5 0 0 0 10 2.5 Z"/></svg></button>
           <button data-add="polygon" title="Полигон"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="10,3 16.6,8 14,16 6,16 3.4,8"/></svg></button>
         </div>
-        <label class="chk" style="white-space:nowrap;margin-left:4px"><input type="checkbox" id="snaptog" checked>к сетке</label>
+        <label class="chk" style="white-space:nowrap;margin-left:4px"><input type="checkbox" id="snaptog" checked>привязка к сетке</label>
         <input class="num" id="snapstep" value="1" title="шаг привязки, мм" style="width:46px;padding:5px 6px">
         <label class="chk" style="white-space:nowrap"><input type="checkbox" id="moveen" checked>перемещение</label>
-        <span class="lbl" id="geomhint" style="letter-spacing:0;text-transform:none;color:var(--dim)"></span>
       </div>
       <div class="rtgroup" id="rtools-res" style="display:none">
         <span class="lbl">Результаты</span>
@@ -669,8 +668,7 @@ function updateCta(){const c=$('cta-hint');if(c)c.style.display=noProject()?'fle
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
-  $('toppalette').style.display=MODE==='objects'?'flex':'none';
-  $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
+  $('toppalette').style.display=MODE==='objects'?'flex':'none';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
 function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';clearSummary();updateRtools();updateResults();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
