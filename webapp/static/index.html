@@ -95,20 +95,25 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .pop-row label{font:500 12px/1 var(--ui);color:var(--muted);flex:1}
 .pop-hint{font:500 11px/1.45 var(--ui);color:var(--dim);margin-bottom:11px}
 .pop-foot{display:flex;justify-content:flex-end}
-/* Индикатор задач */
-.jobw{position:fixed;bottom:34px;right:14px;width:274px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.5);z-index:55;overflow:hidden}
-.jobw-h{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;background:var(--panel2);border-bottom:1px solid var(--line);font:700 11.5px/1 var(--ui);color:var(--text)}
-.jobw-clr{background:none;border:0;color:var(--dim);font:500 11px/1 var(--ui);cursor:pointer}.jobw-clr:hover{color:var(--text)}
-.jobw-item{display:flex;align-items:center;gap:9px;padding:8px 12px;border-top:1px solid var(--line);font:500 12px/1.3 var(--ui)}
-.jobw-item:first-child{border-top:0}
-.jobw-ic{width:14px;text-align:center;flex:0 0 14px}
-.jobw-lbl{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
-.jobw-st{font:600 10.5px/1 var(--mono);color:var(--muted)}
 .heat-anim{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:9px;background:rgba(14,20,32,.92);border:1px solid var(--line);border-radius:9px;padding:6px 11px;z-index:6}
 .heat-anim input[type=range]{width:180px;accent-color:var(--accent)}
 .heat-anim #heat-time{font:600 11px/1 var(--mono);color:var(--muted);min-width:46px;text-align:right}
 .spin{display:inline-block;width:11px;height:11px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
 @keyframes spin{to{transform:rotate(360deg)}}
+/* R3: менеджер расчётов (выпадающий из шапки) */
+.cm-badge{display:inline-flex;align-items:center;gap:5px;margin-left:6px;font:700 10px/1 var(--mono);color:var(--accent)}
+.cm-badge:empty{display:none}
+.calc-menu{position:fixed;top:52px;left:14px;width:344px;max-height:74vh;overflow:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 38px rgba(0,0,0,.55);z-index:60;display:none;padding:7px}
+.calc-menu.on{display:block}
+.cm-sec{font:700 10px/1 var(--ui);color:var(--dim);text-transform:uppercase;letter-spacing:.05em;padding:9px 9px 5px}
+.cm-item{display:flex;align-items:center;gap:9px;padding:8px 9px;border-radius:7px;cursor:pointer}
+.cm-item:hover{background:var(--panel2)}
+.cm-ic{width:16px;text-align:center;flex:0 0 16px;font-size:14px}
+.cm-main{flex:1;overflow:hidden}
+.cm-name{font:600 12.5px/1.25 var(--ui);color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-sub{font:500 10.5px/1 var(--ui);color:var(--muted);margin-top:3px}
+.cm-del{background:none;border:0;color:var(--dim);cursor:pointer;font-size:12px;padding:0 4px}.cm-del:hover{color:var(--crit)}
+.cm-empty{padding:8px 9px;color:var(--muted);font-size:11.5px;line-height:1.5}.cm-empty a{color:var(--accent);cursor:pointer}
 /* Список решённых проектов (Открыть решённый) */
 .solved-list{display:flex;flex-direction:column;gap:7px;margin:8px 0 16px;max-height:340px;overflow:auto;text-align:left}
 .solved-item{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;cursor:pointer}
@@ -203,6 +208,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 <body>
 <div class="topbar">
   <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
+  <button class="btn" id="calc-menu-btn" title="Менеджер расчётов">☰ Расчёты<span class="cm-badge" id="calc-badge"></span></button>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
   <div class="tools"><div class="seg"><button class="on">2D</button><button disabled title="3D заморожен">3D</button></div><button class="tbtn" id="set-btn" title="Настройки">⚙</button><button class="tbtn" title="скоро">?</button></div>
@@ -454,11 +460,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="pop-foot"><button class="btn" id="wd-pick">Выбрать папку…</button></div>
 </div>
 
-<!-- Индикатор фоновых расчётов -->
-<div class="jobw" id="jobw" style="display:none">
-  <div class="jobw-h"><span id="jobw-title">Расчёты</span><button class="jobw-clr" id="jobw-clear" title="Убрать завершённые">очистить</button></div>
-  <div id="jobw-list"></div>
-</div>
+<!-- R3: менеджер расчётов (выпадающий из шапки) -->
+<div class="calc-menu" id="calc-menu"></div>
 
 <div class="home-ov on" id="home-ov">
   <div class="home-card" id="home-start">
@@ -1391,19 +1394,42 @@ let JOBS_TIMER=null;
 function jobIcon(s){return s==='running'?'<span class="spin"></span>':s==='queued'?'◷'
   :s==='done'?'<span style="color:var(--good)">✓</span>':s==='error'?'<span style="color:var(--crit)">✕</span>':'•';}
 function jobStatusText(s){return {running:'идёт',queued:'в очереди',done:'готово',error:'ошибка'}[s]||s;}
-function renderJobs(jobs){const w=$('jobw');
-  if(!jobs||!jobs.length){w.style.display='none';$('jobw-list').innerHTML='';return;}
-  w.style.display='';
-  const active=jobs.filter(j=>j.status==='running'||j.status==='queued').length;
-  $('jobw-title').textContent=active?('Расчёты · '+active+' активн.'):'Расчёты';
-  $('jobw-list').innerHTML=jobs.slice(0,8).map(j=>
-    '<div class="jobw-item"><span class="jobw-ic">'+jobIcon(j.status)+'</span><span class="jobw-lbl" title="'+j.label+'">'+j.label
-    +'</span><span class="jobw-st">'+jobStatusText(j.status)+'</span></div>').join('');}
-async function pollJobs(){let anyActive=false;
-  try{const d=await(await fetch('/api/jobs')).json();renderJobs(d.jobs);
-    anyActive=d.jobs.some(j=>j.status==='running'||j.status==='queued');}catch(e){}
-  clearTimeout(JOBS_TIMER);JOBS_TIMER=setTimeout(pollJobs,anyActive?1000:4000);}
-$('jobw-clear').onclick=async()=>{try{await fetch('/api/jobs_clear',{method:'POST'});}catch(e){}pollJobs();};
+// R3: опрос job'ов → бейдж активности в шапке (+ обновление открытого меню).
+let CALC_MENU_JOBS=[];
+async function pollJobs(){let active=0;
+  try{const d=await(await fetch('/api/jobs')).json();CALC_MENU_JOBS=d.jobs||[];
+    active=CALC_MENU_JOBS.filter(j=>j.status==='running'||j.status==='queued').length;}catch(e){}
+  const b=$('calc-badge');if(b)b.innerHTML=active?('<span class="spin"></span>'+active):'';
+  if($('calc-menu').classList.contains('on'))renderCalcMenu();
+  clearTimeout(JOBS_TIMER);JOBS_TIMER=setTimeout(pollJobs,active?1000:4000);}
+function fmtDate(iso){if(!iso)return'';try{return new Date(iso).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});}catch(e){return'';}}
+// Выпадающий менеджер: новый/открыть-файл + бегущие job'ы + сохранённые из рабочей папки.
+async function renderCalcMenu(){const m=$('calc-menu');
+  let html='<div class="cm-item" id="cm-new"><span class="cm-ic">＋</span><div class="cm-main"><div class="cm-name">Новый расчёт</div></div></div>'
+    +'<div class="cm-item" id="cm-openfile"><span class="cm-ic">📂</span><div class="cm-main"><div class="cm-name">Открыть файл .mfz…</div></div></div>';
+  const act=CALC_MENU_JOBS.filter(j=>j.status==='running'||j.status==='queued');
+  if(act.length)html+='<div class="cm-sec">Идут ('+act.length+')</div>'+act.map(j=>
+    '<div class="cm-item"><span class="cm-ic">'+jobIcon(j.status)+'</span><div class="cm-main"><div class="cm-name">'+j.label+'</div><div class="cm-sub">'+jobStatusText(j.status)+'</div></div></div>').join('');
+  const dir=WORKDIR||await ensureWorkdir();
+  if(!dir)html+='<div class="cm-sec">Сохранённые</div><div class="cm-empty">Рабочая папка не выбрана. <a id="cm-pickdir">Выбрать папку</a> — расчёты будут сохраняться и появляться здесь.</div>';
+  else{const list=await listCalcsInDir();
+    html+='<div class="cm-sec">Сохранённые ('+list.length+')</div>';
+    html+=list.length?list.map(c=>{const ic=c.type==='motor'?'⚙':'✎',st=c.status==='draft'?'черновик':(SCN_NAME[c.scenario]||'готово');
+      return '<div class="cm-item" data-file="'+c.file+'"><span class="cm-ic">'+ic+'</span><div class="cm-main"><div class="cm-name">'+c.name
+        +'</div><div class="cm-sub">'+st+' · '+fmtDate(c.saved)+'</div></div><button class="cm-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('')
+      :'<div class="cm-empty">Пусто — постройте геометрию и запустите расчёт.</div>';}
+  m.innerHTML=html;
+  const nw=$('cm-new');if(nw)nw.onclick=()=>{closeCalcMenu();showHome('type');};
+  const of=$('cm-openfile');if(of)of.onclick=async()=>{closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
+  const pd=$('cm-pickdir');if(pd)pd.onclick=async()=>{try{await pickWorkdir();}catch(e){}renderCalcMenu();};}
+function openCalcMenu(){$('calc-menu').classList.add('on');renderCalcMenu();}
+function closeCalcMenu(){$('calc-menu').classList.remove('on');}
+$('calc-menu-btn').onclick=e=>{e.stopPropagation();$('calc-menu').classList.contains('on')?closeCalcMenu():openCalcMenu();};
+$('calc-menu').addEventListener('click',async e=>{const del=e.target.dataset.del;
+  if(del){e.stopPropagation();if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);renderCalcMenu();return;}
+  const row=e.target.closest('[data-file]');if(row){closeCalcMenu();const b=await readCalcFromDir(row.dataset.file);if(b)loadCalcBundle(b);}});
+document.addEventListener('click',e=>{const m=$('calc-menu');
+  if(m.classList.contains('on')&&!m.contains(e.target)&&!$('calc-menu-btn').contains(e.target))closeCalcMenu();});
 
 // ---- ЭТАП 4: ПЕРСИСТЕНТНОСТЬ (сохранение решённых проектов + «Открыть решённый») ----
 // Собрать определение геометрии для повторного открытия (свободная — фигуры; двигатель — поля).
@@ -1413,12 +1439,7 @@ function geomDef(){const g=MODE==='objects'
   g.T=+$('T').value;
   if(MODE==='pmsm'){g.i_peak=+$('i_peak').value;g.gamma_deg=+$('gamma_deg').value;g.turns=+$('turns').value;}
   return g;}
-// Автосохранение после успешного расчёта: полные поля (Bx/By) + сцена + определение.
-async function saveProject(field){if(!SCENE||!PROJECT.name)return;
-  const bundle={name:PROJECT.name,type:PROJECT.type,mode:MODE,scenario:SCENARIO,scene:SCENE,field,geom:geomDef()};
-  try{await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)});
-    loadSavedNames();}catch(e){}}
-// R2: восстановить состояние ИЗ БАНДЛА расчёта (клиентский .mfz или server-проект).
+// R2: восстановить состояние ИЗ БАНДЛА расчёта (клиентский .mfz).
 // Готовый — показываем поле/сводку; черновик (field=null) — только геометрию.
 function applyCalcBundle(m){
   PROJECT={name:m.name,type:m.type,id:m.id||genId(),created:m.created||nowIso(),
@@ -1442,9 +1463,6 @@ function applyCalcBundle(m){
 // Открыть client-архив расчёта (из файла/папки).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
-// Открыть решённый server-проект (легаси до R3).
-async function openSolved(slug){let m;try{m=await(await fetch('/api/projects/'+slug)).json();}catch(e){return;}
-  if(!m||m.error)return;$('home-ov').classList.remove('on');applyCalcBundle(m);setConv('g','● Открыт расчёт «'+m.name+'»');}
 
 // R2: имя расчёта уже занято в рабочей папке?
 async function calcNameExists(name){try{return (await listCalcsInDir()).some(l=>l.name===name);}catch(e){return false;}}
@@ -1462,19 +1480,19 @@ async function resolveCalcName(){const name=(($('pc-name')&&$('pc-name').value)|
   if(await calcNameExists(name)&&!confirm('Расчёт «'+name+'» уже существует. Перезаписать его данные?'))return null;
   $('err').style.display='none';return name;}
 // Список сохранённых для экрана «Открыть решённый».
+// R3: домашний список «Открыть расчёт» = та же рабочая папка, что и менеджер в шапке.
 async function loadSolvedList(){const box=$('solved-list');box.innerHTML='<p class="home-empty">Загрузка…</p>';
-  let d;try{d=await(await fetch('/api/projects')).json();}catch(e){box.innerHTML='<p class="home-empty">Не удалось загрузить список.</p>';return;}
-  if(!d.projects||!d.projects.length){box.innerHTML='<p class="home-empty">Пока нет сохранённых проектов.<br>Создайте новый и запустите расчёт — он появится здесь.</p>';return;}
-  box.innerHTML=d.projects.map(p=>{const ic=p.type==='motor'?'⚙':'✎';
-    const dt=p.saved_at?new Date(p.saved_at*1000).toLocaleString('ru-RU',{day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
-    return '<div class="solved-item" data-slug="'+p.slug+'"><span class="si-ic">'+ic+'</span><div class="si-main"><b>'+p.name
-      +'</b><span class="si-sub">'+(SCN_NAME[p.scenario]||p.scenario||'')+' · '+dt+'</span></div>'
-      +'<button class="si-del" data-del="'+p.slug+'" title="Удалить">✕</button></div>';}).join('');}
+  const dir=WORKDIR||await ensureWorkdir();
+  if(!dir){box.innerHTML='<p class="home-empty">Рабочая папка не выбрана. Нажмите «Открыть файл расчёта» выше или задайте папку в ⚙ Настройках.</p>';return;}
+  const list=await listCalcsInDir();
+  if(!list.length){box.innerHTML='<p class="home-empty">В рабочей папке пока нет расчётов.<br>Создайте новый и запустите — он появится здесь.</p>';return;}
+  box.innerHTML=list.map(c=>{const ic=c.type==='motor'?'⚙':'✎',st=c.status==='draft'?'черновик':(SCN_NAME[c.scenario]||'готово');
+    return '<div class="solved-item" data-file="'+c.file+'"><span class="si-ic">'+ic+'</span><div class="si-main"><b>'+c.name
+      +'</b><span class="si-sub">'+st+' · '+fmtDate(c.saved)+'</span></div>'
+      +'<button class="si-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('');}
 $('solved-list').addEventListener('click',async e=>{const del=e.target.dataset.del;
-  if(del){if(!confirm('Удалить сохранённый проект?'))return;try{await fetch('/api/projects/'+del,{method:'DELETE'});}catch(err){}loadSolvedList();loadSavedNames();return;}
-  const row=e.target.closest('[data-slug]');if(row)openSolved(row.dataset.slug);});
-// Имена сохранённых проектов — для проверки уникальности при создании.
-async function loadSavedNames(){try{const d=await(await fetch('/api/projects')).json();SAVED_NAMES=(d.projects||[]).map(p=>p.name);}catch(e){}}
+  if(del){if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);loadSolvedList();return;}
+  const row=e.target.closest('[data-file]');if(row){const b=await readCalcFromDir(row.dataset.file);if(b)loadCalcBundle(b);}});
 
 // ============ R1: ХРАНЕНИЕ РАСЧЁТОВ НА МАШИНЕ (архив gzip(JSON) + рабочая папка) ============
 // Расчёт самодостаточен: геометрия+сетка+материалы(вшиты)+сценарий+результаты. Формат — один
@@ -1542,6 +1560,6 @@ $('wd-pick').onclick=async()=>{try{await pickWorkdir();}catch(e){}refreshWorkdir
 // R2: открыть расчёт из файла (.mfz) — бридж до папочного списка в R3.
 $('home-openfile').onclick=async()=>{try{const m=await openCalcFile();if(m)loadCalcBundle(m);}catch(e){}};
 
-(async()=>{await loadFields();await loadMaterials();await loadSettings();await loadSavedNames();pollJobs();
+(async()=>{await loadFields();await loadMaterials();await loadSettings();pollJobs();
   setStage('result');setTool('view');showHome('start');})();
 </script></body></html>
