@@ -63,6 +63,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .vp-coord{position:absolute;right:12px;top:10px;font:600 11px/1 var(--mono);color:var(--dim);pointer-events:none}
 .vp-zoom{position:absolute;right:12px;bottom:12px;display:flex;gap:6px}
 .zbtn{width:28px;height:26px;border:1px solid var(--line2);background:rgba(20,28,42,.92);color:var(--muted);border-radius:6px;cursor:pointer;font-size:14px}.zbtn:hover{color:var(--text)}
+.vp-confirm{position:absolute;left:12px;bottom:12px;display:flex;gap:6px}
+.vp-confirm .ok{color:var(--accent);border-color:var(--accent)}.vp-confirm .ok:hover{background:var(--accent);color:#04140e}
+.vp-confirm .no{color:var(--crit);border-color:var(--crit)}.vp-confirm .no:hover{background:var(--crit);color:#fff}
 .vp-cbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel)}
 .vp-cbar.hide{display:none}.vp-cbar .scale{flex:1;height:12px;border-radius:3px}.vp-cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
 .rp{padding:12px}
@@ -287,6 +290,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div class="vp-coord" id="coord">x —  y — мм</div>
         <div class="heat-anim" id="heat-anim" style="display:none"><button class="zbtn" id="heat-play" title="Пуск/пауза нагрева">▶</button><input type="range" id="heat-slider" min="0" max="0" value="0" step="1"><span id="heat-time">0 с</span></div>
         <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
+        <div class="vp-confirm" id="vp-confirm" style="display:none"><button class="zbtn ok" id="edit-ok" title="Применить изменения (Enter)">✓</button><button class="zbtn no" id="edit-cancel" title="Отменить — вернуть как было">✕</button></div>
       </div>
       <div class="vp-cbar hide" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" id="cunit" style="color:var(--dim)">Тл</span></div>
     </div>
@@ -646,8 +650,13 @@ function cancelDraw(){const r=DRAW&&DRAW.reopen;endDraw();if(r)setStage('geom');
 function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:'',kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();renderObjects();if(r)setStage('geom');else editHint();draw();}
 
 // ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
-let EDIT=null;
+let EDIT=null,PEND=null,GEST_PRE=null;   // PEND: снимок геометрии на начало правки (для отмены)
 function editable(){return !noProject()&&MODE==='objects'&&!DRAW&&TOOL==='view'&&!BX&&!$('modal-ov').classList.contains('on');}
+// Правка фигур на холсте: панель ✓/✕. ✓ (или Enter) — применить; ✕ — вернуть как было.
+function pendOn(){if(PEND===null)PEND=GEST_PRE||JSON.parse(JSON.stringify(OBJECTS));const el=$('vp-confirm');if(el)el.style.display='flex';}
+function clearPend(){PEND=null;const el=$('vp-confirm');if(el)el.style.display='none';}
+function applyGeomEdit(){clearPend();const hadMesh=!!SCENE;if(SEL>=0){SEL=-1;newDraft();editHint();}if(hadMesh)buildMesh();else draw();}
+function cancelGeomEdit(){if(PEND===null){clearPend();return;}OBJECTS=PEND;clearPend();SEL=-1;newDraft();renderObjects();editHint();draw();}
 // ---- Гейты редактирования: проект не создан / расчёт готов (правки — только после «Редактировать») ----
 function noProject(){return !PROJECT||!PROJECT.id;}
 function locked(){return !VIEWER&&!!BX;}                 // есть результат — модель заблокирована
@@ -731,7 +740,7 @@ function editHint(){if(DRAW)return;const on=editable()&&OBJECTS.length;$('draw-h
 let HIST=[],REDO=[],FORMEDIT=false;
 function snap(){return JSON.parse(JSON.stringify(OBJECTS));}
 function pushHist(){DIRTY=true;HIST.push(snap());if(HIST.length>80)HIST.shift();REDO=[];}
-function restore(from,to){if(!from.length)return;DIRTY=true;to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
+function restore(from,to){if(!from.length)return;DIRTY=true;clearPend();to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
 function undo(){restore(HIST,REDO);}
 function redo(){restore(REDO,HIST);}
 
@@ -826,7 +835,7 @@ async function loadFields(){const r=await(await fetch('/api/spoke_defaults')).js
 function meshSpec(){const s={};document.querySelectorAll('.msz').forEach(i=>s[i.dataset.name]=+i.value);return s;}
 function spokeSpec(){const s={};document.querySelectorAll('.gsz').forEach(i=>{s[i.dataset.name]=(i.tagName==='SELECT'?i.value:+i.value);});return s;}
 
-async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';
+async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';clearPend();
   try{let d;
     if(MODE==='objects'){
       if(!OBJECTS.length){$('err').textContent='Добавьте хотя бы один объект.';$('err').style.display='block';return;}
@@ -981,8 +990,9 @@ function finishPolygon(){let pts=DRAW.pts.slice();
 cv.addEventListener('mousedown',e=>{const p=pos(e);
   if(DRAW){if(DRAW.kind!=='polygon'){const w=worldSnap(p);DRAW.start=[w[0],w[1]];DRAW.cur=[w[0],w[1]];}return;}
   if(editable()){const w=s2w(p[0],p[1]);
+    if(PEND===null)GEST_PRE=JSON.parse(JSON.stringify(OBJECTS));   // снимок до возможной правки
     if(SEL>=0&&OBJECTS[SEL]){const h=hitHandle(OBJECTS[SEL],p);if(h){
-      if(h.k.indexOf('add')===0){pushHist();const i=+h.k.slice(3);OBJECTS[SEL].params.points.splice(i+1,0,[snapV(h.x),snapV(h.y)]);EDIT={type:'handle',h:{k:'v'+(i+1)}};renderObjects();draw();return;}
+      if(h.k.indexOf('add')===0){pushHist();const i=+h.k.slice(3);OBJECTS[SEL].params.points.splice(i+1,0,[snapV(h.x),snapV(h.y)]);EDIT={type:'handle',h:{k:'v'+(i+1)}};pendOn();renderObjects();draw();return;}
       pushHist();EDIT={type:'handle',h};
       if(h.k==='rot'&&OBJECTS[SEL].kind==='polygon'){const pts=OBJECTS[SEL].params.points,cx=pts.reduce((a,b)=>a+b[0],0)/pts.length,cy=pts.reduce((a,b)=>a+b[1],0)/pts.length;EDIT.base=pts.map(q=>q.slice());EDIT.cen=[cx,cy];EDIT.a0=Math.atan2(w[1]-cy,w[0]-cx);}
       return;}}
@@ -993,7 +1003,7 @@ cv.addEventListener('mousedown',e=>{const p=pos(e);
 cv.addEventListener('dblclick',()=>{if(DRAW&&DRAW.kind==='polygon')finishPolygon();});
 cv.addEventListener('contextmenu',e=>{if(!editable()||SEL<0||!OBJECTS[SEL]||OBJECTS[SEL].kind!=='polygon')return;
   e.preventDefault();const h=hitHandle(OBJECTS[SEL],pos(e));
-  if(h&&h.k[0]==='v'){const pts=OBJECTS[SEL].params.points;if(pts.length>3){pushHist();pts.splice(+h.k.slice(1),1);renderObjects();draw();}}});
+  if(h&&h.k[0]==='v'){const pts=OBJECTS[SEL].params.points;if(pts.length>3){if(PEND===null)GEST_PRE=JSON.parse(JSON.stringify(OBJECTS));pushHist();pts.splice(+h.k.slice(1),1);pendOn();renderObjects();draw();}}});
 window.addEventListener('mouseup',e=>{const p=pos(e);
   if(DRAW){const w=worldSnap(p);
     if(DRAW.kind==='polygon'){DRAW.pts.push([w[0],w[1]]);draw();return;}
@@ -1024,9 +1034,10 @@ window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&
   if(EDIT){const raw=s2w(p[0],p[1]),w=worldSnap(p);
     if(EDIT.type==='handle'){const ang=EDIT.h.k==='rot'||EDIT.h.k==='a1'||EDIT.h.k==='a2';applyHandle(OBJECTS[SEL],EDIT.h,ang?raw[0]:w[0],ang?raw[1]:w[1]);}
     else{let dx=w[0]-EDIT.origin[0],dy=w[1]-EDIT.origin[1];if(e.shiftKey){if(Math.abs(dx)>=Math.abs(dy))dy=0;else dx=0;}setTranslate(OBJECTS[SEL],EDIT.base,dx,dy);}
-    draw();editHint();return;}
+    pendOn();draw();editHint();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('zin').onclick=()=>{scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=fit;
+$('edit-ok').onclick=applyGeomEdit;$('edit-cancel').onclick=cancelGeomEdit;
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
 $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage('result');
@@ -1043,9 +1054,8 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Enter'&&$('modal-ov').classList.contains('on')&&(t==='INPUT'||t==='SELECT')){
     document.activeElement.blur();e.preventDefault();
     if(STAGE==='geom'||STAGE==='mesh')$('buildmesh').click();else if(STAGE==='calc')$('m-calc').click();return;}
-  if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){const hadMesh=!!SCENE;
-    if(SEL>=0){SEL=-1;newDraft();editHint();}
-    if(hadMesh)buildMesh();else draw();return;}   // применить правку геометрии: пересобрать сетку
+  if(e.key==='Enter'&&editable()&&t!=='INPUT'&&t!=='TEXTAREA'){applyGeomEdit();return;}
+  if(e.key==='Escape'&&PEND!==null&&editable()){cancelGeomEdit();return;}   // Esc — отмена правки   // применить правку геометрии: пересобрать сетку
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
@@ -1440,7 +1450,7 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   PROJECT={name,type,id:genId(),created:nowIso(),status:'new',file:null};$('proj-tree-name').textContent=name;   // R2: новый расчёт
   // Полный сброс состояния ДО applyMode — иначе дерево/поле перерисуются со СТАРЫМИ данными (баг: остатки готового расчёта).
   MESH_ID=null;SCENE=null;CENT=null;BX=null;BY=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;
-  OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};DIRTY=false;
+  OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};DIRTY=false;clearPend();
   SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
   VMAX=2.0;COMP='mag';if($('comp'))$('comp').value='mag';                                    // шкала поля → дефолт
   ['T','i_peak','gamma_deg','turns','dommargin'].forEach(id=>{const el=$(id);if(el)el.value=el.defaultValue;});  // параметры сценария → дефолты
@@ -1542,7 +1552,7 @@ function applyCalcBundle(m){
   if(m.field)applyResult(m.field);                  // готовый — поле/сводка
   else{BX=null;BY=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
   restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
-  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();DIRTY=false;}
+  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();DIRTY=false;clearPend();}
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
