@@ -185,6 +185,11 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .cta-hint h3{margin:0 0 8px;font-size:17px;color:var(--text)}
 .cta-hint p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}
 .cta-hint b{color:var(--accent)}
+.ui-modal-ov{position:fixed;inset:0;background:rgba(6,10,18,.66);display:none;align-items:center;justify-content:center;z-index:140}
+.ui-modal-ov.on{display:flex}
+.ui-modal{background:var(--panel);border:1px solid var(--line2);border-radius:12px;padding:22px 24px;width:min(430px,92vw);box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.ui-modal-msg{font:600 14px/1.55 var(--ui);color:var(--text);margin-bottom:18px;white-space:pre-line}
+.ui-modal-btns{display:flex;gap:10px;justify-content:flex-end}
 .home-back:hover{color:var(--text)}
 .home-empty{color:var(--dim);font-size:13px}
 .hname{width:100%;background:var(--panel2);border:1px solid var(--line2);color:var(--text);
@@ -517,6 +522,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="ui-modal-ov" id="ui-confirm-ov"><div class="ui-modal"><div class="ui-modal-msg" id="ui-confirm-msg"></div><div class="ui-modal-btns"><button class="btn" id="ui-confirm-no">Нет</button><button class="btn pri" id="ui-confirm-yes">Да</button></div></div></div>
 
 <script>
 const $=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t;
@@ -670,7 +676,14 @@ function editGuard(){if(noProject()){warnNoProj();return true;}if(locked()){warn
 function updateCta(){const c=$('cta-hint');if(c)c.style.display=noProject()?'flex':'none';}
 // Несохранённая работа + подтверждение перед заменой (новый проект / открытие расчёта).
 function unsavedWork(){return DIRTY&&(OBJECTS.length>0||!!MESH_ID||!!BX);}
-function okToDiscard(){return !unsavedWork()||confirm('В текущем проекте есть несохранённые изменения. Продолжить без сохранения? Изменения будут потеряны.');}
+async function okToDiscard(){return !unsavedWork()||(await uiConfirm('В текущем проекте есть несохранённые изменения.\nПродолжить без сохранения? Изменения будут потеряны.'));}
+// Модальное окно подтверждения в стиле приложения (замена нативного confirm). Возвращает Promise<bool>.
+let _cfRes=null;
+function uiConfirm(msg){return new Promise(res=>{$('ui-confirm-msg').textContent=msg;$('ui-confirm-ov').classList.add('on');_cfRes=res;setTimeout(()=>$('ui-confirm-yes').focus(),20);});}
+function _cfClose(v){$('ui-confirm-ov').classList.remove('on');const r=_cfRes;_cfRes=null;if(r)r(v);}
+$('ui-confirm-yes').onclick=()=>_cfClose(true);
+$('ui-confirm-no').onclick=()=>_cfClose(false);
+$('ui-confirm-ov').onclick=e=>{if(e.target===$('ui-confirm-ov'))_cfClose(false);};
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
@@ -1046,6 +1059,7 @@ $('modal-x').onclick=()=>setStage('result');$('modal-done').onclick=()=>setStage
 $('m-calc').onclick=()=>setStage('result');
 // Окно закрывается только крестиком — клик вне окна НЕ закрывает.
 window.addEventListener('keydown',e=>{
+  if($('ui-confirm-ov').classList.contains('on')){if(e.key==='Enter'){e.preventDefault();_cfClose(true);}else if(e.key==='Escape'){e.preventDefault();_cfClose(false);}return;}
   if(DRAW){if(e.key==='Escape')cancelDraw();else if(e.key==='Enter'&&DRAW.kind==='polygon')finishPolygon();return;}
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='z'||e.key==='Z'||e.key==='я'||e.key==='Я')){e.preventDefault();if(locked()){warnLock();return;}e.shiftKey?redo():undo();return;}
   if(MODE==='objects'&&(e.ctrlKey||e.metaKey)&&(e.key==='y'||e.key==='Y'||e.key==='н'||e.key==='Н')){e.preventDefault();if(locked()){warnLock();return;}redo();return;}
@@ -1261,9 +1275,9 @@ function renderObjects(){
   else $('objedit').innerHTML='';
   renderTree();}
 // Дерево «Модель»: клик по фигуре — выделить; ✎ — открыть окно правки; ✕ — удалить (с подтверждением).
-$('objlist').addEventListener('click',e=>{if(MODE!=='objects')return;
+$('objlist').addEventListener('click',async e=>{if(MODE!=='objects')return;
   const del=e.target.dataset.del;
-  if(del!==undefined){if(editGuard())return;if(!confirm('Удалить «'+OBJECTS[+del].name+'»?'))return;delObject(+del);if(SEL<0)newDraft();editHint();return;}
+  if(del!==undefined){if(editGuard())return;const nm=OBJECTS[+del]&&OBJECTS[+del].name;if(!(await uiConfirm('Удалить '+(nm?'«'+nm+'»':'фигуру')+'?')))return;delObject(+del);if(SEL<0)newDraft();editHint();return;}
   const ed=e.target.dataset.edit;
   if(ed!==undefined){if(editGuard())return;SEL=+ed;DRAFT=null;setStage('geom');renderObjects();editHint();draw();return;}
   const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;renderObjects();draw();}});
@@ -1506,8 +1520,8 @@ async function renderCalcMenu(){const m=$('calc-menu');
         +'<button class="cm-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('')
       :'<div class="cm-empty">Пусто — постройте геометрию и запустите расчёт.</div>';}
   m.innerHTML=html;
-  const nw=$('cm-new');if(nw)nw.onclick=()=>{if(!okToDiscard())return;closeCalcMenu();showHome('type');};
-  const of=$('cm-openfile');if(of)of.onclick=async()=>{if(!okToDiscard())return;closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
+  const nw=$('cm-new');if(nw)nw.onclick=async()=>{if(!(await okToDiscard()))return;closeCalcMenu();showHome('type');};
+  const of=$('cm-openfile');if(of)of.onclick=async()=>{if(!(await okToDiscard()))return;closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
   const sv=$('cm-save');if(sv)sv.onclick=()=>{closeCalcMenu();saveProject();};
   const sa=$('cm-saveas');if(sa)sa.onclick=()=>{closeCalcMenu();saveProjectAs();};
   const pd=$('cm-pickdir');if(pd)pd.onclick=async()=>{try{await pickWorkdir();}catch(e){}renderCalcMenu();};}
@@ -1516,9 +1530,9 @@ function closeCalcMenu(){$('calc-menu').classList.remove('on');}
 $('calc-menu-btn').onclick=e=>{e.stopPropagation();$('calc-menu').classList.contains('on')?closeCalcMenu():openCalcMenu();};
 $('calc-menu').addEventListener('click',async e=>{
   const del=e.target.dataset.del;
-  if(del){e.stopPropagation();if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);renderCalcMenu();return;}
+  if(del){e.stopPropagation();if(!(await uiConfirm('Удалить этот расчёт?')))return;await deleteCalcInDir(del);renderCalcMenu();return;}
   const row=e.target.closest('[data-view]');            // строка — открыть расчёт в рабочем окне
-  if(row){if(!okToDiscard())return;closeCalcMenu();const b=await readCalcFromDir(row.dataset.view);if(b)loadCalcBundle(b);}});
+  if(row){if(!(await okToDiscard()))return;closeCalcMenu();const b=await readCalcFromDir(row.dataset.view);if(b)loadCalcBundle(b);}});
 document.addEventListener('click',e=>{const m=$('calc-menu');
   if(m.classList.contains('on')&&!m.contains(e.target)&&!$('calc-menu-btn').contains(e.target))closeCalcMenu();});
 
@@ -1572,7 +1586,7 @@ async function doSaveProject(){
   const name=(PROJECT.name||'').trim();
   if(!name){toast('У проекта нет имени. Создайте проект через «Обзор → Новый расчёт».','warn');return;}
   const status=BX?'done':'draft', fn=calcFilename(name);
-  if(await calcNameExists(name)&&PROJECT.file!==fn&&!confirm('Расчёт «'+name+'» уже существует. Перезаписать?'))return;
+  if(await calcNameExists(name)&&PROJECT.file!==fn&&!(await uiConfirm('Расчёт «'+name+'» уже существует. Перезаписать?')))return;
   try{const r=await saveCalc(name,status);
     toast('Сохранено: «'+name+'»'+(status==='draft'?' (черновик)':'')+(r.via==='download'?' — файлом (папка не выбрана)':''));}
   catch(e){toast('Не удалось сохранить: '+e,'warn');}}
@@ -1588,7 +1602,7 @@ async function saveProjectAs(){if(noProject()){warnNoProj();return;}
 // R2: разрешить имя перед запуском/сохранением (уникальность + подтверждение перезаписи).
 async function resolveCalcName(){const name=(($('pc-name')&&$('pc-name').value)||PROJECT.name||'').trim();
   if(!name){$('err').textContent='Задайте имя расчёта.';$('err').style.display='block';return null;}
-  if(await calcNameExists(name)&&!confirm('Расчёт «'+name+'» уже существует. Перезаписать его данные?'))return null;
+  if(await calcNameExists(name)&&!(await uiConfirm('Расчёт «'+name+'» уже существует. Перезаписать его данные?')))return null;
   $('err').style.display='none';return name;}
 // Список сохранённых для экрана «Открыть решённый».
 // R3: домашний список «Открыть расчёт» = та же рабочая папка, что и менеджер в шапке.
@@ -1602,7 +1616,7 @@ async function loadSolvedList(){const box=$('solved-list');box.innerHTML='<p cla
       +'</b><span class="si-sub">'+st+' · '+fmtDate(c.saved)+'</span></div>'
       +'<button class="si-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('');}
 $('solved-list').addEventListener('click',async e=>{const del=e.target.dataset.del;
-  if(del){if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);loadSolvedList();return;}
+  if(del){if(!(await uiConfirm('Удалить этот расчёт?')))return;await deleteCalcInDir(del);loadSolvedList();return;}
   const row=e.target.closest('[data-file]');if(row){const b=await readCalcFromDir(row.dataset.file);if(b)loadCalcBundle(b);}});
 
 // ============ R1: ХРАНЕНИЕ РАСЧЁТОВ НА МАШИНЕ (архив gzip(JSON) + рабочая папка) ============
