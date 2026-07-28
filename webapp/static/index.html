@@ -777,18 +777,24 @@ function tempBars(){const g=stops(heatColor,0,1);
   $('cscale').style.background='linear-gradient(90deg,'+g+')';
   $('cmin').textContent=TMIN.toFixed(0);$('cmax').textContent=TMAX.toFixed(0);
   $('cunit').textContent='°C';$('cbar').classList.remove('hide');}
-function bars(){
+function bars(){const cbar=$('cbar'),wasHidden=cbar.classList.contains('hide');
   if(SHOWFIELD&&BX&&COMP==='demag'&&DEMAG){            // легенда карты риска: зелёный→красный
     const g=stops(riskColor,0,1);
     $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
     $('cmin').textContent='за коленом';$('cmax').textContent='безопасно';$('cunit').textContent='';
     $('rp-scale').innerHTML='<span>безопасно</span><span>колено</span><span>за коленом</span>';
-    $('cbar').classList.toggle('hide',false);return;}
-  const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
-  $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
-  $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);$('cunit').textContent='Тл';
-  $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
-  $('cbar').classList.toggle('hide',!(SHOWFIELD&&BX));}
+    cbar.classList.remove('hide');
+  }else{
+    const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
+    $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
+    $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);$('cunit').textContent='Тл';
+    $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
+    cbar.classList.toggle('hide',!(SHOWFIELD&&BX));
+  }
+  // Видимость шкалы меняет высоту вьюпорта → пересчитать холст, сохранив центр обзора (иначе модель «сжимается»).
+  if(wasHidden!==cbar.classList.contains('hide')&&scale>0){
+    const wcx=(W/2-ox)/scale,wcy=(oy-H/2)/scale;
+    resize();ox=W/2-wcx*scale;oy=H/2+wcy*scale;}}
 
 function poly(pts,c){return'<polyline fill="none" stroke="'+c+'" stroke-width="1.8" points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>';}
 function chart(series,x0,x1){const w=256,h=160,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>30+t*(w-38),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
