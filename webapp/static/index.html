@@ -27,6 +27,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .pane-h{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;font:600 11px/1 var(--ui);letter-spacing:.7px;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:1}
 .tree{padding:6px 6px 12px}
 .node{display:flex;align-items:center;gap:7px;padding:4px 8px;border-radius:5px;cursor:pointer;color:var(--text);white-space:nowrap;font-size:12.5px}
+#proj-edit{opacity:.5;font:500 11px/1 var(--ui);color:var(--muted);background:none;border:0;cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;transition:opacity .12s}
+#proj-edit:hover{opacity:1;color:var(--text);background:var(--panel2)}
 .node:hover{background:var(--panel2)}
 .node.sel{background:color-mix(in srgb,var(--accent) 16%,transparent);box-shadow:inset 2px 0 0 var(--accent)}
 .node .ic{width:15px;text-align:center;color:var(--muted);font-size:12px;flex:0 0 15px}
@@ -225,7 +227,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
   <aside class="left">
     <div class="pane-h">Проект</div>
     <div class="tree" id="ptree">
-      <div class="node" style="padding-left:8px"><span class="ic">🖿</span><span id="proj-tree-name">Проект</span></div>
+      <div class="node" style="padding-left:8px;cursor:default"><span class="ic">🖿</span><span id="proj-tree-name" style="flex:1;overflow:hidden;text-overflow:ellipsis">Проект</span><button id="proj-edit" style="display:none" title="Новая версия расчёта: обнулить результаты и вернуться к правке геометрии/параметров">Редактировать</button></div>
       <div class="node i1" data-stage="geom"><span class="ic">◧</span>Геометрия</div>
       <div class="node i1" data-stage="mesh"><span class="ic">▦</span>Сетка</div>
       <div class="node i1" data-stage="mat"><span class="ic">▤</span>Материалы</div>
@@ -1053,6 +1055,7 @@ function collapsible(hdrId,bodyId){const h=$(hdrId),b=$(bodyId);if(!h||!b)return
 collapsible('res-hdr','res-tools');collapsible('obj-hdr','objlist');collapsible('exc-hdr','exc-body');
 // Правый блок результатов виден только после расчёта; иначе — подсказка.
 function updateResults(){const has=!!BX;$('res-stage').style.display=has?'':'none';$('res-empty').style.display=has?'none':'';
+  if($('proj-edit'))$('proj-edit').style.display=(has&&!VIEWER)?'':'none';   // «Редактировать» — только для готового расчёта
   const motor=(MODE==='pmsm'&&has);                                    // момент и потери — только двигатель
   if($('torque-panel'))$('torque-panel').style.display=motor?'':'none';
   if($('loss-panel'))$('loss-panel').style.display=motor?'':'none';}
@@ -1324,6 +1327,21 @@ async function runByScenario(){
   openPrecalc();                                        // окно проверки → «Старт расчёта»
 }
 $('calc').onclick=runByScenario;
+// «Редактировать» на строке проекта: новая версия (v+1), обнуление результатов, возврат к правке.
+// Геометрия/параметры/сетка сохраняются; исходный расчёт остаётся (новая версия = отдельный id/файл).
+function bumpVersion(name){name=(name||'').trim();
+  const m=name.match(/^(.*?)\s*v(\d+)$/i);
+  if(m)return (m[1].trim()?m[1].trim()+' ':'')+'v'+(parseInt(m[2],10)+1);
+  return (name?name+' ':'')+'v1';}
+function startEditVersion(){if(VIEWER||!BX)return;                 // только для готового расчёта
+  const nv=bumpVersion(PROJECT.name);
+  PROJECT={name:nv,type:PROJECT.type,id:genId(),created:nowIso(),status:'new',file:null};
+  $('proj-tree-name').textContent=nv;
+  LAST_FIELD=null;POST={};                                         // обнулить результаты и постобработку
+  invalidateField();                                              // BX/BY/DEMAG/TFIELD=null → поле скрыто, кнопка спрячется
+  setStage('result');setTool('view');draw();
+  setConv('g','● Новая версия «'+nv+'» — правьте геометрию/параметры и запускайте расчёт');}
+$('proj-edit').onclick=startEditVersion;
 // Человеко-читаемое имя материала по id.
 function matName(mid){if(mid==='air')return'Воздух';const s=STEELS.find(x=>x.id===mid);if(s)return s.name;const m=MAGNETS.find(x=>x.id===mid);if(m)return m.name;return mid;}
 // Окно «Проверка перед расчётом»: выпадающие секции (проект/сетка/материалы/сценарий) + «Старт расчёта».
