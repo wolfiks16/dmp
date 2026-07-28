@@ -1441,11 +1441,13 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   MESH_ID=null;SCENE=null;CENT=null;BX=null;BY=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;
   OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};
   SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+  VMAX=2.0;COMP='mag';if($('comp'))$('comp').value='mag';                                    // шкала поля → дефолт
+  ['T','i_peak','gamma_deg','turns','dommargin'].forEach(id=>{const el=$(id);if(el)el.value=el.defaultValue;});  // параметры сценария → дефолты
   $('objlist').innerHTML='';$('reg-info').style.display='none';
   $('meshinfo').textContent='—';$('st-iters').textContent='';$('st-cells').textContent='';setConv('','● постройте геометрию');
   applyMode(type==='motor'?'pmsm':'objects');
   renderTree();updateResults();updateExcitations();
-  setScenario('magneto');setStage('result');setTool('view');resize();defaultView();updateCta();}
+  setScenario('magneto');setStage('result');setTool('view');resize();defaultView();bars();updateCta();}
 
 // ---- ЭТАП 3: НАСТРОЙКИ (лимит параллельных расчётов) ----
 let SETTINGS={max_parallel:1,cores:4,recommended:1};
