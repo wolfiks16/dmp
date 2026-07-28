@@ -223,13 +223,13 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 .modal-cols{display:grid;grid-template-columns:1fr 1fr;gap:0 20px}
 .draw-hint{position:absolute;left:50%;top:12px;transform:translateX(-50%);background:#0d1420f2;border:1px solid var(--accent2);color:var(--accent);font:600 11.5px/1.3 var(--mono);padding:8px 13px;border-radius:7px;z-index:6;max-width:88%;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.4)}
 .draw-hint b{color:#eafff6}
-.status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim)}
+.status{flex:0 0 26px;display:flex;align-items:center;gap:16px;padding:0 14px;background:var(--panel);border-top:1px solid var(--line);font:600 11px/1 var(--mono);color:var(--dim);position:relative}
 .status .g{color:var(--good)}.status .c{color:var(--crit)}.status .r{margin-left:auto;display:flex;gap:12px}
 </style></head>
 <body>
 <div class="topbar">
-  <div class="brand"><span class="logo">M</span>MagField<span class="ver">2D · v0.8</span></div>
-  <button class="btn" id="calc-menu-btn" title="Менеджер расчётов">☰ Расчёты<span class="cm-badge" id="calc-badge"></span></button>
+  <div class="brand"><span class="logo">M</span>MagField</div>
+  <button class="btn" id="calc-menu-btn" title="Обзор расчётов" style="margin-left:-8px">☰ Обзор<span class="cm-badge" id="calc-badge"></span></button>
   <span class="viewer-banner" id="viewer-banner" style="display:none">👁 Просмотр: <b id="viewer-name"></b> <span class="vb-ro">только чтение</span></span>
   <span class="spacer"></span>
   <div class="wb-actions"><button class="btn pri" id="calc">Рассчитать</button></div>
@@ -466,7 +466,8 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
 
 <div class="status">
   <span id="st-conv">● загрузка…</span><span id="st-cells">—</span><span id="st-iters"></span>
-  <span id="st-scn">Магнитостатика · 2D</span>
+  <span id="st-scn">Магнитостатика</span>
+  <span id="st-ver" style="position:absolute;left:50%;transform:translateX(-50%);border:1px solid var(--line2);padding:2px 7px;border-radius:4px;color:var(--muted)">2D · v0.8</span>
   <span class="r"><span id="st-mode">Вид: Геометрия</span><span id="st-zoom">масштаб 100 %</span></span>
 </div>
 
@@ -1055,7 +1056,7 @@ const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепло�
 // Подпись сценария в дереве; для тепловой статики — с заданной T в скобках.
 function refreshScnTree(){const tag=$('tree-scn');if(!tag)return;
   tag.textContent=SCN_NAME[SCENARIO]+(SCENARIO==='thermostatic'?' ('+(+$('T').value||0)+' °C)':'');}
-function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
+function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn];
   ['scn-select','scn-select-s3'].forEach(id=>{const s=$(id);if(s)s.value=scn;});
   // Цвет сценария: магнитостатика — зелёный, тепловая статика — жёлтый, динамика — красный.
   const col={magneto:'var(--good)',thermostatic:'var(--warn)',dynamic:'var(--crit)'}[scn]||'var(--good)';
