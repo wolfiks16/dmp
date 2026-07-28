@@ -526,6 +526,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let LAST_FIELD=null;   // R2: полный payload результата (для архива снимка)
 let VIEWER=false;   // режим просмотра снят; переменная оставлена (гварды !VIEWER безвредны)
+let DIRTY=false;    // есть несохранённые изменения в текущем проекте
 let POST={};   // R5: постобработка снимка {torque, loss, scenario} — пишется в архив расчёта
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
@@ -658,6 +659,9 @@ function warnLock(){toast('Расчёт завершён. Чтобы вноси�
 function warnNoProj(){toast('Проект не создан. Нажмите «Расчёты» → «Новый проект» (или откройте сохранённый расчёт).','warn');pulse('calc-menu-btn');}
 function editGuard(){if(noProject()){warnNoProj();return true;}if(locked()){warnLock();return true;}return false;}
 function updateCta(){const c=$('cta-hint');if(c)c.style.display=noProject()?'flex':'none';}
+// Несохранённая работа + подтверждение перед заменой (новый проект / открытие расчёта).
+function unsavedWork(){return DIRTY&&(OBJECTS.length>0||!!MESH_ID||!!BX);}
+function okToDiscard(){return !unsavedWork()||confirm('В текущем проекте есть несохранённые изменения. Продолжить без сохранения? Изменения будут потеряны.');}
 function updateRtools(){const solved=!!BX;
   $('rtools-geom').style.display=solved?'none':'flex';
   $('rtools-res').style.display=solved?'flex':'none';
@@ -726,8 +730,8 @@ function editHint(){if(DRAW)return;const on=editable()&&OBJECTS.length;$('draw-h
 // история отмен (Ctrl+Z / Ctrl+Shift+Z)
 let HIST=[],REDO=[],FORMEDIT=false;
 function snap(){return JSON.parse(JSON.stringify(OBJECTS));}
-function pushHist(){HIST.push(snap());if(HIST.length>80)HIST.shift();REDO=[];}
-function restore(from,to){if(!from.length)return;to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
+function pushHist(){DIRTY=true;HIST.push(snap());if(HIST.length>80)HIST.shift();REDO=[];}
+function restore(from,to){if(!from.length)return;DIRTY=true;to.push(snap());OBJECTS=from.pop();if(SEL>=OBJECTS.length)SEL=OBJECTS.length-1;renderObjects();editHint();draw();}
 function undo(){restore(HIST,REDO);}
 function redo(){restore(REDO,HIST);}
 
@@ -844,7 +848,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       const rc=d.region_counts,AB={air_gap:'зазор',magnet:'магн',tooth:'зубц',slot:'пазы',stator_yoke:'ярмо-с',rotor_yoke:'ярмо-р'};
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
     }
-    setConv('','● Модель построена');$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
+    setConv('','● Модель построена');DIRTY=true;$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
     populateModel();
     // Сначала ЗАКРЫВАЕМ окно, затем рисуем холст в финальном размере — иначе draw() шёл бы за
     // открытой модалкой и требовал повторного перерисова (Enter). Из «Рассчитать» окно уже
@@ -891,7 +895,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
       if(j.status==='running'){setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');continue;}
       if(j.status==='done'){SNAP.field=j.result;SNAP.saved=nowIso();
         const r=await saveCalcToDir(SNAP).catch(()=>({via:'err'}));                  // архив снимка в рабочую папку
-        if(PROJECT.id===SNAP.id){applyResult(j.result);PROJECT.status='done';PROJECT.file=calcFilename(SNAP.name);
+        if(PROJECT.id===SNAP.id){applyResult(j.result);PROJECT.status='done';PROJECT.file=calcFilename(SNAP.name);DIRTY=(r.via!=='dir');
           if(r.via==='none')setConv('c','● Решено, но не сохранено — задайте рабочую папку в ⚙');}
         break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
@@ -1362,7 +1366,7 @@ function startEditVersion(){if(VIEWER||!BX)return;                 // тольк
   const nv=bumpVersion(PROJECT.name);
   PROJECT={name:nv,type:PROJECT.type,id:genId(),created:nowIso(),status:'new',file:null};
   $('proj-tree-name').textContent=nv;
-  LAST_FIELD=null;POST={};                                         // обнулить результаты и постобработку
+  LAST_FIELD=null;POST={};DIRTY=true;                              // обнулить результаты; новая версия не сохранена
   invalidateField();                                              // BX/BY/DEMAG/TFIELD=null → поле скрыто, кнопка спрячется
   setStage('result');setTool('view');draw();
   setConv('g','● Новая версия «'+nv+'» — правьте геометрию/параметры и запускайте расчёт');}
@@ -1429,13 +1433,14 @@ $('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
 $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
 $('i_peak').addEventListener('input',()=>{if(MODE==='pmsm')updateExcitations();});
 $('T').addEventListener('input',()=>{if(SCENARIO==='thermostatic')refreshScnTree();});
+['T','i_peak','gamma_deg','turns','dommargin','material','steel'].forEach(id=>{const el=$(id);if(el)el.addEventListener('change',()=>{DIRTY=true;});});
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
   PROJECT={name,type,id:genId(),created:nowIso(),status:'new',file:null};$('proj-tree-name').textContent=name;   // R2: новый расчёт
   // Полный сброс состояния ДО applyMode — иначе дерево/поле перерисуются со СТАРЫМИ данными (баг: остатки готового расчёта).
   MESH_ID=null;SCENE=null;CENT=null;BX=null;BY=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;
-  OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};
+  OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};DIRTY=false;
   SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
   VMAX=2.0;COMP='mag';if($('comp'))$('comp').value='mag';                                    // шкала поля → дефолт
   ['T','i_peak','gamma_deg','turns','dommargin'].forEach(id=>{const el=$(id);if(el)el.value=el.defaultValue;});  // параметры сценария → дефолты
@@ -1475,7 +1480,9 @@ function fmtDate(iso){if(!iso)return'';try{return new Date(iso).toLocaleString('
 // Выпадающий менеджер: новый/открыть-файл + бегущие job'ы + сохранённые из рабочей папки.
 async function renderCalcMenu(){const m=$('calc-menu');
   let html='<div class="cm-item" id="cm-new"><span class="cm-ic">＋</span><div class="cm-main"><div class="cm-name">Новый расчёт</div></div></div>'
-    +'<div class="cm-item" id="cm-openfile"><span class="cm-ic">📂</span><div class="cm-main"><div class="cm-name">Открыть файл .mfz…</div></div></div>';
+    +'<div class="cm-item" id="cm-openfile"><span class="cm-ic">📂</span><div class="cm-main"><div class="cm-name">Открыть файл .mfz…</div></div></div>'
+    +'<div class="cm-item" id="cm-save"><span class="cm-ic">💾</span><div class="cm-main"><div class="cm-name">Сохранить</div></div></div>'
+    +'<div class="cm-item" id="cm-saveas"><span class="cm-ic">📁</span><div class="cm-main"><div class="cm-name">Сохранить как…</div></div></div>';
   const act=CALC_MENU_JOBS.filter(j=>j.status==='running'||j.status==='queued');
   if(act.length)html+='<div class="cm-sec">Идут ('+act.length+')</div>'+act.map(j=>
     '<div class="cm-item"><span class="cm-ic">'+jobIcon(j.status)+'</span><div class="cm-main"><div class="cm-name">'+j.label+'</div><div class="cm-sub">'+jobStatusText(j.status)+'</div></div></div>').join('');
@@ -1489,8 +1496,10 @@ async function renderCalcMenu(){const m=$('calc-menu');
         +'<button class="cm-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('')
       :'<div class="cm-empty">Пусто — постройте геометрию и запустите расчёт.</div>';}
   m.innerHTML=html;
-  const nw=$('cm-new');if(nw)nw.onclick=()=>{closeCalcMenu();showHome('type');};
-  const of=$('cm-openfile');if(of)of.onclick=async()=>{closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
+  const nw=$('cm-new');if(nw)nw.onclick=()=>{if(!okToDiscard())return;closeCalcMenu();showHome('type');};
+  const of=$('cm-openfile');if(of)of.onclick=async()=>{if(!okToDiscard())return;closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
+  const sv=$('cm-save');if(sv)sv.onclick=()=>{closeCalcMenu();saveProject();};
+  const sa=$('cm-saveas');if(sa)sa.onclick=()=>{closeCalcMenu();saveProjectAs();};
   const pd=$('cm-pickdir');if(pd)pd.onclick=async()=>{try{await pickWorkdir();}catch(e){}renderCalcMenu();};}
 function openCalcMenu(){$('calc-menu').classList.add('on');renderCalcMenu();}
 function closeCalcMenu(){$('calc-menu').classList.remove('on');}
@@ -1499,7 +1508,7 @@ $('calc-menu').addEventListener('click',async e=>{
   const del=e.target.dataset.del;
   if(del){e.stopPropagation();if(!confirm('Удалить расчёт?'))return;await deleteCalcInDir(del);renderCalcMenu();return;}
   const row=e.target.closest('[data-view]');            // строка — открыть расчёт в рабочем окне
-  if(row){closeCalcMenu();const b=await readCalcFromDir(row.dataset.view);if(b)loadCalcBundle(b);}});
+  if(row){if(!okToDiscard())return;closeCalcMenu();const b=await readCalcFromDir(row.dataset.view);if(b)loadCalcBundle(b);}});
 document.addEventListener('click',e=>{const m=$('calc-menu');
   if(m.classList.contains('on')&&!m.contains(e.target)&&!$('calc-menu-btn').contains(e.target))closeCalcMenu();});
 
@@ -1533,7 +1542,7 @@ function applyCalcBundle(m){
   if(m.field)applyResult(m.field);                  // готовый — поле/сводка
   else{BX=null;BY=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
   restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
-  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();}
+  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();DIRTY=false;}
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
@@ -1546,8 +1555,26 @@ async function saveCalc(name,status){
   const bundle=buildCalcBundle(name,status,status==='done'?LAST_FIELD:null);
   let res=await saveCalcToDir(bundle);
   if(res.via==='none')res=await downloadCalc(bundle);   // явное сохранение без папки — скачиваем файл
-  PROJECT.file=res.file;$('proj-tree-name').textContent=name;
+  PROJECT.file=res.file;$('proj-tree-name').textContent=name;DIRTY=false;
   return res;}
+// Ручное сохранение текущего проекта (в т.ч. черновик ДО расчёта).
+async function doSaveProject(){
+  const name=(PROJECT.name||'').trim();
+  if(!name){toast('У проекта нет имени. Создайте проект через «Обзор → Новый расчёт».','warn');return;}
+  const status=BX?'done':'draft', fn=calcFilename(name);
+  if(await calcNameExists(name)&&PROJECT.file!==fn&&!confirm('Расчёт «'+name+'» уже существует. Перезаписать?'))return;
+  try{const r=await saveCalc(name,status);
+    toast('Сохранено: «'+name+'»'+(status==='draft'?' (черновик)':'')+(r.via==='download'?' — файлом (папка не выбрана)':''));}
+  catch(e){toast('Не удалось сохранить: '+e,'warn');}}
+// «Сохранить»: в базовую папку из настроек; если её нет — «Сохранить как».
+async function saveProject(){if(noProject()){warnNoProj();return;}
+  const dir=WORKDIR||await ensureWorkdir();
+  if(!dir)return saveProjectAs();
+  await doSaveProject();}
+// «Сохранить как»: пользователь выбирает папку, туда и сохраняем (она становится базовой).
+async function saveProjectAs(){if(noProject()){warnNoProj();return;}
+  try{const dir=await pickWorkdir();if(!dir){toast('Папка не выбрана — сохранение отменено.','warn');return;}}catch(e){return;}
+  await doSaveProject();}
 // R2: разрешить имя перед запуском/сохранением (уникальность + подтверждение перезаписи).
 async function resolveCalcName(){const name=(($('pc-name')&&$('pc-name').value)||PROJECT.name||'').trim();
   if(!name){$('err').textContent='Задайте имя расчёта.';$('err').style.display='block';return null;}
