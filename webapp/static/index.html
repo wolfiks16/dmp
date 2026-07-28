@@ -119,6 +119,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .viewer-banner b{color:var(--accent)}
 .viewer-banner .vb-ro{font:600 10px/1 var(--mono);color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
 body.viewer #ptree .node[data-stage="geom"],body.viewer #ptree .node[data-stage="mesh"],body.viewer #ptree .node[data-stage="mat"]{opacity:.45;pointer-events:none}
+body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #buildmesh,body.viewer #pc-start,body.viewer #pc-draft{display:none!important}
 /* Список решённых проектов (Открыть решённый) */
 .solved-list{display:flex;flex-direction:column;gap:7px;margin:8px 0 16px;max-height:340px;overflow:auto;text-align:left}
 .solved-item{display:flex;align-items:center;gap:11px;padding:10px 12px;background:var(--panel2);border:1px solid var(--line);border-radius:9px;cursor:pointer}
@@ -516,6 +517,7 @@ let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let LAST_FIELD=null;   // R2: полный payload результата (для архива снимка)
 const VIEW_ID=new URLSearchParams(location.search).get('view');   // R4: id просмотра в отдельной вкладке
 let VIEWER=false;
+let POST={};   // R5: постобработка снимка {torque, loss, scenario} — пишется в архив расчёта
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
 let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
@@ -854,6 +856,7 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
   $('err').style.display='none';const t0=Date.now();
   const url=MODE==='objects'?'/api/object_solve':'/api/solve';
   const label=(PROJECT.name||'Проект')+' · '+SCN_NAME[SCENARIO];
+  POST={};   // R5: новый расчёт поля обнуляет старую постобработку (момент/потери/динамику)
   // R2: СНИМОК геометрии/сцены/материалов НА МОМЕНТ ЗАПУСКА — расчёт независим от того,
   // что пользователь правит дальше (параллельная работа). Архив пишется по завершении.
   const SNAP=buildCalcBundle(PROJECT.name||'расчёт','done',null);
@@ -925,6 +928,7 @@ function renderScenario(d){const o=$('s3-out');
   o.innerHTML=html;
   const tb=$('temp-btn');if(tb)tb.onclick=()=>setTemp(!SHOWTEMP);}
 async function runScenario(){const btn=$('s3-run');btn.disabled=true;const t0=Date.now();
+  const tgt={id:PROJECT.id,file:PROJECT.file};        // R5: привязка динамики к расчёту
   const body={mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,
     i_peak:+$('s3-ipk').value,gamma_deg:+$('s3-gamma').value,turns:+$('s3-turns').value,
     slot_fill:+$('s3-fill').value,T_amb:+$('s3-tamb').value,h:+$('s3-h').value,
@@ -935,7 +939,8 @@ async function runScenario(){const btn=$('s3-run');btn.disabled=true;const t0=Da
     while(true){await sleep(500);btn.textContent='Считаю… '+(((Date.now()-t0)/1000)|0)+' с';
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='running')continue;
-      if(j.status==='done'){renderScenario(j.result);break;}
+      if(j.status==='done'){attachPostToCalc(tgt.file,'scenario',j.result);
+        if(PROJECT.id===tgt.id)POST.scenario=j.result;renderScenario(j.result);break;}
       $('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">'+(j.error||'ошибка сценария')+'</p>';break;}
   }catch(e){$('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
   finally{btn.disabled=false;btn.textContent='▶ Запустить сценарий';}}
@@ -1063,6 +1068,7 @@ function renderTorque(d){const out=$('tq-out');const n=d.torque.length;
     +chart(se,'0°','360° эл.')+leg(se)+s3rows(rows);}
 $('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=$('tq-out');btn.disabled=true;
   out.innerHTML='<p class="hint">Считаю момент по положениям ротора: на каждом угле сетка строится заново — это несколько минут. Можно продолжать работать, следите за индикатором расчётов.</p>';
+  const tgt={id:PROJECT.id,file:PROJECT.file};        // R5: к какому расчёту привязать результат
   const body={params:spokeSpec(),sizes_mm:meshSpec(),material:$('material').value,steel:$('steel').value,
     T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,
     n_pos:Math.max(4,Math.min(48,+$('tq-npos').value||12)),label:(PROJECT.name||'Двигатель')+' · момент от угла'};
@@ -1070,7 +1076,8 @@ $('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=
     pollJobs();
     while(true){await sleep(800);const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'||j.status==='running')continue;
-      if(j.status==='done'){renderTorque(j.result);break;}
+      if(j.status==='done'){attachPostToCalc(tgt.file,'torque',j.result);                 // в архив снимка
+        if(PROJECT.id===tgt.id){POST.torque=j.result;renderTorque(j.result);}break;}
       out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
   }catch(e){out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
   finally{btn.disabled=false;}};
@@ -1097,6 +1104,7 @@ function renderLoss(d){const out=$('loss-out');const pin=d.p_in||1;
 $('loss-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('loss-run'),out=$('loss-out');
   if((+$('i_peak').value||0)===0){out.innerHTML='<p class="hint" style="color:var(--warn)">Задайте ток (i_peak > 0) в сценарии — без нагрузки КПД не определён.</p>';return;}
   btn.disabled=true;out.innerHTML='<p class="hint">Считаю потери: прогонка ротора за электрический период (сетка строится на каждом угле) — несколько минут. Можно продолжать работать, следите за индикатором.</p>';
+  const tgt={id:PROJECT.id,file:PROJECT.file};        // R5: привязка результата к расчёту
   const body={params:spokeSpec(),sizes_mm:meshSpec(),material:$('material').value,steel:$('steel').value,
     T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,
     slot_fill:Math.max(0.1,Math.min(0.9,+$('loss-fill').value||0.45)),rpm:Math.max(1,+$('loss-rpm').value||3000),
@@ -1105,7 +1113,8 @@ $('loss-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('loss-run'),
     pollJobs();
     while(true){await sleep(900);const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'||j.status==='running')continue;
-      if(j.status==='done'){renderLoss(j.result);break;}
+      if(j.status==='done'){attachPostToCalc(tgt.file,'loss',j.result);
+        if(PROJECT.id===tgt.id){POST.loss=j.result;renderLoss(j.result);}break;}
       out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
   }catch(e){out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
   finally{btn.disabled=false;}};
@@ -1458,6 +1467,7 @@ function geomDef(){const g=MODE==='objects'
 function applyCalcBundle(m){
   PROJECT={name:m.name,type:m.type,id:m.id||genId(),created:m.created||nowIso(),
            status:m.status||(m.field?'done':'draft'),file:m.name?calcFilename(m.name):null};
+  POST=m.post||{};                                    // R5: восстановить постобработку снимка
   $('proj-tree-name').textContent=m.name;
   applyMode(m.mode==='objects'||m.type==='free'?'objects':'pmsm');
   const g=m.geom||{};
@@ -1473,6 +1483,7 @@ function applyCalcBundle(m){
   if(MODE==='objects')renderTree();else if(SCENE)populateModel();
   if(m.field)applyResult(m.field);                  // готовый — поле/сводка
   else{BX=null;BY=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
+  restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
   setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();}
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
@@ -1545,7 +1556,15 @@ function buildCalcBundle(name,status,field){
   const ids=MODE==='objects'?OBJECTS.map(o=>o.material):[$('material').value,$('steel').value];
   return {format:CALC_FORMAT,version:CALC_VERSION,id:PROJECT.id||(PROJECT.id=genId()),name,
     type:PROJECT.type,mode:MODE,scenario:SCENARIO,status,created:PROJECT.created||(PROJECT.created=nowIso()),
-    saved:nowIso(),geom:geomDef(),materials:calcMaterialsMap(ids),scene:SCENE||null,field:field||null};}
+    saved:nowIso(),geom:geomDef(),materials:calcMaterialsMap(ids),scene:SCENE||null,field:field||null,
+    post:{...POST}};}
+// R5: дописать результат постобработки в АРХИВ расчёта (не трогая поле/сцену — только post).
+async function attachPostToCalc(file,kind,result){if(!file)return;const dir=WORKDIR||await ensureWorkdir();if(!dir)return;
+  try{const b=await readCalcFromDir(file);if(!b)return;b.post=b.post||{};b.post[kind]=result;b.saved=nowIso();
+    const fh=await dir.getFileHandle(file,{create:true});const w=await fh.createWritable();await w.write(await packCalc(b));await w.close();}catch(e){}}
+// R5: перерисовать сохранённую постобработку при открытии расчёта.
+function restorePost(){if(POST.torque)renderTorque(POST.torque);if(POST.loss)renderLoss(POST.loss);
+  if(POST.scenario)renderScenario(POST.scenario);}   // renderScenario также поднимает TFIELD/кадры анимации
 // Рабочая папка: хендл в IndexedDB, выбор один раз.
 let WORKDIR=null;const IDB='magfield',IDB_ST='handles';
 function idbReq(mode,fn){return new Promise((res,rej)=>{const q=indexedDB.open(IDB,1);
