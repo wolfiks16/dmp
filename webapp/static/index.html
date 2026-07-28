@@ -5,7 +5,7 @@
   --text:#dce4f2;--muted:#8494ae;--dim:#5d6d8a;--accent:#2fd39c;--accent2:#1f9f76;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;--blue:#4d8bff;
   --radius:8px;--mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;--ui:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
-body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;line-height:1.45}
+body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;line-height:1.45;zoom:1.12}
 body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:3px}
 .topbar{display:flex;align-items:center;gap:18px;height:46px;flex:0 0 46px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:9px;font-weight:700}
@@ -380,7 +380,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
           <option value="magneto">Магнитостатика — поле при T=20 °C</option>
           <option value="thermostatic">Тепловая статика — поле при заданной T</option>
           <option value="dynamic">Тепловая динамика — нагрев во времени</option></select></div>
-        <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть остаточной индукции B_r теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
+        <p class="hint">Обмотка греет машину → магнит нагревается → рабочая точка уходит за колено → часть остаточной индукции Br теряется НЕОБРАТИМО. Сценарий показывает, во что это обходится машине.</p>
         <div class="row2"><div class="field"><label>Ток i_peak, А</label><input class="num" id="s3-ipk" value="60"></div><div class="field"><label>Угол γ, °</label><input class="num" id="s3-gamma" value="0"></div></div>
         <div class="row2"><div class="field"><label>Витков/паз</label><input class="num" id="s3-turns" value="20"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="s3-fill" value="0.45"></div></div>
         <div class="row2"><div class="field"><label>T среды, °C</label><input class="num" id="s3-tamb" value="150"></div><div class="field"><label>Конвекция h, Вт/м²K</label><input class="num" id="s3-h" value="400"></div></div>
@@ -404,7 +404,7 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
       <div class="rp-stage on" id="res-stage" data-stage="result">
         <div id="field-ctrls" style="display:none">
           <h4>Отображение поля</h4>
-          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">|B| — модуль</option><option value="bx">B_x</option><option value="by">B_y</option><option value="br">B_r — радиальная</option><option value="bt">B_θ — тангенциальная</option><option value="demag" disabled>⚠ Риск размагничивания</option></select></div>
+          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">B — модуль</option><option value="bx">Bx</option><option value="by">By</option><option value="br">Br — радиальная</option><option value="bt">Bθ — тангенциальная</option><option value="demag" disabled>⚠ Риск размагничивания</option></select></div>
           <div class="field"><label>Палитра</label><select class="select" id="pal"><option value="rainbow">Rainbow</option><option value="viridis">Viridis</option></select></div>
           <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div><hr>
         </div>
@@ -419,14 +419,14 @@ body.viewer #tq-run,body.viewer #loss-run,body.viewer #s3-run,body.viewer #build
           <div class="row2"><div class="field"><label>x₂, мм</label><input class="num" id="lx2" value="0"></div><div class="field"><label>y₂, мм</label><input class="num" id="ly2" value="29"></div></div>
           <div class="field"><label>Число точек</label><input class="num" id="ln" value="60"></div>
           <label style="font-size:11px;color:var(--muted)">Компоненты</label>
-          <div class="chks"><label class="chk"><input type="checkbox" id="lc-mag" checked>|B|</label><label class="chk"><input type="checkbox" id="lc-bx">B_x</label><label class="chk"><input type="checkbox" id="lc-by">B_y</label></div>
+          <div class="chks"><label class="chk"><input type="checkbox" id="lc-mag" checked>B</label><label class="chk"><input type="checkbox" id="lc-bx">Bx</label><label class="chk"><input type="checkbox" id="lc-by">By</label></div>
           <button class="applybtn" id="apply-line">Построить распределение</button>
         </div>
         <div class="rp-tool" data-tool="circle">
           <div class="row2"><div class="field"><label>Центр x</label><input class="num" id="ccx" value="0"></div><div class="field"><label>Центр y</label><input class="num" id="ccy" value="0"></div></div>
           <div class="row2"><div class="field"><label>Радиус, мм</label><input class="num" id="cr" value="22.5"></div><div class="field"><label>Точек</label><input class="num" id="cn" value="180"></div></div>
           <label style="font-size:11px;color:var(--muted)">Компоненты</label>
-          <div class="chks"><label class="chk"><input type="checkbox" id="cc-br" checked>B_r</label><label class="chk"><input type="checkbox" id="cc-bt" checked>B_θ</label><label class="chk"><input type="checkbox" id="cc-mag">|B|</label></div>
+          <div class="chks"><label class="chk"><input type="checkbox" id="cc-br" checked>Br</label><label class="chk"><input type="checkbox" id="cc-bt" checked>Bθ</label><label class="chk"><input type="checkbox" id="cc-mag">B</label></div>
           <button class="applybtn" id="apply-circle">Построить распределение</button>
         </div>
         <div id="presult"></div>
@@ -633,7 +633,7 @@ function startDraw(kind){invalidateField();DRAW={kind,start:null,cur:null,pts:[]
   draw();}
 function endDraw(){DRAW=null;cv.classList.remove('pt');$('draw-hint').style.display='none';}
 function cancelDraw(){const r=DRAW&&DRAW.reopen;endDraw();if(r)setStage('geom');else editHint();draw();}
-function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:KINDRU[DRAW.kind]+' '+(OBJECTS.length+1),kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();renderObjects();if(r)setStage('geom');else editHint();draw();}
+function finishDraw(params){pushHist();const r=DRAW.reopen;OBJECTS.push({name:'',kind:DRAW.kind,params:rnd(params),material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10});SEL=OBJECTS.length-1;endDraw();renderObjects();if(r)setStage('geom');else editHint();draw();}
 
 // ---- редактирование объектов мышью (когда окно параметров закрыто, холст доступен) ----
 let EDIT=null;
@@ -744,14 +744,14 @@ function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';ret
   if(TOOL==='point'){const f=fieldAtPoint(P.point.x,P.point.y);
     if(!f){R.innerHTML='<div class="reshead">Точка вне сетки</div>';return;}
     const row=(k,v)=>'<tr><td class="k">'+k+'</td><td class="v">'+(v>=0?'+':'')+v.toFixed(3)+'</td><td class="u">Тл</td></tr>';
-    R.innerHTML='<div class="reshead">Точка ('+P.point.x+', '+P.point.y+') · '+f.reg+'</div><table class="ptable">'+row('B_x',f.bx)+row('B_y',f.by)+row('B_r',f.br)+row('B_θ',f.bt)+'<tr><td class="k"><b>|B|</b></td><td class="v" style="color:var(--accent)">'+f.mag.toFixed(3)+'</td><td class="u">Тл</td></tr></table>';}
+    R.innerHTML='<div class="reshead">Точка ('+P.point.x+', '+P.point.y+') · '+f.reg+'</div><table class="ptable">'+row('Bx',f.bx)+row('By',f.by)+row('Br',f.br)+row('Bθ',f.bt)+'<tr><td class="k"><b>B</b></td><td class="v" style="color:var(--accent)">'+f.mag.toFixed(3)+'</td><td class="u">Тл</td></tr></table>';}
   else if(TOOL==='line'){const L=P.line,N=Math.max(2,L.n|0),d={mag:[],bx:[],by:[]};
     for(let i=0;i<=N;i++){const t=i/N,f=fieldAtPoint(lerp(L.x1,L.x2,t),lerp(L.y1,L.y2,t))||{mag:0,bx:0,by:0};d.mag.push([t,f.mag]);d.bx.push([t,f.bx]);d.by.push([t,f.by]);}
-    const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'|B|'});if($('lc-bx').checked)se.push({pts:d.bx,color:'#e0a53a',label:'B_x'});if($('lc-by').checked)se.push({pts:d.by,color:'#4d8bff',label:'B_y'});
+    const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'B'});if($('lc-bx').checked)se.push({pts:d.bx,color:'#e0a53a',label:'Bx'});if($('lc-by').checked)se.push({pts:d.by,color:'#4d8bff',label:'By'});
     R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек</div>'+(se.length?chart(se,'т.1','т.2')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else if(TOOL==='circle'){const c=P.circle,N=Math.max(3,c.n|0),d={br:[],bt:[],mag:[]};
     for(let i=0;i<=N;i++){const a=i/N*2*Math.PI,f=fieldAtPoint(c.cx+c.r*Math.cos(a),c.cy+c.r*Math.sin(a))||{br:0,bt:0,mag:0};d.br.push([i/N,f.br]);d.bt.push([i/N,f.bt]);d.mag.push([i/N,f.mag]);}
-    const se=[];if($('cc-br').checked)se.push({pts:d.br,color:'#e0a53a',label:'B_r'});if($('cc-bt').checked)se.push({pts:d.bt,color:'#4d8bff',label:'B_θ'});if($('cc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'|B|'});
+    const se=[];if($('cc-br').checked)se.push({pts:d.br,color:'#e0a53a',label:'Br'});if($('cc-bt').checked)se.push({pts:d.bt,color:'#4d8bff',label:'Bθ'});if($('cc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'B'});
     R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else R.innerHTML='';}
 
@@ -780,7 +780,7 @@ function setTool(t){TOOL=t;
   document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
   cv.classList.toggle('pt',t==='point');
   $('st-mode').textContent='Вид: '+({view:'Геометрия',point:'Точка',line:'Линия',circle:'Окружность'})[t];
-  $('vplbl').innerHTML=(SHOWFIELD&&BX)?(COMP==='demag'?'<b>⚠ Карта риска размагничивания</b>':('<b>Поле '+({mag:'|B|',bx:'B_x',by:'B_y',br:'B_r',bt:'B_θ'}[COMP])+'</b>')):'<b>Геометрия модели</b>';
+  $('vplbl').innerHTML=(SHOWFIELD&&BX)?(COMP==='demag'?'<b>⚠ Карта риска размагничивания</b>':('<b>Поле '+({mag:'B',bx:'Bx',by:'By',br:'Br',bt:'Bθ'}[COMP])+'</b>')):'<b>Геометрия модели</b>';
   $('needsolve').textContent=(t!=='view'&&!BX)?'⚠ сначала «Рассчитать»':'';
   if(STAGE==='result')runProbe();draw();}
 
@@ -807,6 +807,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
   try{let d;
     if(MODE==='objects'){
       if(!OBJECTS.length){$('err').textContent='Добавьте хотя бы один объект.';$('err').style.display='block';return;}
+      if(OBJECTS.some(o=>!(o.name||'').trim())){$('err').textContent='У каждой фигуры должно быть имя — заполните пустые.';$('err').style.display='block';return;}
       const objs=OBJECTS.map(o=>({name:o.name,kind:o.kind,params:o.params,material:o.material,
         magnet_dir:(o.magnet_dir==='x'?[1,0]:o.magnet_dir==='y'?[0,1]:o.magnet_dir),
         current:(+o.current||0),mesh_size_mm:(o.mesh_size_mm||undefined),priority:(+o.priority||1)}));
@@ -848,7 +849,7 @@ function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);S
   setConv(d.converged?'g':'c',(d.converged?'● Решение сошлось':'● Не сошлось'));$('st-iters').textContent=d.iters+' итераций';
   const rows=[{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'}];
   if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
-  rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс |B|',v:d.Bmax+' Тл'},{k:'Средняя |B|',v:d.Bmean+' Тл'});
+  rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс B',v:d.Bmax+' Тл'},{k:'Средняя B',v:d.Bmean+' Тл'});
   if(d.Bd_mean!==undefined)rows.push({k:'⟨B_d⟩',v:d.Bd_mean+' Тл'},{k:'B_d мин',v:d.Bd_worst+' Тл'},{k:'За коленом',v:d.n_demag+'/'+d.n_mag+' ('+(d.demag_frac*100).toFixed(1)+'%)',cls:d.n_demag>0?'crit':'ok'});
   summary(rows);setTool(TOOL);updateRtools();updateResults();}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
@@ -896,7 +897,7 @@ function renderScenario(d){const o=$('s3-out');
   html+='<div class="reshead">Магнит после нагрева</div>'+s3rows([
     ['Макс. температура магнита',d.T_magnet_max+' °C'],
     ['Ячеек за коленом',d.n_past_knee+' / '+d.n_mag,d.n_past_knee>0?'crit':'ok'],
-    ['Сохранённая B_r',(d.retention_mean*100).toFixed(1)+'% (мин '+(d.retention_min*100).toFixed(1)+'%)'],
+    ['Сохранённая Br',(d.retention_mean*100).toFixed(1)+'% (мин '+(d.retention_min*100).toFixed(1)+'%)'],
     ['Падение K_t (по 1-й гармонике)',(kt>0?'−':'')+Math.abs(kt).toFixed(2)+' %',ktcls]]);
   html+='<div class="reshead">Исправная машина</div>'+s3rows([
     ['Момент (i='+$('s3-ipk').value+' А)',d.healthy.torque+' Н·м'],
@@ -907,7 +908,7 @@ function renderScenario(d){const o=$('s3-out');
     ['Масса магнитов',d.magnet_mass_g+' г']]);
   html+='<div class="reshead">Траектория нагрева</div>'
     +'<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Температура магнита</div>'+spark(d.trajectory.t,d.trajectory.T_magnet,'#e0a53a',' °C',v=>v.toFixed(0))
-    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая остаточная индукция B_r</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
+    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая остаточная индукция Br</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
   if(d.losses){const L=d.losses;html+='<div class="reshead">Потери и КПД (n='+L.speed_rpm+' об/мин, f='+L.freq+' Гц)</div>'
     +'<table class="s3tab"><tr><th></th><th>до</th><th>после</th></tr>'
     +'<tr><td>Момент средний, Н·м</td><td>'+L.before.torque_mean+'</td><td>'+L.after.torque_mean+'</td></tr>'
@@ -984,7 +985,7 @@ function selectRegionAt(w){if(!SCENE||!CENT)return;
   let best=-1,bd=1e30;for(let i=0;i<CENT.length;i++){const dx=CENT[i][0]-w[0],dy=CENT[i][1]-w[1],d=dx*dx+dy*dy;if(d<bd){bd=d;best=i;}}
   if(best<0){SELREG=null;$('reg-info').style.display='none';draw();return;}
   const rid=SCENE.region[best],name=((SCENE.regions[rid]||{}).name)||(''+rid);SELREG=rid;
-  // площадь и среднее |B| по региону
+  // площадь и среднее B по региону
   let area=0,bsum=0,bn=0;const V=SCENE.vertices;
   for(let i=0;i<SCENE.cells.length;i++){if(SCENE.region[i]!==rid)continue;
     const t=SCENE.cells[i],ax=V[t[0]][0],ay=V[t[0]][1],bx=V[t[1]][0],by=V[t[1]][1],cx=V[t[2]][0],cy=V[t[2]][1];
@@ -992,7 +993,7 @@ function selectRegionAt(w){if(!SCENE||!CENT)return;
     if(BX){bsum+=Math.hypot(BX[i],BY[i]);bn++;}}
   const matmap={ndfeb:'NdFeB',smco:'SmCo'};const mat=(name==='magnet'?(matmap[$('material').value]||'магнит'):REG_MAT[name]||name);
   let html='<b>'+(REG_RU[name]||name)+'</b><br>материал: '+mat+'<br>площадь: '+area.toFixed(2)+' мм²';
-  if(bn)html+='<br>среднее |B|: '+(bsum/bn).toFixed(3)+' Тл';
+  if(bn)html+='<br>среднее B: '+(bsum/bn).toFixed(3)+' Тл';
   $('reg-info').innerHTML=html;$('reg-info').style.display='block';draw();}
 window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&p[1]>=0&&p[1]<=H;if(inside){const w=s2w(p[0],p[1]);$('coord').textContent='x '+w[0].toFixed(1)+'  y '+w[1].toFixed(1)+' мм';}
   if(DRAW){if(inside){const w=worldSnap(p);DRAW.cur=[w[0],w[1]];draw();}return;}
@@ -1185,7 +1186,7 @@ function objForm(o,isDraft){
   else extra='<div class="mrow"><label>Плотн. тока J</label><input class="num oedit" data-f="current" value="'+(o.current?(o.current/1e6):0)+'" style="width:70px"><span class="u">А/мм²</span></div>';
   extra+='<div class="mrow"><label>Размер сетки</label><input class="num oedit" data-f="mesh_size_mm" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>';
   extra+='<div class="mrow"><label>Приоритет слоя</label><input class="num oedit" data-f="priority" value="'+(o.priority||1)+'" style="width:70px"><span class="u">1–50</span></div>';
-  $('objedit').innerHTML='<div class="field"><label>Имя объекта</label><input class="oedit" data-f="name" value="'+o.name+'" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>'
+  $('objedit').innerHTML='<div class="field"><label>Имя объекта <span style="color:var(--crit)">*</span></label><input class="oedit" data-f="name" value="'+(o.name||'')+'" placeholder="обязательно — задайте имя" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>'
     +'<div class="field"><label>Материал</label><select class="select oedit" data-f="material">'+matOptions(o.material)+'</select></div>'+par+extra;
   const md=$('objedit').querySelector('[data-f="magnet_dir"]');if(md)md.value=(typeof o.magnet_dir==='string'?o.magnet_dir:'x');
   $('objedit').querySelectorAll('.opar').forEach(inp=>{
@@ -1203,13 +1204,13 @@ function objForm(o,isDraft){
     if(!isDraft&&(f==='name'||f==='priority'))renderTree();
     draw();};});
 }
-function newDraft(){const k=$('figkind').value;DRAFT={name:KINDRU[k]+' '+(OBJECTS.length+1),kind:k,params:{...OBJDEF[k]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10};SEL=-1;objForm(DRAFT,true);renderTree();}
+function newDraft(){const k=$('figkind').value;DRAFT={name:'',kind:k,params:{...OBJDEF[k]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10};SEL=-1;objForm(DRAFT,true);renderTree();}
 // Поэлементная сетка в окне «Сетка» (свободная модель): размер по каждой фигуре.
 function renderMeshObjList(){if(MODE!=='objects')return;
-  $('mesh-obj-list').innerHTML=OBJECTS.map((o,i)=>'<div class="mrow"><label>'+o.name+'</label><input class="num mobjsz" data-i="'+i+'" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>').join('')||'<p class="hint" style="padding:2px 0">Нет фигур — постройте на шаге «Геометрия».</p>';
+  $('mesh-obj-list').innerHTML=OBJECTS.map((o,i)=>'<div class="mrow"><label>'+((o.name||'').trim()||'(без имени)')+'</label><input class="num mobjsz" data-i="'+i+'" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>').join('')||'<p class="hint" style="padding:2px 0">Нет фигур — постройте на шаге «Геометрия».</p>';
   $('mesh-obj-list').querySelectorAll('.mobjsz').forEach(inp=>inp.onchange=()=>{const v=inp.value;OBJECTS[+inp.dataset.i].mesh_size_mm=(v===''?'':+v);invalidateField();});}
 function renderTree(){if(MODE!=='objects')return;
-  $('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+o.name+'</span><span class="tag mat">'+matTag(o.material)+'</span>'
+  $('objlist').innerHTML=OBJECTS.map((o,i)=>'<div class="node i1'+(i===SEL?' sel':'')+'" data-oi="'+i+'"><span class="ic">▪</span><span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'+((o.name||'').trim()?'':';color:var(--crit)')+'">'+((o.name||'').trim()||'(без имени)')+'</span><span class="tag mat">'+matTag(o.material)+'</span>'
     +'<button class="oedit-btn" data-edit="'+i+'" title="Изменить" style="background:none;border:0;color:var(--dim);cursor:pointer;padding:0 3px;font-size:13px">✎</button>'
     +'<button class="del" data-del="'+i+'" title="Удалить" style="background:none;border:0;color:var(--dim);cursor:pointer;padding:0 3px">✕</button></div>').join('')||'<p class="hint" style="padding:6px 10px">Пусто — постройте фигуру.</p>';
   updateExcitations();}
@@ -1229,6 +1230,7 @@ $('figkind').onchange=()=>{if(SEL<0)newDraft();else{SEL=-1;newDraft();}};   // �
 // «Построить фигуру»: добавить черновик в модель и ЗАКРЫТЬ окно (полигон — только мышью).
 function addFigure(){if(!DRAFT)newDraft();
   if(DRAFT.kind==='polygon'){$('err').textContent='Полигон рисуется мышью — палитра над холстом.';$('err').style.display='block';return;}
+  if(!(DRAFT.name||'').trim()){$('err').textContent='Задайте имя фигуры — оно обязательно.';$('err').style.display='block';return;}
   $('err').style.display='none';invalidateField();pushHist();
   OBJECTS.push({...DRAFT,params:{...DRAFT.params}});SEL=-1;newDraft();
   setStage('result');draw();}
