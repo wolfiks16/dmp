@@ -384,7 +384,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
         <div id="precalc-body"></div>
       </div>
         </div>
-        <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn pri" id="pc-start" style="display:none">▶ Старт расчёта</button><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
+        <div class="modal-foot"><button class="applybtn" id="buildmesh" style="width:auto;margin:0;padding:9px 15px">Построить модель</button><span class="err" id="err" style="flex:1;margin:0"></span><button class="btn" id="pc-draft" style="display:none">Сохранить черновик</button><button class="btn pri" id="pc-start" style="display:none">▶ Старт расчёта</button><button class="btn pri" id="m-calc">Рассчитать</button><button class="btn" id="modal-done">Закрыть</button></div>
       </div></div>
       <!-- РЕЗУЛЬТАТЫ -->
       <div id="res-empty" style="display:none;padding:14px;color:var(--muted);font-size:12.5px;line-height:1.5">Сначала произведите расчёт («Рассчитать»). Затем здесь появятся поля, распределения и графики.</div>
@@ -487,7 +487,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
     <button class="home-back" id="home-back3">← Назад</button>
   </div>
   <div class="home-card" id="home-solved" style="display:none">
-    <h2>Решённые проекты</h2>
+    <h2>Открыть расчёт</h2>
+    <div class="home-btns" style="margin-bottom:6px"><button class="home-b pri" id="home-openfile">📂 Открыть файл расчёта (.mfz)</button></div>
     <div id="solved-list" class="solved-list"><p class="home-empty">Загрузка…</p></div>
     <button class="home-back" id="home-back2">← Назад</button>
   </div>
@@ -503,6 +504,7 @@ function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.
   if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
+let LAST_FIELD=null;   // R2: полный payload результата (для архива снимка)
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
 let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='rainbow',VMAX=2.0,SELREG=null;
 let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
@@ -752,7 +754,7 @@ function setStage(st){STAGE=st;
     const build=(st==='geom'||st==='mesh'),calc=(st==='calc'),pc=(st==='precalc');
     $('buildmesh').style.display=build?'':'none';
     $('m-calc').style.display=calc?'':'none';if(calc)$('m-calc').textContent='Выбрать';
-    $('pc-start').style.display=pc?'':'none';
+    $('pc-start').style.display=pc?'':'none';$('pc-draft').style.display=pc?'':'none';
     $('modal-done').style.display='none';
     if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
       : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
@@ -820,7 +822,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
-function applyResult(d){BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
+function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
   // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена.
   DEMAG=null;DEMAG_KNEE_kA=null;
   if(d.demag_cells&&d.demag_cells.length){const knee=d.demag_knee_kA;
@@ -841,6 +843,9 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
   $('err').style.display='none';const t0=Date.now();
   const url=MODE==='objects'?'/api/object_solve':'/api/solve';
   const label=(PROJECT.name||'Проект')+' · '+SCN_NAME[SCENARIO];
+  // R2: СНИМОК геометрии/сцены/материалов НА МОМЕНТ ЗАПУСКА — расчёт независим от того,
+  // что пользователь правит дальше (параллельная работа). Архив пишется по завершении.
+  const SNAP=buildCalcBundle(PROJECT.name||'расчёт','done',null);
   const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value,label}
     :{mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,label};
   try{const {job_id}=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
@@ -849,7 +854,11 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'){setConv('','◷ В очереди…');continue;}
       if(j.status==='running'){setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');continue;}
-      if(j.status==='done'){applyResult(j.result);saveProject(j.result);break;}
+      if(j.status==='done'){SNAP.field=j.result;SNAP.saved=nowIso();
+        const r=await saveCalcToDir(SNAP).catch(()=>({via:'err'}));                  // архив снимка в рабочую папку
+        if(PROJECT.id===SNAP.id){applyResult(j.result);PROJECT.status='done';PROJECT.file=calcFilename(SNAP.name);
+          if(r.via==='none')setConv('c','● Решено, но не сохранено — задайте рабочую папку в ⚙');}
+        break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
   }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}}
 
@@ -1322,7 +1331,14 @@ function openPrecalc(){
   const nm=$('pc-name');if(nm)nm.oninput=()=>{PROJECT.name=nm.value.trim();$('proj-tree-name').textContent=PROJECT.name||'—';};
   setStage('precalc');
 }
-$('pc-start').onclick=()=>{setStage('result');solve();};   // запуск расчёта
+// R2: «Старт расчёта» — уникальное имя, затем счёт (архив снимка пишется по завершении).
+$('pc-start').onclick=async()=>{const name=await resolveCalcName();if(!name)return;
+  PROJECT.name=name;setStage('result');solve();};
+// R2: «Сохранить черновик» — снимок геометрии/параметров без запуска.
+$('pc-draft').onclick=async()=>{const name=await resolveCalcName();if(!name)return;
+  try{const r=await saveCalc(name,'draft');setStage('result');
+    setConv('g','● Черновик «'+name+'» сохранён'+(r.via==='download'?' (файлом)':''));}
+  catch(e){$('err').textContent='Не удалось сохранить: '+e;$('err').style.display='block';}};
 $('scn-select').onchange=e=>onScnChange(e.target.value);
 $('scn-select-s3').onchange=e=>onScnChange(e.target.value);
 window.addEventListener('resize',()=>{resize();fit();});
@@ -1341,18 +1357,18 @@ $('home-back3').onclick=()=>showHome('type');
 document.querySelectorAll('.type-card').forEach(c=>c.onclick=()=>{PENDING_TYPE=c.dataset.type;
   $('name-type-lbl').textContent=(PENDING_TYPE==='motor'?'⚙ Двигатель (спицевой PMSM)':'✎ Свободная геометрия');
   showHome('name');});
+// R2: имя на входе — лишь предустановка; уникальность проверяется при сохранении/запуске.
 $('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
-  if(!nm){$('name-err').textContent='Задайте название проекта.';return;}
-  if(SAVED_NAMES.includes(nm)){$('name-err').textContent='Проект с таким именем уже есть — выберите другое.';return;}
+  if(!nm){$('name-err').textContent='Задайте название расчёта.';return;}
   startProject(PENDING_TYPE,nm);};
 $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
 $('i_peak').addEventListener('input',()=>{if(MODE==='pmsm')updateExcitations();});
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
-  PROJECT={name,type};$('proj-tree-name').textContent=name;
+  PROJECT={name,type,id:genId(),created:nowIso(),status:'new',file:null};$('proj-tree-name').textContent=name;   // R2: новый расчёт
   applyMode(type==='motor'?'pmsm':'objects');
-  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
+  MESH_ID=null;SCENE=null;BX=null;BY=null;CENT=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;OBJECTS=[];SEL=-1;SELREG=null;$('reg-info').style.display='none';
   $('meshinfo').textContent='—';setConv('','● постройте геометрию');
   updateResults();updateExcitations();
   setScenario('magneto');setStage('result');setTool('view');resize();defaultView();}
@@ -1402,11 +1418,12 @@ async function saveProject(field){if(!SCENE||!PROJECT.name)return;
   const bundle={name:PROJECT.name,type:PROJECT.type,mode:MODE,scenario:SCENARIO,scene:SCENE,field,geom:geomDef()};
   try{await fetch('/api/projects',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)});
     loadSavedNames();}catch(e){}}
-// Открыть решённый проект: восстановить сцену, поле и определение — без сервера (пробы клиентские).
-async function openSolved(slug){let m;try{m=await(await fetch('/api/projects/'+slug)).json();}catch(e){return;}
-  if(!m||m.error){$('name-err')&&($('name-err').textContent='');return;}
-  $('home-ov').classList.remove('on');
-  PROJECT={name:m.name,type:m.type};$('proj-tree-name').textContent=m.name;
+// R2: восстановить состояние ИЗ БАНДЛА расчёта (клиентский .mfz или server-проект).
+// Готовый — показываем поле/сводку; черновик (field=null) — только геометрию.
+function applyCalcBundle(m){
+  PROJECT={name:m.name,type:m.type,id:m.id||genId(),created:m.created||nowIso(),
+           status:m.status||(m.field?'done':'draft'),file:m.name?calcFilename(m.name):null};
+  $('proj-tree-name').textContent=m.name;
   applyMode(m.mode==='objects'||m.type==='free'?'objects':'pmsm');
   const g=m.geom||{};
   if(MODE==='objects'){OBJECTS=(g.objects||[]).map(o=>({...o}));SEL=-1;if(g.margin!==undefined&&$('dommargin'))$('dommargin').value=g.margin;}
@@ -1415,13 +1432,35 @@ async function openSolved(slug){let m;try{m=await(await fetch('/api/projects/'+s
     if(g.material)$('material').value=g.material;if(g.steel)$('steel').value=g.steel;}
   if(g.T!==undefined)$('T').value=g.T;
   if(MODE==='pmsm'){if(g.i_peak!==undefined)$('i_peak').value=g.i_peak;if(g.gamma_deg!==undefined)$('gamma_deg').value=g.gamma_deg;if(g.turns!==undefined)$('turns').value=g.turns;}
-  SCENE=m.scene;MESH_ID=null;                       // сервер-сетка не нужна: пробы считаются на клиенте
-  CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
+  SCENE=m.scene||null;MESH_ID=null;                 // сервер-сетка не нужна: пробы клиентские
+  CENT=SCENE?SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];}):null;
   setScenario(m.scenario||'magneto');
-  if(MODE==='objects')renderTree();else populateModel();
-  applyResult(m.field);                             // BX/BY, сводка, поле, updateResults
-  setStage('result');setTool('view');resize();fit();draw();
-  setConv('g','● Открыт решённый проект');}
+  if(MODE==='objects')renderTree();else if(SCENE)populateModel();
+  if(m.field)applyResult(m.field);                  // готовый — поле/сводка
+  else{BX=null;BY=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
+  setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();}
+// Открыть client-архив расчёта (из файла/папки).
+function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
+  setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}
+// Открыть решённый server-проект (легаси до R3).
+async function openSolved(slug){let m;try{m=await(await fetch('/api/projects/'+slug)).json();}catch(e){return;}
+  if(!m||m.error)return;$('home-ov').classList.remove('on');applyCalcBundle(m);setConv('g','● Открыт расчёт «'+m.name+'»');}
+
+// R2: имя расчёта уже занято в рабочей папке?
+async function calcNameExists(name){try{return (await listCalcsInDir()).some(l=>l.name===name);}catch(e){return false;}}
+// R2: сохранить снимок расчёта (готовый — с полем LAST_FIELD; черновик — без поля).
+async function saveCalc(name,status){
+  PROJECT.name=name;PROJECT.status=status;PROJECT.id=PROJECT.id||genId();PROJECT.created=PROJECT.created||nowIso();
+  const bundle=buildCalcBundle(name,status,status==='done'?LAST_FIELD:null);
+  let res=await saveCalcToDir(bundle);
+  if(res.via==='none')res=await downloadCalc(bundle);   // явное сохранение без папки — скачиваем файл
+  PROJECT.file=res.file;$('proj-tree-name').textContent=name;
+  return res;}
+// R2: разрешить имя перед запуском/сохранением (уникальность + подтверждение перезаписи).
+async function resolveCalcName(){const name=(($('pc-name')&&$('pc-name').value)||PROJECT.name||'').trim();
+  if(!name){$('err').textContent='Задайте имя расчёта.';$('err').style.display='block';return null;}
+  if(await calcNameExists(name)&&!confirm('Расчёт «'+name+'» уже существует. Перезаписать его данные?'))return null;
+  $('err').style.display='none';return name;}
 // Список сохранённых для экрана «Открыть решённый».
 async function loadSolvedList(){const box=$('solved-list');box.innerHTML='<p class="home-empty">Загрузка…</p>';
   let d;try{d=await(await fetch('/api/projects')).json();}catch(e){box.innerHTML='<p class="home-empty">Не удалось загрузить список.</p>';return;}
@@ -1476,7 +1515,7 @@ async function ensureWorkdir(){if(WORKDIR)return WORKDIR;let h;try{h=await idbGe
   return null;}
 const calcFilename=name=>name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu,'_').replace(/\s+/g,'_').slice(0,80)+CALC_EXT;
 // Сохранить/список/прочитать/удалить в рабочей папке (или фолбэк — скачать).
-async function saveCalcToDir(bundle){const dir=await ensureWorkdir();if(!dir)return downloadCalc(bundle);
+async function saveCalcToDir(bundle){const dir=await ensureWorkdir();if(!dir)return {via:'none'};   // без папки — не пишем (авто-путь без спама скачиваний)
   const fh=await dir.getFileHandle(calcFilename(bundle.name),{create:true});
   const w=await fh.createWritable();await w.write(await packCalc(bundle));await w.close();return {via:'dir',file:fh.name};}
 async function listCalcsInDir(){const dir=WORKDIR||await ensureWorkdir();if(!dir)return [];const out=[];
@@ -1500,6 +1539,8 @@ async function refreshWorkdirStatus(){const el=$('wd-status');if(!el)return;
     :'Не выбрана — расчёты будут скачиваться файлами.';
   $('wd-pick').textContent=dir?'Сменить папку…':'Выбрать папку…';}
 $('wd-pick').onclick=async()=>{try{await pickWorkdir();}catch(e){}refreshWorkdirStatus();};
+// R2: открыть расчёт из файла (.mfz) — бридж до папочного списка в R3.
+$('home-openfile').onclick=async()=>{try{const m=await openCalcFile();if(m)loadCalcBundle(m);}catch(e){}};
 
 (async()=>{await loadFields();await loadMaterials();await loadSettings();await loadSavedNames();pollJobs();
   setStage('result');setTool('view');showHome('start');})();
