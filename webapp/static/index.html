@@ -1052,11 +1052,14 @@ window.addEventListener('keydown',e=>{
   if(e.key==='Delete'&&editable()&&SEL>=0&&t!=='INPUT'&&t!=='TEXTAREA'){delObject(SEL);editHint();return;}
   if(e.key==='Escape'&&$('modal-ov').classList.contains('on'))setStage('result');});
 const SCN_NAME={magneto:'Магнитостатика',thermostatic:'Тепловая статика',dynamic:'Тепловая динамика'};
+// Подпись сценария в дереве; для тепловой статики — с заданной T в скобках.
+function refreshScnTree(){const tag=$('tree-scn');if(!tag)return;
+  tag.textContent=SCN_NAME[SCENARIO]+(SCENARIO==='thermostatic'?' ('+(+$('T').value||0)+' °C)':'');}
 function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn]+' · 2D';
   ['scn-select','scn-select-s3'].forEach(id=>{const s=$(id);if(s)s.value=scn;});
   // Цвет сценария: магнитостатика — зелёный, тепловая статика — жёлтый, динамика — красный.
   const col={magneto:'var(--good)',thermostatic:'var(--warn)',dynamic:'var(--crit)'}[scn]||'var(--good)';
-  const tag=$('tree-scn');if(tag){tag.textContent=SCN_NAME[scn];tag.style.color=col;}
+  const tag=$('tree-scn');if(tag)tag.style.color=col;refreshScnTree();
   const dot=$('scn-dot');if(dot)dot.style.background=col;
   // Магнитостатика — T=20 фикс. (поле СКРЫТО); Тепловая статика — T задаёт пользователь;
   // Тепловая динамика — T в своей панели.
@@ -1432,6 +1435,7 @@ $('proj-create').onclick=()=>{const nm=$('proj-name').value.trim();
   startProject(PENDING_TYPE,nm);};
 $('proj-name').addEventListener('keydown',e=>{if(e.key==='Enter')$('proj-create').click();});
 $('i_peak').addEventListener('input',()=>{if(MODE==='pmsm')updateExcitations();});
+$('T').addEventListener('input',()=>{if(SCENARIO==='thermostatic')refreshScnTree();});
 let SAVED_NAMES=[];   // имена решённых проектов (для уникальности) — наполнится на этапе персистентности
 // ВХОД В ПРОЕКТ: поле ПУСТОЕ, пока пользователь не построит геометрию (авто-сборки нет).
 function startProject(type,name){$('home-ov').classList.remove('on');
