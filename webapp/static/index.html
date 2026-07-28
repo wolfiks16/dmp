@@ -849,7 +849,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+REGIONS.map(x=>'<b>'+(AB[x.name]||x.name)+'</b> '+rc[x.name]).join(' · ');
     }
     setConv('','● Модель построена');DIRTY=true;$('st-cells').textContent='Сетка '+d.n_cells+' эл.';$('st-iters').textContent='';
-    populateModel();
+    if(MODE==='objects')renderTree();else populateModel();   // objects: остаются редактируемые фигуры (лок правки — только после расчёта)
     // Сначала ЗАКРЫВАЕМ окно, затем рисуем холст в финальном размере — иначе draw() шёл бы за
     // открытой модалкой и требовал повторного перерисова (Enter). Из «Рассчитать» окно уже
     // закрыто (idempotent), после чего идёт solve.
