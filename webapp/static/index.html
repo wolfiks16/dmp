@@ -448,6 +448,10 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
   <div class="pop-row"><label>Одновременно</label><input class="num" id="set-par" value="1" style="width:54px;text-align:center"><button class="btn" id="set-auto">Авто</button></div>
   <div class="pop-hint" id="set-rec">—</div>
   <div class="pop-foot"><button class="btn pri" id="set-save">Применить</button></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:11px 0">
+  <div class="pop-h">Рабочая папка расчётов</div>
+  <div class="pop-hint" id="wd-status">Не выбрана — расчёты будут скачиваться файлами.</div>
+  <div class="pop-foot"><button class="btn" id="wd-pick">Выбрать папку…</button></div>
 </div>
 
 <!-- Индикатор фоновых расчётов -->
@@ -1358,7 +1362,7 @@ let SETTINGS={max_parallel:1,cores:4,recommended:1};
 async function loadSettings(){try{SETTINGS=await(await fetch('/api/settings')).json();}catch(e){}
   $('set-par').value=SETTINGS.max_parallel;
   $('set-rec').textContent='Ядер процессора: '+SETTINGS.cores+'. Рекомендуется не больше '+SETTINGS.recommended+' (по 2 ядра на расчёт).';}
-$('set-btn').onclick=e=>{e.stopPropagation();$('settings-pop').classList.toggle('on');};
+$('set-btn').onclick=e=>{e.stopPropagation();const on=$('settings-pop').classList.toggle('on');if(on)refreshWorkdirStatus();};
 $('set-auto').onclick=()=>{$('set-par').value=SETTINGS.recommended;};
 $('set-save').onclick=async()=>{const n=Math.max(1,Math.min(64,Math.round(+$('set-par').value||1)));
   try{SETTINGS=await(await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({max_parallel:n})})).json();}catch(e){}
@@ -1432,6 +1436,70 @@ $('solved-list').addEventListener('click',async e=>{const del=e.target.dataset.d
   const row=e.target.closest('[data-slug]');if(row)openSolved(row.dataset.slug);});
 // Имена сохранённых проектов — для проверки уникальности при создании.
 async function loadSavedNames(){try{const d=await(await fetch('/api/projects')).json();SAVED_NAMES=(d.projects||[]).map(p=>p.name);}catch(e){}}
+
+// ============ R1: ХРАНЕНИЕ РАСЧЁТОВ НА МАШИНЕ (архив gzip(JSON) + рабочая папка) ============
+// Расчёт самодостаточен: геометрия+сетка+материалы(вшиты)+сценарий+результаты. Формат — один
+// файл .mfz = gzip(JSON). Всё на клиенте (File System Access + CompressionStream); сервер — счёт.
+const CALC_EXT='.mfz',CALC_FORMAT='magfield-calc',CALC_VERSION=1;
+// gzip(JSON) упаковка/распаковка нативными потоками (без библиотек).
+async function packCalc(bundle){const cs=new CompressionStream('gzip');
+  return await new Response(new Blob([JSON.stringify(bundle)]).stream().pipeThrough(cs)).blob();}
+async function unpackCalc(blob){const ds=new DecompressionStream('gzip');
+  return JSON.parse(await new Response(blob.stream().pipeThrough(ds)).text());}
+const genId=()=>'c'+Date.now().toString(36)+Math.random().toString(36).slice(2,8);
+const nowIso=()=>new Date().toISOString();
+// Вшить ПОЛНЫЕ спеки использованных материалов (встроенные — по id, свои — spec целиком).
+function calcMaterialsMap(ids){const m={};ids.forEach(id=>{if(!id||id==='air'||m[id])return;
+  const src=MAGNETS.concat(STEELS).find(x=>x.id===id);if(!src)return;
+  m[id]={kind:STEELS.some(s=>s.id===id)?'steel':'magnet',name:src.name,builtin:!!src.builtin,spec:src.spec||null};});
+  return m;}
+// Самодостаточный бандл текущего состояния. field=null для черновика.
+function buildCalcBundle(name,status,field){
+  const ids=MODE==='objects'?OBJECTS.map(o=>o.material):[$('material').value,$('steel').value];
+  return {format:CALC_FORMAT,version:CALC_VERSION,id:PROJECT.id||(PROJECT.id=genId()),name,
+    type:PROJECT.type,mode:MODE,scenario:SCENARIO,status,created:PROJECT.created||(PROJECT.created=nowIso()),
+    saved:nowIso(),geom:geomDef(),materials:calcMaterialsMap(ids),scene:SCENE||null,field:field||null};}
+// Рабочая папка: хендл в IndexedDB, выбор один раз.
+let WORKDIR=null;const IDB='magfield',IDB_ST='handles';
+function idbReq(mode,fn){return new Promise((res,rej)=>{const q=indexedDB.open(IDB,1);
+  q.onupgradeneeded=()=>q.result.createObjectStore(IDB_ST);
+  q.onerror=()=>rej(q.error);
+  q.onsuccess=()=>{const st=q.result.transaction(IDB_ST,mode).objectStore(IDB_ST);const r=fn(st);
+    r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);};});}
+const idbGet=k=>idbReq('readonly',st=>st.get(k));
+const idbSet=(k,v)=>idbReq('readwrite',st=>st.put(v,k));
+async function pickWorkdir(){if(!window.showDirectoryPicker)return null;
+  const h=await window.showDirectoryPicker({mode:'readwrite',id:'magfield-calcs'});await idbSet('workdir',h);WORKDIR=h;return h;}
+async function ensureWorkdir(){if(WORKDIR)return WORKDIR;let h;try{h=await idbGet('workdir');}catch(e){}
+  if(h){if(await h.queryPermission({mode:'readwrite'})==='granted'){WORKDIR=h;return h;}
+    try{if(await h.requestPermission({mode:'readwrite'})==='granted'){WORKDIR=h;return h;}}catch(e){}}
+  return null;}
+const calcFilename=name=>name.trim().replace(/[^\p{L}\p{N}\-_ ]/gu,'_').replace(/\s+/g,'_').slice(0,80)+CALC_EXT;
+// Сохранить/список/прочитать/удалить в рабочей папке (или фолбэк — скачать).
+async function saveCalcToDir(bundle){const dir=await ensureWorkdir();if(!dir)return downloadCalc(bundle);
+  const fh=await dir.getFileHandle(calcFilename(bundle.name),{create:true});
+  const w=await fh.createWritable();await w.write(await packCalc(bundle));await w.close();return {via:'dir',file:fh.name};}
+async function listCalcsInDir(){const dir=WORKDIR||await ensureWorkdir();if(!dir)return [];const out=[];
+  for await(const [nm,h] of dir.entries()){if(h.kind==='file'&&nm.endsWith(CALC_EXT)){
+    try{const b=await unpackCalc(await h.getFile());out.push({file:nm,id:b.id,name:b.name,type:b.type,scenario:b.scenario,status:b.status,saved:b.saved});}catch(e){}}}
+  return out.sort((a,b)=>(b.saved||'').localeCompare(a.saved||''));}
+async function readCalcFromDir(file){const dir=WORKDIR||await ensureWorkdir();if(!dir)return null;
+  return unpackCalc(await(await dir.getFileHandle(file)).getFile());}
+async function deleteCalcInDir(file){const dir=WORKDIR||await ensureWorkdir();if(dir){try{await dir.removeEntry(file);}catch(e){}}}
+// Фолбэк без рабочей папки: скачать / открыть файл.
+async function downloadCalc(bundle){const url=URL.createObjectURL(await packCalc(bundle));
+  const a=document.createElement('a');a.href=url;a.download=calcFilename(bundle.name);a.click();
+  setTimeout(()=>URL.revokeObjectURL(url),2000);return {via:'download',file:a.download};}
+function openCalcFile(){return new Promise(res=>{const inp=document.createElement('input');inp.type='file';inp.accept=CALC_EXT;
+  inp.onchange=async()=>{const f=inp.files[0];res(f?await unpackCalc(f):null);};inp.click();});}
+// Рабочая папка — статус и выбор (в настройках). Выбор требует жеста пользователя.
+async function refreshWorkdirStatus(){const el=$('wd-status');if(!el)return;
+  if(!window.showDirectoryPicker){el.textContent='Браузер не поддерживает выбор папки — расчёты скачиваются файлами.';$('wd-pick').style.display='none';return;}
+  const dir=await ensureWorkdir();
+  el.innerHTML=dir?('Папка: <b style="color:var(--text)">'+dir.name+'</b> — расчёты сохраняются сюда.')
+    :'Не выбрана — расчёты будут скачиваться файлами.';
+  $('wd-pick').textContent=dir?'Сменить папку…':'Выбрать папку…';}
+$('wd-pick').onclick=async()=>{try{await pickWorkdir();}catch(e){}refreshWorkdirStatus();};
 
 (async()=>{await loadFields();await loadMaterials();await loadSettings();await loadSavedNames();pollJobs();
   setStage('result');setTool('view');showHome('start');})();

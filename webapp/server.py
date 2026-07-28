@@ -1014,11 +1014,15 @@ def api_object_solve(body: dict = Body(default={})) -> dict:
 
 @app.get("/api/materials")
 def api_materials() -> dict:
-    """Материалы для списков: магниты и стали (встроенные + свои)."""
+    """Материалы для списков: магниты и стали (встроенные + свои).
+
+    Для СВОИХ материалов отдаём и полную спецификацию (`spec`) — фронтенд вшивает её в архив
+    расчёта, чтобы тот был самодостаточным (не «поедет», если материал потом изменить/удалить).
+    Встроенные (`builtin`) всегда воспроизводимы сервером по id, спека не нужна."""
     magnets = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_MAGNETS.items()]
     steels = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_STEELS.items()]
     for mid, spec in _load_custom_materials().items():
-        entry = {"id": mid, "name": spec.get("name", mid), "builtin": False}
+        entry = {"id": mid, "name": spec.get("name", mid), "builtin": False, "spec": spec}
         (steels if spec.get("kind") == "steel" else magnets).append(entry)
     return {"magnets": magnets, "steels": steels}
 
