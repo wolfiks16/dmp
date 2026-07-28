@@ -672,7 +672,7 @@ function updateRtools(){const solved=!!BX;
   $('toppalette').style.display=MODE==='objects'?'flex':'none';
   $('geomhint').textContent=MODE==='objects'?'— рисуй фигуры на холсте':'размеры — в окне «Геометрия»';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
-function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';updateRtools();updateResults();}
+function invalidateField(){if(!BX)return;BX=null;BY=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';clearSummary();updateRtools();updateResults();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -864,6 +864,7 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
   finally{btn.disabled=false;btn.textContent='Построить модель';}}
 
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+r.v+'</span></li>').join('');}
+function clearSummary(){$('res').innerHTML='<li><span>—</span><span class="v">рассчитайте</span></li>';}   // сводка в панели «Сценарии» → плейсхолдер
 function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
   // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена.
   DEMAG=null;DEMAG_KNEE_kA=null;
@@ -1443,7 +1444,7 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
   VMAX=2.0;COMP='mag';if($('comp'))$('comp').value='mag';                                    // шкала поля → дефолт
   ['T','i_peak','gamma_deg','turns','dommargin'].forEach(id=>{const el=$(id);if(el)el.value=el.defaultValue;});  // параметры сценария → дефолты
-  $('objlist').innerHTML='';$('reg-info').style.display='none';
+  $('objlist').innerHTML='';$('reg-info').style.display='none';clearSummary();
   $('meshinfo').textContent='—';$('st-iters').textContent='';$('st-cells').textContent='';setConv('','● постройте геометрию');
   applyMode(type==='motor'?'pmsm':'objects');
   renderTree();updateResults();updateExcitations();
