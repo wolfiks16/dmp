@@ -30,8 +30,20 @@ import numpy as np
 from fastapi import Body, FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from magcore.domain.magnet_model import magnet_from_datasheet, n42sh_magnet, sm2co17_magnet
-from magcore.domain.steel_curves import SteelBHCurve, m270_35a_bh_curve
+from magcore.domain import magnet_catalog
+from webapp import materials_db
+from magcore.domain.magnet_model import (
+    ks25dts240_magnet,
+    magnet_from_datasheet,
+    n35_magnet,
+    n42sh_magnet,
+    sm2co17_magnet,
+)
+from magcore.domain.steel_curves import (
+    SteelBHCurve,
+    m270_35a_cogent_bh_curve,
+    steel10_bh_curve,
+)
 from magcore.fem2d.machines import (
     MachineScenario,
     OutrunnerPMSMParams,
@@ -47,6 +59,17 @@ from magcore.fem2d.machines.iron_loss import (
     stator_iron_loss,
 )
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES, Region
+from magcore.fem2d.machines.catalog import MACHINES as _CATALOG
+from magcore.fem2d.machines.library import CommutatorWinding
+from magcore.fem2d.verification import (
+    VerificationReport,
+    check_airgap_resolution,
+    check_convergence,
+    check_energy_balance,
+    check_magnet_model_range,
+    check_steel_saturation,
+    check_time_step,
+)
 from magcore.fem2d.machines.rotor_sweep import (
     RotorDamage,
     build_rotor_geometries,
@@ -75,6 +98,36 @@ from magcore.fem2d.model import (
     solve_problem2d,
 )
 
+from fastapi import Request  # noqa: E402 — приём файла STEP телом запроса (этап 3D-1б)
+from fastapi.responses import FileResponse  # noqa: E402 — 3D-режим (этап 3D-5)
+from magcore.fem3d import (  # noqa: E402
+    CAD_KIND,
+    FLUX_MEASURE_T,
+    GeoObject3D,
+    auto_domain3d,
+    build_object_problem3d,
+    coenergy,
+    demag_summary,
+    field_payload,
+    flux_loss,
+    flux_through_plane,
+    magnetic_force_torque,
+    new_magnet_flux,
+    restore_saved_field,
+    solve_nonlinear3d,
+)
+from magcore.fem3d.export import write_vtu  # noqa: E402
+from magcore.fem3d.objects import preview_geometry, step_bodies  # noqa: E402
+from magcore.fem3d.scene import (  # noqa: E402
+    arrows_payload,
+    axis_segment,
+    cell_quantities,
+    material_kind,
+    pack,
+    scene_payload,
+    section,
+)
+
 app = FastAPI(title="MagField web")
 
 
@@ -90,7 +143,10 @@ async def _no_cache(request, call_next):
 # Регионы для посегментной сетки: порядок отображения, подпись, размер по умолчанию (мм).
 # Сгущаем там, где важна физика (зазор/магниты — градиенты поля, демаг), ярма — грубее.
 REGION_UI = [
-    ("air_gap", "Зазор", 1.2),
+    # ⚠ Размер элемента в ЗАЗОРЕ должен быть ≤ трети его толщины (при зазоре 1.0 мм это 0.3 мм).
+    # Было 1.2 мм — ЭЛЕМЕНТ ТОЛЩЕ ЗАЗОРА: поле в нём не разрешалось, и все прежние расчёты
+    # шли на недоразрешённом зазоре. Ловится проверкой «Разрешение зазора» (verification.py).
+    ("air_gap", "Зазор", 0.3),
     ("magnet", "Магниты", 1.5),
     ("tooth", "Зубцы", 2.5),
     ("slot", "Пазы", 3.0),
@@ -279,6 +335,11 @@ def _params_from(body: dict) -> tuple[OutrunnerPMSMParams, str]:
     """Собрать OutrunnerPMSMParams (геометрия + посегментная сетка) + детерминированный mesh_id."""
     geom = _geom_from(body)
     spec = _spec_from(body)
+    # Адаптивный размер в ЗАЗОРЕ (как для спицевой): элемент не толще gap/5, иначе поле
+    # в зазоре не разрешается. Пользовательское значение = ВЕРХНЯЯ граница.
+    # ⚠ geom и spec здесь в МЕТРАХ (СИ): сравнение вести в метрах, без множителя 1e3.
+    spec = dict(spec)
+    spec["air_gap"] = min(spec["air_gap"], float(geom["air_gap"]) / 5.0)
     params = OutrunnerPMSMParams(
         mesh_size=max(spec.values()), mesh_size_by_region=dict(spec), **geom
     )
@@ -293,8 +354,12 @@ def _build_mesh(params: OutrunnerPMSMParams, mid: str) -> str:
     if mid in _GEOM:
         return mid
     g = build_outrunner_spm_pmsm(params)
-    lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
-    _GEOM[mid] = (g, lay, m270_35a_bh_curve())
+    # Трёхфазная раскладка есть только у машин с числом пазов, кратным 3. Коллекторная
+    # (щёточный ДПТ, напр. ДП25 с 13 пазами) её НЕ имеет — раскладка None. Для поля
+    # открытой цепи (магниты, i=0) и коллекторной K_e = p·Z·Φ/(2πa)·k_скоса она не нужна.
+    lay = (star_of_slots_layout(g.params.n_slots, g.params.n_poles)
+           if g.params.n_slots % 3 == 0 else None)
+    _GEOM[mid] = (g, lay, m270_35a_cogent_bh_curve())
     # Сцена не зависит от марки магнита — строим на дефолтном для геометрии/регионов/осей.
     scen = MachineScenario(geometry=g, magnet=n42sh_magnet((1, 0, 0)), steel=_GEOM[mid][2],
                            layout=lay)
@@ -333,6 +398,16 @@ def _spoke_params_from(body: dict) -> tuple[SpokeMotorParams, str]:
             kw[name] = float(v)
     raw = dict(body.get("sizes_mm") or {})
     sizes = {name: float(raw.get(name, DEFAULT_SIZES_MM[name])) for name in REGION_NAMES.values()}
+    # АДАПТИВНЫЙ РАЗМЕР В ЗАЗОРЕ. Фиксированное число тут не работает в принципе: у разных
+    # машин зазор разный (у спицевой по умолчанию 0.20 мм, у outrunner ~1 мм). Если элемент
+    # толще трети зазора, поле в нём не разрешается и все результаты искажаются — это ловится
+    # проверкой «Разрешение зазора», но лучше не допускать. Пользовательское значение
+    # трактуется как ВЕРХНЯЯ граница; фактически применённое возвращается в ответе.
+    gap_mm = max((float(kw["D_magnet_in_mm"]) - float(kw["D_tooth_out_mm"])) / 2.0, 1e-6)
+    # Делитель 5, а не 3: gmsh трактует размер как ЦЕЛЬ и фактически даёт элементы крупнее
+    # (при цели gap/3.5 измерялось лишь 2.7 элемента поперёк). Запас берём с проверкой.
+    gap_target = gap_mm / 5.0
+    sizes["air_gap"] = min(sizes["air_gap"], gap_target)
     kw["mesh_size_by_region"] = sizes
     kw["mesh_size_mm"] = min(sizes.values())
     params = SpokeMotorParams(**kw)
@@ -348,7 +423,7 @@ def _build_spoke_mesh(params: SpokeMotorParams, mid: str) -> str:
         return mid
     g = build_spoke_pmsm(params)
     lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
-    _GEOM[mid] = (g, lay, m270_35a_bh_curve())
+    _GEOM[mid] = (g, lay, m270_35a_cogent_bh_curve())
     scen = MachineScenario(geometry=g, magnet=n42sh_magnet((1, 0, 0)), steel=_GEOM[mid][2],
                            layout=lay)
     _SCENE[mid] = problem_to_scene(scen.to_problem())
@@ -369,11 +444,25 @@ def _do_solve(body: dict) -> dict:
     magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
     steel = _steel_by_id(str(body.get("steel", "steel")))
     scen = MachineScenario(geometry=g, magnet=magnet, steel=steel, layout=lay)
+    # ТИП МАШИНЫ (если выбран пресет): задаёт схему обмотки и, значит, ФОРМУЛУ K_e/K_t.
+    # Трёхфазная: K_e = p·λ_m, K_t = 1.5·K_e. Коллекторная: K_e = p·Z·Φ/(2πa)·k_скоса, K_t = K_e.
+    # Геометрия при этом берётся из полей интерфейса — тип и геометрия независимы.
+    machine_key = str(body.get("machine", "") or "")
+    winding = None
+    if machine_key and machine_key in _CATALOG:
+        winding = _CATALOG[machine_key]().winding
+    # Реакцию якоря вводим только через ТРЁХФАЗНУЮ раскладку. У коллекторной машины её нет
+    # (lay=None): трёхфазный ток к ней неприменим, поэтому считаем поле ОТКРЫТОЙ ЦЕПИ (i=0).
+    # Этого достаточно для валидации по K_e (коллекторная формула = магнитный поток на полюс).
+    i_peak = float(body.get("i_peak", 0.0))
+    commutator_open_circuit = lay is None and i_peak != 0.0
+    if lay is None:
+        i_peak = 0.0
     # Метод Ньютона (дефолт solve_problem2d): сходится за ~20 итераций НА ЛЮБОЙ плотности,
     # без подбора релаксации под сетку. max_iter с запасом.
     sol = scen.solve(
         T=float(body.get("T", 20.0)),
-        i_peak=float(body.get("i_peak", 0.0)),
+        i_peak=i_peak,
         gamma_elec=np.deg2rad(float(body.get("gamma_deg", 0.0))),
         turns_per_slot=float(body.get("turns", 40.0)),
         max_iter=60,
@@ -382,11 +471,50 @@ def _do_solve(body: dict) -> dict:
     Bmag = np.hypot(B[:, 0], B[:, 1])
     op = scen.operating_point(sol)
     risk = sol.risk
+    # БЛОК ПРОВЕРОК: результат выдаётся вместе с доказательством, что ему можно верить.
+    resid = (sol.field.rel_change_history[-1] if getattr(sol.field, "rel_change_history", None)
+             else 0.0)
+    report = VerificationReport([
+        check_convergence(bool(sol.converged), int(sol.field.n_iterations), float(resid)),
+        check_airgap_resolution(g.mesh, g.mask(Region.AIR_GAP), _gap_thickness(g.params)),
+        check_steel_saturation([steel]),
+    ])
+    out_machine = {}
+    if winding is not None:
+        ke = float(winding.emf_constant(g, sol.field.a))
+        kt = float(winding.torque_constant(g, sol.field.a))
+        # ⚠ kV трёхфазной машины ≠ 60/(2π·K_e): K_e здесь — амплитуда ФАЗНОЙ ЭДС, а
+        #   паспортное kV относят к напряжению ШИНЫ. Прежняя формула завышала kV в π/2
+        #   раза (аудит 2026-09-03). Для коллекторной машины формула строга.
+        from magcore.fem2d.machines.conventions import kv_from_ke
+        kv = (None if ke <= 0 else
+              (kv_from_ke(ke) if winding.kind == "three_phase" else 60.0 / (2.0 * math.pi * ke)))
+        out_machine = {
+            "machine": machine_key, "winding": winding.kind,
+            "Ke": round(ke, 5), "Kt": round(kt, 5),
+            "kV": None if kv is None else round(kv, 1),
+            "kV_convention": ("от шины, шеститактный регулятор"
+                              if winding.kind == "three_phase" else "коллекторная"),
+        }
+        if machine_key == "dp25":                      # сверка с паспортом ТУ
+            out_machine["Ke_nameplate"] = 0.02946
+            out_machine["Ke_dev_pct"] = round(100.0 * (ke - 0.02946) / 0.02946, 1)
+        if winding.kind == "commutator":
+            out_machine["note"] = (
+                "коллекторная машина: поле открытой цепи (магниты), трёхфазная реакция "
+                "якоря не моделируется" + (" — заданный ток проигнорирован"
+                                           if commutator_open_circuit else ""))
+
     return {
+        "checks": report.to_dict(),
+        **out_machine,
         "converged": bool(sol.converged),
         "iters": int(sol.field.n_iterations),
         "Bx": np.round(B[:, 0], 4).tolist(),
         "By": np.round(B[:, 1], 4).tolist(),
+        # A_z в узлах [Вб/м] — для силовых линий: они и есть линии уровня A_z, между соседними линиями
+        # одинаковый поток на единицу длины машины (этап 3D-7, то же в 2D).
+        "A": np.round(sol.field.a, 10).tolist(),
         "Bmax": round(float(Bmag.max()), 3),
         "Bmean": round(float(Bmag.mean()), 3),
         "torque": round(float(scen.torque(sol)), 4),
@@ -492,7 +620,7 @@ def _do_loss_sweep(body: dict) -> dict:
     freq = p * rpm / 60.0
     iron = iron_loss_from_probe_waveform(
         probe_B, areas, freq=freq, axial_length=params.axial_length,
-        coeffs=SteinmetzCoefficients.m270_35a(),
+        coeffs=SteinmetzCoefficients.m270_35a_cogent(),
     )
     p_cu = float(copper_loss_watts(geo0, i_peak=i_peak, turns_per_slot=turns,
                                    slot_fill=slot_fill, T=T))
@@ -523,6 +651,14 @@ def _do_scenario(body: dict) -> dict:
     if mid not in _GEOM:
         raise ValueError("сетка не найдена — постройте её заново.")
     g, lay, _ = _GEOM[mid]
+    # Сценарий S3 вводит ТРЁХФАЗНЫЙ ток статора (реакция якоря). У коллекторной машины
+    # (lay=None) реакция якоря устроена иначе и этой моделью не описывается — честно
+    # отказываемся, а не подставляем неверный трёхфазный ток. K_e ей даёт магнитостатика.
+    if lay is None:
+        raise ValueError(
+            "Тепловой сценарий S3 задаёт трёхфазный ток статора и пока не поддержан для "
+            "коллекторной машины (щёточный ДПТ): её реакция якоря устроена иначе. Для такой "
+            "машины доступен магнитостатический расчёт поля и постоянной K_e.")
     params = g.params
     magnet = _magnet_by_id(str(body.get("material", "ndfeb")))
     steel = _steel_by_id(str(body.get("steel", "steel")))
@@ -561,7 +697,28 @@ def _do_scenario(body: dict) -> dict:
     )
     ratio = float(res.fundamental_ratio)
 
+    # БЛОК ПРОВЕРОК связанного расчёта. Разгон/каскад — это РЕЗУЛЬТАТ, а не провал проверки,
+    # поэтому в проверки они не попадают (их видно в survived/stop_reason). Проверяем то,
+    # что делает числа НЕДОСТОВЕРНЫМИ: сходимость, энергобаланс, шаг по времени, разрешение
+    # зазора, пригодность кривых стали и выход магнита за область достоверности его модели.
+    em_res = float(tr.em_residual[-1]) if getattr(tr, "em_residual", None) is not None and len(
+        tr.em_residual) else 0.0
+    em_it = int(tr.em_iterations[-1]) if getattr(tr, "em_iterations", None) is not None and len(
+        tr.em_iterations) else 0
+    checks = [
+        check_convergence(bool(tr.em_converged), em_it, em_res),
+        check_energy_balance(tr.stored_energy, tr.loss_power, tr.outflow, dt),
+        check_time_step(dt),
+        check_airgap_resolution(g.mesh, g.mask(Region.AIR_GAP), _gap_thickness(g.params)),
+        check_steel_saturation([steel]),
+    ]
+    if np.isfinite(res.T_magnet_max):
+        checks.append(check_magnet_model_range(float(res.T_magnet_max),
+                                               float(magnet.temperature_limit())))
+    report = VerificationReport(checks)
+
     out = {
+        "checks": report.to_dict(),
         "survived": bool(res.survived),
         "runaway": bool(tr.runaway),
         "cascade": bool(tr.magnet_cascade),
@@ -570,9 +727,10 @@ def _do_scenario(body: dict) -> dict:
         "fundamental_ratio": round(ratio, 4),
         "kt_drop_est": round(100.0 * res.torque_constant_drop, 2),
         "n_past_knee": int(tr.n_past_knee[-1]),
+        "past_knee_fraction": round(float(tr.past_knee_fraction[-1]), 4),     # доля площади магнита
         "n_mag": int(ret.size),
         "retention_min": round(float(ret.min()), 4),
-        "retention_mean": round(float(ret.mean()), 4),
+        "retention_mean": round(float(tr.retention_mean[-1]), 4),             # с весом площади (Л-104)
         "pristine": pristine,
         "magnet_mass_g": round(healthy.magnet_mass * 1000.0, 1),
         "healthy": {"torque": round(abs(healthy.torque), 4),
@@ -611,7 +769,7 @@ def _do_scenario(body: dict) -> dict:
     out["dTdt_end"] = round(dT_end / dt, 3) if dt else 0.0
 
     if with_losses:
-        cf = SteinmetzCoefficients.m270_35a()
+        cf = SteinmetzCoefficients.m270_35a_cogent()
         p_cu = copper_loss_watts(g, i_peak=ipk, turns_per_slot=turns,
                                  slot_fill=slot_fill, T=T_amb)
         n_pos = int(body.get("n_positions", 12))
@@ -678,7 +836,13 @@ async def api_spoke_mesh(body: dict = Body(default={})) -> dict:
         mid = _build_spoke_mesh(params, mid)
     except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI, не 500
         return {"error": str(e)}
-    return _mesh_payload(mid)
+    out = _mesh_payload(mid)
+    g = _GEOM[mid][0]
+    gap_mm = (float(params.D_magnet_in_mm) - float(params.D_tooth_out_mm)) / 2.0
+    used = float(params.mesh_size_by_region.get("air_gap", 0.0))
+    out["airgap"] = {"gap_mm": round(gap_mm, 3), "mesh_mm": round(used, 4),
+                     "elements_across": round(gap_mm / used, 1) if used > 0 else None}
+    return out
 
 
 @app.post("/api/mesh")
@@ -689,7 +853,13 @@ async def api_mesh(body: dict = Body(default={})) -> dict:
         mid = _build_mesh(params, mid)   # на потоке event-loop = главный поток (gmsh ОК)
     except Exception as e:  # noqa: BLE001 — плохая геометрия/сетка → в UI, не 500
         return {"error": str(e)}
-    return _mesh_payload(mid)
+    out = _mesh_payload(mid)
+    gap_mm = float(params.air_gap) * 1e3
+    # mesh_size_by_region у OutrunnerPMSMParams — в МЕТРАХ (СИ); в отчёт переводим в мм.
+    used_mm = float(params.mesh_size_by_region.get("air_gap", 0.0)) * 1e3
+    out["airgap"] = {"gap_mm": round(gap_mm, 3), "mesh_mm": round(used_mm, 4),
+                     "elements_across": round(gap_mm / used_mm, 1) if used_mm > 0 else None}
+    return out
 
 
 @app.post("/api/solve")
@@ -752,19 +922,26 @@ def api_job(jid: str) -> dict:
 # ---- БИБЛИОТЕКА МАТЕРИАЛОВ (встроенные + свои измеренные магниты, персист на диск) ----
 _MATERIALS_PATH = Path(__file__).parent / "materials.json"
 _BUILTIN_MAGNETS = {
-    "ndfeb": {"name": "NdFeB N42SH (представит.)"},
-    "smco": {"name": "SmCo КС25ДЦ (представит.)"},
+    "ndfeb": {"name": "NdFeB N42SH (представит.)", "family": "NdFeB"},
+    "n35": {"name": "NdFeB N35 (представит.)", "family": "NdFeB"},
+    "smco": {"name": "SmCo КС25ДЦ (представит.)", "family": "SmCo"},
+    "ks25dts240": {"name": "SmCo КС25ДЦ-240 (представит.)", "family": "SmCo"},
 }
-_BUILTIN_STEELS = {"steel": {"name": "M270-35A (представит.)"}}   # 'steel' = дефолтная сталь
+# ⚠ 'steel' ТЕПЕРЬ = кривая по DATASHEET Cogent. Прежняя «представительная» была в ~2.4 раза
+# МЯГЧЕ реального листа (700 против 1700 А/м при 1.5 Тл) и занижала насыщение во всех
+# расчётах. Идентификатор сохранён (совместимость сохранённых расчётов), данные исправлены.
+_BUILTIN_STEELS = {
+    "steel": {"name": "M270-35A (datasheet Cogent)"},        # дефолтная электротехническая
+    "steel10": {"name": "Сталь 10 (ГОСТ 1050, данные изделия)"},
+}
 
 
 def _load_custom_materials() -> dict:
-    """Свои магниты с диска (id -> spec). Данные в СИ: Br [Тл], Hcb/Hk/Hcj [А/м]."""
-    if not _MATERIALS_PATH.exists():
-        return {}
+    """Свои материалы из SQLite (id -> spec). Данные в СИ: Br [Тл], Hcb/Hk/Hcj [А/м].
+    Старый materials.json втягивается автоматически при первом обращении."""
     try:
-        return json.loads(_MATERIALS_PATH.read_text(encoding="utf-8"))
-    except Exception:  # noqa: BLE001 — битый файл не должен рушить сервер
+        return materials_db.load_all()
+    except Exception:  # noqa: BLE001 — сбой хранилища не должен рушить сервер
         return {}
 
 
@@ -772,8 +949,12 @@ def _magnet_by_id(mid: str):
     """Модель магнита по id: встроенные марки или свой из библиотеки (magnet_from_datasheet)."""
     if mid == "ndfeb":
         return n42sh_magnet((1, 0, 0))
+    if mid == "n35":
+        return n35_magnet((1, 0, 0))
     if mid == "smco":
         return sm2co17_magnet((1, 0, 0))
+    if mid == "ks25dts240":
+        return ks25dts240_magnet((1, 0, 0))
     spec = _load_custom_materials().get(mid)
     if spec is not None and spec.get("kind", "magnet") == "magnet":
         return magnet_from_datasheet(
@@ -782,6 +963,10 @@ def _magnet_by_id(mid: str):
             Hcj=float(spec["Hcj"]), alpha_Br=float(spec.get("alpha_Br", 0.12)),
             gamma_Hc=float(spec.get("gamma_Hc", 0.6)), T0=float(spec.get("T0", 20.0)),
         )
+    try:                                   # марка из справочного каталога
+        return magnet_catalog.to_magnet(mid, (1, 0, 0))
+    except KeyError:
+        pass
     raise ValueError(f"неизвестный магнит {mid!r}.")
 
 
@@ -794,8 +979,10 @@ def _is_steel(mid: str) -> bool:
 
 def _steel_by_id(mid: str) -> SteelBHCurve:
     """Кривая стали по id: встроенная M270 ('steel') или своя таблица B(H) из библиотеки."""
+    if mid == "steel10":
+        return steel10_bh_curve()
     if mid in _BUILTIN_STEELS or mid == "m270":
-        return m270_35a_bh_curve()
+        return m270_35a_cogent_bh_curve()
     spec = _load_custom_materials().get(mid)
     if spec is not None and spec.get("kind") == "steel":
         return SteelBHCurve(curve_id=mid, name=spec.get("name", mid),
@@ -839,7 +1026,8 @@ def _geo_from(o: dict) -> GeoObject:
                      material=_object_material(str(o.get("material", "air"))),
                      current_density=float(o.get("current", 0.0)) or 0.0,
                      magnet_dir=md, mesh_size=(mm(ms) if ms else None),
-                     priority=int(o.get("priority", 1)))
+                     priority=int(o.get("priority", 1)),
+                     magnet_angle=math.radians(float(o.get("magnet_angle") or 0.0)))
 
 
 def _build_object_model(body: dict) -> str:
@@ -872,6 +1060,7 @@ def _do_object_solve(body: dict) -> dict:
     out = {
         "converged": bool(sol.converged), "iters": int(sol.field.n_iterations),
         "Bx": np.round(B[:, 0], 4).tolist(), "By": np.round(B[:, 1], 4).tolist(),
+        "A": np.round(sol.field.a, 10).tolist(),           # узловой A_z — силовые линии (линии уровня A_z)
         "Bmax": round(float(Bmag.max()), 3), "Bmean": round(float(Bmag.mean()), 3),
         "energy": round(float(magnetic_energy(sol, axial_length=0.03)), 4),
     }
@@ -917,6 +1106,540 @@ def api_object_solve(body: dict = Body(default={})) -> dict:
     return {"job_id": jid}
 
 
+# ---- 3D: СВОБОДНАЯ ГЕОМЕТРИЯ (этап 3D-5, magcore.fem3d) ----
+# Объекты — в мм и градусах, как в 2D; сетка и решение — в СИ. Сетку строит gmsh (без перехвата
+# сигналов — годится любой поток), решение — фоновая задача. Кэш — последние модели и их решения.
+_OBJ3D: dict = {}          # model_id -> Problem3D
+_SOL3D: dict = {}          # model_id -> ScalarField3D (последнее решение модели)
+_NEWFLUX3D: dict = {}      # (model_id, граница) -> поток нового магнита при 20 °C: от события не зависит (Л-104)
+_OBJ3D_MAX = 4             # моделей в памяти (сетка в полмиллиона ячеек — порядка 0,2 ГБ)
+_KIND3D = {"box": ("lx", "ly", "lz"), "cylinder": ("r", "h"), "tube": ("r_in", "r_out", "h"),
+           "tube_sector": ("r_in", "r_out", "h", "a1", "a2"), "sphere": ("r",), "prism": ("h", "points"),
+           CAD_KIND: ("file_id", "body")}
+_STEP_MAX_BYTES = 64 * 1024 * 1024        # больше — скорее сборка целиком, чем электромагнитная модель
+
+
+def _step_dir():
+    """Папка STEP-файлов сервера (этап 3D-1б): файл лежит под SHA-256 содержимого — одинаковый хранится раз."""
+    import tempfile
+    from pathlib import Path
+
+    d = Path(tempfile.gettempdir()) / "magfield_step"
+    d.mkdir(exist_ok=True)
+    return d
+
+
+def _step_path(file_id) -> str:
+    fid = str(file_id or "")
+    if len(fid) != 64 or any(c not in "0123456789abcdef" for c in fid):
+        raise ValueError("неверный идентификатор файла STEP.")
+    path = _step_dir() / f"{fid}.step"
+    if not path.is_file():
+        raise ValueError("файла STEP нет на сервере — загрузите его заново.")
+    return str(path)
+
+
+def _step_params(name: str, up: dict, mm) -> dict:
+    """UI-параметры тела STEP (идентификатор файла, номер тела, отпечаток и ось в мм) → СИ."""
+    body = up["body"]
+    if isinstance(body, bool) or not isinstance(body, int):
+        raise ValueError(f"{name}: номер тела должен быть целым числом.")
+    p = {"path": _step_path(up["file_id"]), "body": body}
+    if up.get("volume_mm3") is not None:
+        p["volume"] = float(up["volume_mm3"]) * 1.0e-9
+    if up.get("centroid_mm") is not None:
+        p["centroid"] = tuple(mm(v) for v in up["centroid_mm"])
+    if up.get("axis_origin_mm") is not None:
+        p["axis_origin"] = tuple(mm(v) for v in up["axis_origin_mm"])
+    if up.get("axis_dir") is not None:
+        p["axis_dir"] = tuple(float(v) for v in up["axis_dir"])
+    return p
+
+
+def _geo3d_from(o: dict) -> GeoObject3D:
+    """UI-объект 3D (мм, градусы) → GeoObject3D (м, радианы)."""
+    k = str(o.get("kind"))
+    name = str(o.get("name") or k)
+    if k not in _KIND3D:
+        raise ValueError(f"{name}: неизвестный примитив {k!r}.")
+    up = dict(o.get("params") or {})
+    missing = [key for key in _KIND3D[k] if key not in up]
+    if missing:
+        raise ValueError(f"{name}: не заданы размеры {missing}.")
+    mm = lambda v: float(v) / 1000.0                                   # noqa: E731
+    if k == CAD_KIND:
+        p = _step_params(name, up, mm)
+    else:
+        p = {key: mm(up[key]) for key in _KIND3D[k] if key not in ("a1", "a2", "points")}
+    if k == "tube_sector":
+        p["a1"], p["a2"] = math.radians(float(up["a1"])), math.radians(float(up["a2"]))
+    if k == "prism":
+        p["points"] = [(mm(x), mm(y)) for x, y in up["points"]]
+    md = o.get("magnet_dir") or "axial"
+    if isinstance(md, (list, tuple)):
+        md = tuple(float(v) for v in md)
+    ms = o.get("mesh_size_mm")
+    return GeoObject3D(name=name, kind=k, params=p,
+                       material=_object_material(str(o.get("material", "air"))),
+                       center=tuple(mm(v) for v in (o.get("center") or (0, 0, 0))),
+                       rotation=tuple(math.radians(float(v)) for v in (o.get("rotation") or (0, 0, 0))),
+                       magnet_dir=md, mesh_size=(mm(ms) if ms else None),
+                       priority=int(o.get("priority", 1)),
+                       magnet_rotation=tuple(math.radians(float(v))
+                                             for v in (o.get("magnet_rotation") or (0, 0, 0))))
+
+
+def _objects3d(body: dict) -> list[GeoObject3D]:
+    objs = [_geo3d_from(o) for o in (body.get("objects") or [])]
+    if not objs:
+        raise ValueError("добавьте хотя бы один объект.")
+    names = [o.name for o in objs]
+    dup = sorted({n for n in names if names.count(n) > 1})
+    if dup:
+        raise ValueError("имена объектов должны быть разными: " + ", ".join(dup) + ".")
+    if "domain" in names:
+        raise ValueError("имя «domain» занято фоновой областью.")
+    return objs
+
+
+def _range(vals: np.ndarray) -> list | None:
+    v = vals[np.isfinite(vals)]
+    return [float(v.min()), float(v.max())] if v.size else None
+
+
+@app.post("/api/3d/preview")
+async def api_3d_preview(body: dict = Body(default={})) -> dict:
+    """
+    Предпросмотр 3D-геометрии: поверхности тел без объёмной сетки (то же построение тел, что у сетки),
+    осевая линия каждого тела (мм) — ось, от которой считается осевое и радиальное намагничивание, — и при
+    `arrows: true` стрелки намагничивания магнитов (этап 3D-7).
+    """
+    try:
+        objs = _objects3d(dict(body))
+        pv = preview_geometry(objs, magnet_arrows=bool(body.get("arrows")))
+    except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI
+        return {"error": str(e)}
+    surfs = pv.surfaces
+    pts = [t.reshape(-1, 3) * 1000.0 for t in surfs if t.size]
+    allp = np.concatenate(pts) if pts else None
+    return {"objects": [{"name": o.name, "material": material_kind(o.material), "n": int(t.shape[0]),
+                         "tris": pack(t.reshape(-1, 3) * 1000.0, np.float32),
+                         "axis": (axis_segment(o, t) * 1000.0).tolist() if t.size else None,
+                         "arrows": arrows_payload(a)}
+                        for o, t, a in zip(objs, surfs, pv.arrows)],
+            "bbox": None if allp is None else [allp.min(axis=0).tolist(), allp.max(axis=0).tolist()]}
+
+
+@app.post("/api/3d/step_upload")
+async def api_3d_step_upload(request: Request, name: str = "") -> dict:
+    """
+    Принять STEP-файл (тело запроса — байты файла) и вернуть его тела (мм, мм³). Файл хранится под
+    SHA-256 содержимого, повторная загрузка ничего не пишет. Файл без тел — ошибка, и он не сохраняется.
+    """
+    shown = str(name or "файл")
+    path = None
+    try:
+        data = await request.body()
+        if not data:
+            raise ValueError("пустой файл.")
+        if len(data) > _STEP_MAX_BYTES:
+            raise ValueError(f"файл больше {_STEP_MAX_BYTES // 2 ** 20} МБ.")
+        fid = hashlib.sha256(data).hexdigest()
+        path = _step_dir() / f"{fid}.step"
+        written = not path.is_file()
+        if written:
+            part = path.with_suffix(".part")
+            part.write_bytes(data)
+            os.replace(part, path)
+        try:
+            bodies = step_bodies(path)
+        except Exception:
+            if written:
+                path.unlink(missing_ok=True)
+            raise
+    except Exception as e:  # noqa: BLE001 — плохой файл → в UI
+        msg = str(e)
+        if path is not None:
+            msg = msg.replace(os.path.abspath(str(path)), shown).replace(str(path), shown)
+        return {"error": msg}
+    return {"file_id": fid, "name": shown, "size": len(data),
+            "bodies": [{"index": b.index, "name": b.name, "volume_mm3": b.volume * 1.0e9,
+                        "centroid_mm": [c * 1.0e3 for c in b.centroid],
+                        "bbox_mm": [[v * 1.0e3 for v in b.bbox_min], [v * 1.0e3 for v in b.bbox_max]],
+                        "n_faces": b.n_faces} for b in bodies]}
+
+
+@app.post("/api/3d/step_has")
+async def api_3d_step_has(body: dict = Body(default={})) -> dict:
+    """Каких STEP-файлов (по SHA-256) нет на сервере — их браузер досылает из файла расчёта."""
+    missing = []
+    for fid in body.get("file_ids") or []:
+        try:
+            _step_path(fid)
+        except ValueError:
+            missing.append(str(fid))
+    return {"missing": missing}
+
+
+def _domain3d(body: dict, objs):
+    return auto_domain3d(objs, material=Air(), margin_frac=float(body.get("margin", 2.0)))
+
+
+def _model_id3d(body: dict) -> str:
+    return "d" + hashlib.sha1(json.dumps(body, sort_keys=True, default=str).encode()).hexdigest()[:11]
+
+
+def _build_model3d(body: dict) -> str:
+    objs = _objects3d(body)
+    prob = build_object_problem3d(objs, _domain3d(body, objs),
+                                  default_mesh_size=float(body.get("default_mesh_mm", 2.0)) / 1000.0,
+                                  grading=float(body.get("grading", 2.0)))
+    mid = _model_id3d(body)
+    _register_model3d(mid, prob)
+    return mid
+
+
+def _register_model3d(mid: str, prob, field=None) -> None:
+    """Модель (и её решение, если есть) — в кэш; прежнее решение этой модели и поток нового магнита — прочь."""
+    _OBJ3D.pop(mid, None)
+    _OBJ3D[mid] = prob
+    _forget_solutions3d(mid)
+    if field is not None:
+        _SOL3D[mid] = field
+    while len(_OBJ3D) > _OBJ3D_MAX:                  # вытесняем самую старую модель
+        old = next(iter(_OBJ3D))
+        _OBJ3D.pop(old)
+        _forget_solutions3d(old)
+
+
+def _forget_solutions3d(mid: str) -> None:
+    """Сетка модели новая или модель вытеснена — решение и поток нового магнита больше не годятся."""
+    _SOL3D.pop(mid, None)
+    for key in [k for k in _NEWFLUX3D if k[0] == mid]:
+        _NEWFLUX3D.pop(key)
+
+
+def _flux_loss3d(mid: str, prob, f, bc: str) -> tuple[dict, float]:
+    """
+    Вердикт о размагничивании (Л-104): потеря потока каждого магнита и всех вместе после этого
+    расчёта — замер при 20 °C без внешнего поля, новый магнит против магнита с сохранённой долей r.
+    Без повреждения — ровно 0 без лишних расчётов; поток нового магнита — один раз на модель.
+    """
+    names = [r.name for r in prob.magnet_regions()]
+    r = f.retention
+    if r is None or not (r[prob.magnet_mask()] < 1.0).any():
+        return {n: 0.0 for n in names}, 0.0
+    new = _NEWFLUX3D.get((mid, bc))
+    if new is None:
+        new = _NEWFLUX3D[(mid, bc)] = new_magnet_flux(prob, bc=bc)
+    losses = flux_loss(prob, r, bc=bc, new_flux=new)
+    total = 1.0 - sum((1.0 - losses[n]) * new[n] for n in names) / sum(new[n] for n in names)
+    return losses, total
+
+
+@app.post("/api/3d/model")
+async def api_3d_model(body: dict = Body(default={})) -> dict:
+    """Построить 3D-модель: сетка gmsh и сцена (поверхности объектов из той же сетки)."""
+    try:
+        mid = _build_model3d(dict(body))
+        prob = _OBJ3D[mid]
+        scene = scene_payload(prob)
+    except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI
+        return {"error": str(e)}
+    return {"model_id": mid, "n_cells": int(prob.mesh.n_cells), "n_vertices": int(prob.mesh.n_vertices),
+            "empty": prob.empty_regions(), "scene": scene}
+
+
+def _do_solve3d(body: dict) -> dict:
+    """Решить 3D-модель (сталь с насыщением, магнит с коленом — метод Ньютона) и собрать сводку."""
+    mid = str(body.get("model_id", ""))
+    prob = _OBJ3D.get(mid)
+    if prob is None:
+        raise ValueError("модель не найдена — постройте сетку заново.")
+    prob = replace(prob, T=float(body.get("T", 20.0)))     # T — без пересборки сетки
+    H0 = body.get("applied_field_kA")
+    bc = str(body.get("bc", "neumann"))
+    # Шаг Ньютона — сопряжёнными градиентами: то же решение (совпадение ~10⁻¹³), на 57 тыс. ячеек
+    # в 10 раз быстрее прямого решателя (этап 3D-6, Л-96).
+    f = solve_nonlinear3d(prob, bc=bc, solver="cg",
+                          applied_field=None if H0 is None else np.asarray(H0, dtype=float) * 1000.0)
+    _SOL3D[mid] = f
+    q = cell_quantities(f)
+    reg = np.asarray(prob.cell_region)
+    Bm = q["B"][0]
+    objects = []
+    for rid, r in sorted(prob.regions.items()):
+        sel = reg == rid
+        if rid == 0 or not sel.any():
+            continue
+        v = f.volumes[sel]
+        objects.append({"name": r.name, "material": material_kind(r.material), "volume_cm3": float(v.sum() * 1e6),
+                        "B_mean": float(np.average(Bm[sel], weights=v)), "B_max": float(Bm[sel].max())})
+    demag = []
+    loss_total, loss_error = None, None
+    if f.risk is not None:
+        losses = {}
+        try:
+            losses, loss_total = _flux_loss3d(mid, prob, f, bc)
+        except Exception as e:  # noqa: BLE001 — вердикт не посчитан → в UI, поле решения остаётся
+            loss_error = str(e)
+        # Запас в одной ячейке и наибольшая потеря ячейки — не вердикт (у краёв к сетке не сходятся,
+        # Л-104): в сводку не выносятся, «где» показывает карта.
+        for name, s in demag_summary(f).items():
+            demag.append({"name": name, "flux_loss": losses.get(name), "past_knee": s.past_knee_fraction,
+                          "damaged": s.damaged_fraction, "beyond_hcj": s.beyond_hcj_fraction,
+                          "retained": s.retained})
+    ranges = {}
+    for key, (vals, unit) in q.items():
+        rng = _range(vals)
+        ranges[key] = None if rng is None else rng + [unit]
+    return {"model_id": mid, "converged": bool(f.converged), "iters": int(f.n_iterations),
+            "residual": float(f.residual), "T": float(prob.T), "coenergy_J": coenergy(f),
+            "objects": objects, "demag": demag, "flux_loss_total": loss_total, "flux_loss_error": loss_error,
+            "flux_measure_T": FLUX_MEASURE_T, "ranges": ranges}
+
+
+@app.post("/api/3d/solve")
+def api_3d_solve(body: dict = Body(default={})) -> dict:
+    jid = _JM.submit("solve3d", str(body.get("label") or "Расчёт 3D"), _do_solve3d, dict(body))
+    return {"job_id": jid}
+
+
+def _solution3d(body: dict):
+    f = _SOL3D.get(str(body.get("model_id", "")))
+    if f is None:
+        raise ValueError("нет решения для этой модели — рассчитайте её.")
+    return f
+
+
+# ---- решение 3D в файле расчёта (этап 3D-9): сетка и потенциал φ сохраняются, поле — без пересчёта ----
+@app.post("/api/3d/solution")
+def api_3d_solution(body: dict = Body(default={})) -> dict:
+    """Сетка и узловой потенциал последнего решения модели — для файла расчёта (`fem3d.storage`)."""
+    try:
+        return field_payload(_solution3d(body))
+    except Exception as e:  # noqa: BLE001 — нет решения → в UI
+        return {"error": str(e)}
+
+
+def _do_restore3d(body: dict) -> dict:
+    """
+    Модель и поле из файла расчёта: объекты — те же, что в файле (`model`, как для /api/3d/model), сетка
+    и φ — из `field`. Годность проверяется уравнениями текущего кода (`restore_saved_field`): не годится —
+    поле не принимается, ответ `stale` с невязками, браузер предлагает пересчёт.
+    """
+    model = dict(body.get("model") or {})
+    payload = body.pop("field", None)                # тело задачи хранится в очереди — большой массив не держим
+    objs = _objects3d(model)
+    saved = restore_saved_field(payload, objs, _domain3d(model, objs))
+    out = {"ok": saved.ok, "residual": saved.residual, "stored_residual": saved.stored_residual}
+    if not saved.ok:
+        return {**out, "stale": True}
+    mid = _model_id3d(model)
+    _register_model3d(mid, saved.problem, saved.field)
+    prob = saved.problem
+    return {**out, "model_id": mid, "n_cells": int(prob.mesh.n_cells), "n_vertices": int(prob.mesh.n_vertices),
+            "empty": prob.empty_regions()}
+
+
+@app.post("/api/3d/restore")
+def api_3d_restore(body: dict = Body(default={})) -> dict:
+    jid = _JM.submit("restore3d", str(body.get("label") or "Поле из файла 3D"), _do_restore3d, dict(body))
+    return {"job_id": jid}
+
+
+@app.post("/api/3d/scene")
+def api_3d_scene(body: dict = Body(default={})) -> dict:
+    """Сцена модели из кэша (поверхности тел из её сетки) — после восстановления из файла расчёта."""
+    prob = _OBJ3D.get(str(body.get("model_id", "")))
+    if prob is None:
+        return {"error": "модель не найдена — откройте расчёт заново."}
+    return {"model_id": str(body.get("model_id")), "n_cells": int(prob.mesh.n_cells),
+            "n_vertices": int(prob.mesh.n_vertices), "empty": prob.empty_regions(), "scene": scene_payload(prob)}
+
+
+def _plane(body: dict):
+    point = np.asarray(body.get("point_mm", (0.0, 0.0, 0.0)), dtype=float) / 1000.0
+    normal = np.asarray(body.get("normal", (0.0, 0.0, 1.0)), dtype=float)
+    return point, normal
+
+
+@app.post("/api/3d/quantity")
+def api_3d_quantity(body: dict = Body(default={})) -> dict:
+    """Величина по ячейкам (float32, base64) — раскраска поверхностей и разреза."""
+    try:
+        q = cell_quantities(_solution3d(body))
+        name = str(body.get("quantity", "B"))
+        if name not in q:
+            raise ValueError(f"неизвестная величина {name!r}; есть: {sorted(q)}.")
+        vals, unit = q[name]
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    rng = _range(vals)
+    return {"quantity": name, "unit": unit, "values": pack(vals, np.float32),
+            "min": None if rng is None else rng[0], "max": None if rng is None else rng[1]}
+
+
+@app.post("/api/3d/section")
+def api_3d_section(body: dict = Body(default={})) -> dict:
+    """Разрез плоскостью (точка в мм, нормаль): треугольники в мм и номер ячейки на треугольник."""
+    try:
+        prob = _OBJ3D.get(str(body.get("model_id", "")))
+        if prob is None:
+            raise ValueError("модель не найдена — постройте сетку заново.")
+        point, normal = _plane(body)
+        tris, cells = section(prob, point, normal, objects=body.get("objects") or None)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    return {"n": int(tris.shape[0]), "tris": pack(tris.reshape(-1, 3) * 1000.0, np.float32),
+            "cells": pack(cells, np.uint32),
+            "regions": pack(np.asarray(prob.cell_region)[cells], np.uint32)}   # цвет по материалу
+
+
+@app.post("/api/3d/force")
+def api_3d_force(body: dict = Body(default={})) -> dict:
+    """Сила [Н] и момент [Н·м] поля на тело (список объектов) — метод виртуальной работы."""
+    from magcore.fem3d import force_weight
+
+    try:
+        f = _solution3d(body)
+        pt = body.get("point_mm")
+        bodies = list(body.get("bodies") or [])
+        weight = str(body.get("weight", "laplace"))
+        if weight == "laplace":            # гармонический вес на больших сетках — итерационным решателем (Л-96)
+            weight = force_weight(f.problem, bodies, kind="laplace", solver="cg")
+        ft = magnetic_force_torque(f, bodies, point=None if pt is None else np.asarray(pt, dtype=float) / 1000.0,
+                                   weight=weight)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    return {"force_N": ft.force.tolist(), "torque_Nm": ft.torque.tolist(),
+            "point_mm": (ft.point * 1000.0).tolist(), "weight": ft.weight}
+
+
+@app.post("/api/3d/flux")
+def api_3d_flux(body: dict = Body(default={})) -> dict:
+    """Магнитный поток [Вб] через сечение плоскостью в выбранных объектах."""
+    try:
+        f = _solution3d(body)
+        point, normal = _plane(body)
+        phi = flux_through_plane(f, point, normal, objects=body.get("objects") or None)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    return {"flux_Wb": phi}
+
+
+@app.post("/api/3d/field_lines")
+def api_3d_field_lines(body: dict = Body(default={})) -> dict:
+    """
+    Силовые линии поля B (этап 3D-7): точки всех линий подряд (мм), начало каждой линии, |B| в точке (Тл) и
+    поток на линию (Вб) — каждая линия несёт одинаковый поток, поэтому где линии гуще, там больше индукция.
+    """
+    from magcore.fem3d.fieldlines import trace_field_lines
+
+    try:
+        f = _solution3d(body)
+        fl = trace_field_lines(f, n_lines=int(body.get("n_lines", 200)), objects=body.get("objects") or None)
+    except Exception as e:  # noqa: BLE001 — в UI
+        return {"error": str(e)}
+    return {"n_lines": fl.n_lines, "n_points": int(fl.points.shape[0]),
+            "points": pack(fl.points * 1000.0, np.float32), "offsets": pack(fl.offsets, np.uint32),
+            "values": pack(fl.values, np.float32), "delta_flux_Wb": fl.delta_flux,
+            "stop": pack(fl.stop, np.uint32)}
+
+
+@app.post("/api/3d/section_lines")
+def api_3d_section_lines(body: dict = Body(default={})) -> dict:
+    """
+    Силовые линии в плоскости разреза (этап 3D-7): линии проекции B на плоскость, расставленные равномерно
+    (не по потоку). `out_of_plane` — медианная доля поля, выходящая из плоскости: у плоскости симметрии она
+    около нуля, и тогда это настоящие линии поля, иначе картинка — проекция.
+    """
+    from magcore.fem3d.fieldlines import trace_section_lines
+
+    try:
+        f = _solution3d(body)
+        point, normal = _plane(body)
+        fl = trace_section_lines(f, point, normal, n_lines=int(body.get("n_lines", 60)))
+    except Exception as e:  # noqa: BLE001 — в UI
+        return {"error": str(e)}
+    return {"n_lines": fl.n_lines, "n_points": int(fl.points.shape[0]),
+            "points": pack(fl.points * 1000.0, np.float32), "offsets": pack(fl.offsets, np.uint32),
+            "values": pack(fl.values, np.float32), "out_of_plane": fl.out_of_plane}
+
+
+@app.get("/api/3d/export_vtu")
+def api_3d_export_vtu(model_id: str, name: str = "model3d"):
+    """Решение в файл .vtu для ParaView (скачивание из своего сервера)."""
+    import tempfile
+
+    f = _SOL3D.get(model_id)
+    if f is None:
+        return {"error": "нет решения для этой модели — рассчитайте её."}
+    safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_ ").strip() or "model3d"
+    out_dir = Path(tempfile.gettempdir()) / "magfield_exports"
+    out_dir.mkdir(exist_ok=True)
+    path = write_vtu(out_dir / f"{safe}_{model_id}.vtu", f)
+    return FileResponse(path, media_type="application/octet-stream", filename=f"{safe}.vtu")
+
+
+def _gap_thickness(params) -> float:
+    """
+    Толщина зазора [м] — НЕЗАВИСИМО от параметризации машины: у outrunner это поле `air_gap`,
+    у спицевой она выводится из диаметров. Нужна проверке «Разрешение зазора».
+    """
+    gap = getattr(params, "air_gap", None)
+    if gap is not None:
+        return float(gap)
+    d_in = getattr(params, "D_magnet_in_mm", None)
+    d_out = getattr(params, "D_tooth_out_mm", None)
+    if d_in is not None and d_out is not None:
+        return max((float(d_in) - float(d_out)) / 2.0, 0.0) * 1e-3
+    return 0.0
+
+
+@app.get("/api/machine_catalog")
+def api_machine_catalog() -> dict:
+    """
+    ГОТОВЫЕ МАШИНЫ (пресеты) из библиотеки типов. Пресет заполняет поля геометрии И задаёт
+    ТИП: схему обмотки (трёхфазная / коллекторная), топологию и стали по регионам.
+    Формула K_e зависит от типа: трёхфазная K_t=1.5·K_e, коллекторная K_t=K_e.
+    """
+    out = []
+    for key, factory in _CATALOG.items():
+        d = factory()
+        p = d.params
+        w = d.winding
+        item = {
+            "id": key, "name": d.name, "winding": w.kind,
+            "winding_label": ("коллекторная (щёточный ДПТ)" if w.kind == "commutator"
+                              else "трёхфазная (PMSM)"),
+            "magnets_on": d.topology.magnets_on,
+            "geometry": {
+                "n_slots": p.n_slots, "n_poles": p.n_poles,
+                "R_bore": p.R_bore * 1e3, "h_stator_yoke": p.h_stator_yoke * 1e3,
+                "h_tooth": p.h_tooth * 1e3, "air_gap": p.air_gap * 1e3,
+                "h_magnet": p.h_magnet * 1e3, "h_rotor_yoke": p.h_rotor_yoke * 1e3,
+                "tooth_width_frac": p.tooth_width_frac,
+                "magnet_embrace": p.magnet_embrace, "axial_length": p.axial_length * 1e3,
+            },
+            "mesh": {k: v * 1e3 for k, v in (p.mesh_size_by_region or {}).items()},
+            "magnet_id": {"N35": "n35", "N42SH-representative": "ndfeb",
+                          "KS25DTs-240": "ks25dts240"}.get(d.materials.magnet.material_id),
+            "steel_armature": ("steel10" if "Steel10" in d.materials.steel_armature.curve_id
+                               else "steel"),
+            "steel_yoke": ("steel10" if "Steel10" in d.materials.yoke_curve.curve_id else "steel"),
+        }
+        if isinstance(w, CommutatorWinding):
+            item["commutator"] = {"Z": w.conductors_total, "a": w.parallel_path_pairs,
+                                  "skew_deg": w.skew_deg}
+        else:
+            item["turns_per_slot"] = w.turns_per_slot
+        if key == "dp25":
+            item["nameplate"] = {"K_e": 0.02946, "R": 3.9, "note": "ТУ КМИЖ.524212.006"}
+        out.append(item)
+    return {"machines": out}
+
+
 @app.get("/api/materials")
 def api_materials() -> dict:
     """Материалы для списков: магниты и стали (встроенные + свои).
@@ -924,18 +1647,77 @@ def api_materials() -> dict:
     Для СВОИХ материалов отдаём и полную спецификацию (`spec`) — фронтенд вшивает её в архив
     расчёта, чтобы тот был самодостаточным (не «поедет», если материал потом изменить/удалить).
     Встроенные (`builtin`) всегда воспроизводимы сервером по id, спека не нужна."""
-    magnets = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_MAGNETS.items()]
-    steels = [{"id": k, "name": v["name"], "builtin": True} for k, v in _BUILTIN_STEELS.items()]
-    for mid, spec in _load_custom_materials().items():
-        entry = {"id": mid, "name": spec.get("name", mid), "builtin": False, "spec": spec}
+    custom = _load_custom_materials()
+    gone = materials_db.deleted_ids()
+    magnets = []
+    for k, v in _BUILTIN_MAGNETS.items():          # представительные пресеты — с параметрами,
+        if k in gone:                              # чтобы строка свойств не была пустой
+            continue
+        e = {"id": k, "name": v["name"], "builtin": True, "family": v.get("family", ""),
+             "source": "встроенная", "source_title": "встроенная"}
+        try:
+            mm = _magnet_by_id(k)
+            e.update(Br=round(float(mm.Br0), 4), Hcb_kA=round(float(mm.Hcb0) / 1e3, 1),
+                     Hcj_kA=round(float(mm.Hcj0) / 1e3, 1), Hk_kA=round(float(mm.Hk0) / 1e3, 1),
+                     alpha_Br=float(mm.alpha_Br), gamma_Hc=float(mm.gamma_Hc),
+                     BHmax=None, T_max=None, hk_given=True, note="")
+        except Exception:  # noqa: BLE001 — пресет без модели просто останется без чисел
+            pass
+        magnets.append(e)
+    # Справочные марки (Arnold, ГОСТ 21559-76, ГОСТ Р 52956-2008) — с семейством и источником,
+    # чтобы интерфейс мог фильтровать по NdFeB/SmCo и искать по марке. Скрытые пропускаем,
+    # изменённые пользователем отдаём в редакции пользователя (пометка edited).
+    for g in magnet_catalog.CATALOG:
+        if g.id in gone:
+            continue
+        ov = custom.get(g.id)
+        if ov is not None:
+            magnets.append({"id": g.id, "name": ov.get("name", g.grade), "builtin": False,
+                            "edited": True, "family": ov.get("family", g.family),
+                            "source": g.source, "source_title": g.source_title + " · изменено",
+                            "Br": round(float(ov["Br"]), 4),
+                            "Hcb_kA": round(float(ov["Hcb"]) / 1e3, 1),
+                            "Hcj_kA": round(float(ov["Hcj"]) / 1e3, 1),
+                            "Hk_kA": round(float(ov["Hk"]) / 1e3, 1),
+                            "BHmax": g.BHmax, "alpha_Br": float(ov.get("alpha_Br", g.alpha_Br)),
+                            "gamma_Hc": float(ov.get("gamma_Hc", g.gamma_Hc)),
+                            "T_max": ov.get("T_max", g.T_max), "BHmax": ov.get("BHmax", g.BHmax),
+                            "hk_given": bool(ov.get("hk_given", True)), "note": ""})
+            continue
+        magnets.append({"id": g.id, "name": g.grade, "builtin": True, "family": g.family,
+                        "source": g.source, "source_title": g.source_title,
+                        "Br": round(g.Br, 4), "Hcb_kA": round(g.Hcb / 1e3, 1),
+                        "Hcj_kA": round(g.Hcj / 1e3, 1), "Hk_kA": round(g.Hk / 1e3, 1),
+                        "BHmax": g.BHmax, "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc,
+                        "T_max": g.T_max, "hk_given": False, "hk_ratio": g.hk_ratio,
+                        "note": g.note})
+    steels = [{"id": k, "name": v["name"], "builtin": True, "source_title": "встроенная"}
+              for k, v in _BUILTIN_STEELS.items() if k not in gone]
+    for mid, spec in custom.items():
+        if mid in magnet_catalog._BY_ID:          # уже отдан выше как «изменённая справочная»
+            continue
+        entry = {"id": mid, "name": spec.get("name", mid), "builtin": False, "spec": spec,
+                 "family": spec.get("family", "свой"), "source": "свой",
+                 "source_title": "свой материал"}
+        if spec.get("kind") != "steel":
+            # свои магниты показываем в общей таблице теми же колонками, что и справочные
+            entry.update(Br=round(float(spec["Br"]), 4),
+                         Hcb_kA=round(float(spec["Hcb"]) / 1e3, 1),
+                         Hcj_kA=round(float(spec["Hcj"]) / 1e3, 1),
+                         Hk_kA=round(float(spec["Hk"]) / 1e3, 1),
+                         alpha_Br=float(spec.get("alpha_Br", 0.12)),
+                         gamma_Hc=float(spec.get("gamma_Hc", 0.6)),
+                         BHmax=spec.get("BHmax"), T_max=spec.get("T_max"),
+                         hk_given=bool(spec.get("hk_given", True)), note="")
         (steels if spec.get("kind") == "steel" else magnets).append(entry)
-    return {"magnets": magnets, "steels": steels}
+    return {"magnets": magnets, "steels": steels,
+            "families": list(magnet_catalog.FAMILIES),
+            "sources": magnet_catalog.SOURCES}
 
 
-def _save_material_spec(mid: str, spec: dict) -> None:
-    store = _load_custom_materials()
-    store[mid] = spec
-    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
+def _save_material_spec(mid: str | None, spec: dict) -> str:
+    """Создать (mid=None) или перезаписать материал. Возвращает итоговый id."""
+    return materials_db.upsert(spec, mid)
 
 
 @app.post("/api/materials")
@@ -954,26 +1736,56 @@ def api_material_save(body: dict = Body(default={})) -> dict:
             pts = list(body["points"])
             H = np.asarray([float(p[0]) for p in pts], dtype=float)
             B = np.asarray([float(p[1]) for p in pts], dtype=float)
-            mid = "cust_" + hashlib.sha1(("steel:" + name).encode()).hexdigest()[:8]
-            curve = SteelBHCurve(curve_id=mid, name=name, H_values=H, B_values=B)  # валидирует
-            spec = {"kind": "steel", "name": name, "H": H.tolist(), "B": B.tolist()}
-            _save_material_spec(mid, spec)
+            mid = str(body.get("id") or "") or None          # id есть => РЕДАКТИРОВАНИЕ
+            curve = SteelBHCurve(curve_id=mid or "new", name=name, H_values=H, B_values=B)
+            spec = {"kind": "steel", "name": name, "family": "сталь",
+                    "H": H.tolist(), "B": B.tolist()}
+            mid = _save_material_spec(mid, spec)
             return {"id": mid, "ok": True, "n_points": int(curve.n_points),
                     "B_max": round(float(curve.B_max), 3)}
+        # ОБЯЗАТЕЛЬНЫЕ паспортные величины — без них материал в библиотеку не заводится.
+        family = str(body.get("family", "")).strip()
+        if family not in magnet_catalog.FAMILIES:
+            return {"error": "укажите класс материала: %s." % ", ".join(magnet_catalog.FAMILIES)}
+        req = {"Br": "B_r, Тл", "Hcb_kA": "H_cB, кА/м", "Hcj_kA": "H_cJ, кА/м",
+               "alpha_Br": "α_Br, %/°C", "gamma_Hc": "γ_Hc, %/°C"}
+        def _bad(key: str) -> bool:
+            v = body.get(key)
+            if v is None or str(v).strip() == "":
+                return True
+            try:
+                return not math.isfinite(float(v))
+            except (TypeError, ValueError):
+                return True
+
+        miss = [t for k, t in req.items() if _bad(k)]
+        if miss:
+            return {"error": "обязательные данные не заполнены: " + "; ".join(miss)}
+        # H_k НЕОБЯЗАТЕЛЕН, но ВЛИЯЕТ на расчёт демага: если не задан, принимается
+        # k*H_cJ по классу материала (magnet_catalog.HK_RATIO) — как для справочных марок.
+        hcj = float(body["Hcj_kA"]) * 1e3
+        hk_in = body.get("Hk_kA")
+        hk_given = hk_in is not None and str(hk_in).strip() != ""
+        hk = float(hk_in) * 1e3 if hk_given else \
+            magnet_catalog.HK_RATIO.get(family, magnet_catalog.HK_RATIO_DEFAULT) * hcj
         spec = {
-            "kind": "magnet", "name": name,
+            "kind": "magnet", "name": name, "family": family,
             "Br": float(body["Br"]), "Hcb": float(body["Hcb_kA"]) * 1e3,
-            "Hk": float(body["Hk_kA"]) * 1e3, "Hcj": float(body["Hcj_kA"]) * 1e3,
-            "alpha_Br": float(body.get("alpha_Br", 0.12)),
-            "gamma_Hc": float(body.get("gamma_Hc", 0.6)), "T0": float(body.get("T0", 20.0)),
+            "Hk": hk, "hk_given": bool(hk_given), "Hcj": hcj,
+            "alpha_Br": float(body["alpha_Br"]),
+            "gamma_Hc": float(body["gamma_Hc"]), "T0": float(body.get("T0", 20.0)),
         }
-        mid = "cust_" + hashlib.sha1(name.encode()).hexdigest()[:8]
-        mg = magnet_from_datasheet(mid, name, (1, 0, 0), Br=spec["Br"], Hcb=spec["Hcb"],
+        for k, key in (("BHmax", "BHmax"), ("T_max", "T_max")):      # справочные, на расчёт не влияют
+            v = body.get(k)
+            if v is not None and str(v).strip() != "":
+                spec[key] = float(v)
+        mid = str(body.get("id") or "") or None              # id есть => РЕДАКТИРОВАНИЕ
+        mg = magnet_from_datasheet(mid or "new", name, (1, 0, 0), Br=spec["Br"], Hcb=spec["Hcb"],
                                    Hk=spec["Hk"], Hcj=spec["Hcj"], alpha_Br=spec["alpha_Br"],
                                    gamma_Hc=spec["gamma_Hc"], T0=spec["T0"])  # валидирует
-    except (KeyError, ValueError, TypeError, IndexError) as e:
+    except (KeyError, ValueError, TypeError, IndexError, ZeroDivisionError) as e:
         return {"error": f"некорректные параметры: {e}"}
-    _save_material_spec(mid, spec)
+    mid = _save_material_spec(mid, spec)
     return {"id": mid, "ok": True, "mu_rec": round(float(mg.mu_rec), 4),
             "temp_limit": round(float(mg.temperature_limit()), 1)}
 
@@ -987,22 +1799,50 @@ def api_magnet_curve(body: dict = Body(default={})) -> dict:
         c = m.curve_at(T)                          # перестраивается по методике при T
         Hk = float(m.Hk(T))
         B_knee = float(c.B_of_H(-Hk))
+        # «Hcb» отдаём ФАКТИЧЕСКИЙ — снятый с кривой нуль B(H). Параметр m.Hcb(T) масштабируется
+        # по alpha_Br и задаёт лишь наклон mu_rec; когда колено заходит перед H_cB (горячий
+        # магнит), кривая ломается раньше и параметр расходится с кривой почти вдвое.
+        Hcb_curve = float(c.Hcb_actual())
     except Exception as e:  # noqa: BLE001 — T вне диапазона модели и пр. → в UI
         return {"error": str(e)}
     return {
         "H": np.round(c.H_values, 1).tolist(), "B": np.round(c.B_values, 4).tolist(),
-        "Br": round(float(m.Br(T)), 4), "Hcb": round(float(m.Hcb(T)), 1),
+        "Br": round(float(m.Br(T)), 4), "Hcb": round(Hcb_curve, 1),
+        "Hcb_line": round(float(m.Hcb(T)), 1),
         "Hk": round(Hk, 1), "B_knee": round(B_knee, 4),
         "mu_rec": round(float(m.mu_rec), 4), "T_limit": round(float(m.temperature_limit()), 1),
     }
 
 
+@app.get("/api/materials/{mid}")
+def api_material_get(mid: str) -> dict:
+    """Спецификация одного своего материала — для предзаполнения формы редактирования."""
+    spec = materials_db.get(mid)
+    if spec is None and mid in magnet_catalog._BY_ID:      # справочная марка — отдаём как есть
+        g = magnet_catalog.by_id(mid)
+        spec = {"kind": "magnet", "name": g.grade, "family": g.family, "Br": g.Br,
+                "Hcb": g.Hcb, "Hk": g.Hk, "Hcj": g.Hcj,
+                "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc, "T0": 20.0}
+    if spec is None:                                       # встроенный пресет
+        try:
+            m = _magnet_by_id(mid)
+            spec = {"kind": "magnet", "name": _BUILTIN_MAGNETS.get(mid, {}).get("name", mid),
+                    "family": _BUILTIN_MAGNETS.get(mid, {}).get("family", ""),
+                    "Br": m.Br0, "Hcb": m.Hcb0, "Hk": m.Hk0, "Hcj": m.Hcj0,
+                    "alpha_Br": m.alpha_Br, "gamma_Hc": m.gamma_Hc, "T0": 20.0}
+        except Exception:  # noqa: BLE001
+            spec = None
+    return {"id": mid, "spec": spec} if spec else {"error": "материал не найден"}
+
+
 @app.post("/api/materials/delete")
 def api_material_delete(body: dict = Body(default={})) -> dict:
-    store = _load_custom_materials()
-    store.pop(str(body.get("id", "")), None)
-    _MATERIALS_PATH.write_text(json.dumps(store, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"ok": True}
+    """Убрать материал из библиотеки БЕЗВОЗВРАТНО (для любого источника)."""
+    mid = str(body.get("id", ""))
+    if mid.startswith("cust_"):
+        return {"ok": materials_db.delete(mid), "id": mid}
+    materials_db.delete_catalog(mid)
+    return {"ok": True, "id": mid}
 
 
 app.mount("/", StaticFiles(directory=str(Path(__file__).parent / "static"), html=True), name="ui")

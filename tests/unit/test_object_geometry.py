@@ -168,6 +168,43 @@ def test_magnet_disk_matches_analytic_free_space():
     assert abs(b_in - exact) / exact < 0.03          # дефолт должен держать ≤3% (не −28%)
 
 
+def test_magnet_angle_turns_the_magnetization_in_the_plane():
+    """
+    Этап 3D-10 (просьба Sergey): направление намагниченности из списка, затем поворот на magnet_angle против
+    часовой вокруг Z. Оси по точкам — ручные оракулы (у радиального — ось точки, повёрнутая на угол); поле —
+    аналитика поперечно намагниченного цилиндра (тест выше): внутри B = Br/(1+μ_rec) — теперь ВДОЛЬ повёрнутой
+    оси, как вектор, с той же точностью 3 %, что держит тест выше.
+    """
+    from magcore.fem2d.model.object_geometry import _magnet_axis
+
+    m = n42sh_magnet((1, 0, 0))
+    a = math.radians(40.0)
+    disk = GeoObject("mag", "circle", {"cx": 0.0, "cy": 0.0, "r": 0.006}, MagnetMaterial(m),
+                     magnet_dir=(1.0, 0.0), mesh_size=0.0006, magnet_angle=a)
+    disk.validate()
+    assert np.allclose(_magnet_axis(disk, 0.001, -0.002), (math.cos(a), math.sin(a)), rtol=0.0, atol=1e-15)
+    th, b = 0.7, math.radians(10.0)
+    for d, s in (("radial", 1.0), ("radial-in", -1.0)):
+        ring = GeoObject("g", "ring", {"cx": 1.0, "cy": 2.0, "r_in": 1.0, "r_out": 2.0}, Air(), magnet_dir=d,
+                         magnet_angle=b)
+        got = _magnet_axis(ring, 1.0 + 1.5 * math.cos(th), 2.0 + 1.5 * math.sin(th))
+        assert np.allclose(got, (s * math.cos(th + b), s * math.sin(th + b)), rtol=0.0, atol=1e-15)
+    plain = GeoObject("g", "ring", {"cx": 1.0, "cy": 2.0, "r_in": 1.0, "r_out": 2.0}, Air(), magnet_dir="radial")
+    assert plain.magnet_angle == 0.0 and _magnet_axis(plain, 2.5, 2.0) == (1.0, 0.0)
+    with pytest.raises(ValueError, match="magnet_angle"):
+        GeoObject("x", "circle", {"cx": 0.0, "cy": 0.0, "r": 1.0}, Air(), magnet_angle=math.inf).validate()
+    pytest.importorskip("gmsh")
+    p = build_object_problem([disk], auto_domain([disk], material=Air()), default_mesh_size=0.0012)
+    sol = solve_problem2d(p, max_iter=60)
+    assert sol.converged
+    reg = np.asarray(p.cell_region)
+    cen = np.array([p.mesh.cell_centroid(c) for c in range(p.mesh.n_cells)])
+    core = (reg == 1) & (np.hypot(cen[:, 0], cen[:, 1]) < 0.003)
+    exact = m.Br(20.0) / (1.0 + m.mu_rec) * np.array([math.cos(a), math.sin(a)])
+    b_in = sol.B_cells[core][:, :2].mean(axis=0)
+    assert np.linalg.norm(b_in - exact) / np.linalg.norm(exact) < 0.03
+
+
 def test_magnet_disk_uniform_interior(_model):
     # Равномерно намагниченный (вдоль +x) диск в воздухе → внутри поле ~однородно и вдоль x.
     prob, dom, steel, mag = _model
@@ -188,3 +225,34 @@ def test_magnet_disk_uniform_interior(_model):
     assert np.abs(by.mean()) < 0.15 * np.abs(bx.mean())              # вдоль оси намагничивания x
     assert bx.std() < 0.2 * abs(bx.mean())                           # ~однородно в ядре
     assert magnetic_energy(sol, axial_length=0.03) > 0.0
+
+
+@pytest.mark.parametrize("span_deg", [181, 270])
+def test_sector_wider_than_half_turn_is_built_on_the_right_side(span_deg):
+    """
+    Дуга gmsh строго меньше π: одной дугой сектор > 180° строился по КОРОТКОЙ стороне
+    окружности — сетка не повторяла границу, площадь занижалась на 1,3–2,4 % (Л-87).
+    Проверяем, что сетка лежит на верной дуге: вершины внешней окружности есть в каждой
+    четверти сектора и нет вне его.
+    """
+    pytest.importorskip("gmsh")
+    r_in, r_out, h = 0.010, 0.020, 0.0015
+    s = GeoObject("s", "sector", {"cx": 0.0, "cy": 0.0, "r_in": r_in, "r_out": r_out,
+                                  "a1": 0.0, "a2": math.radians(span_deg)},
+                  SteelMaterial(m270_35a_bh_curve()))
+    dom = auto_domain([s], material=Air(), margin_frac=0.5, mesh_size=0.004)
+    p = build_object_problem([s], dom, default_mesh_size=h)
+    V = np.asarray(p.mesh.vertices)
+    on_outer = np.abs(np.hypot(V[:, 0], V[:, 1]) - r_out) < 1e-9 * r_out
+    ang = np.degrees(np.mod(np.arctan2(V[on_outer, 1], V[on_outer, 0]), 2.0 * math.pi))
+    assert np.all(ang <= span_deg + 1e-6)                         # только на своей дуге
+    for q0 in range(0, span_deg - 45, 90):                       # в каждой своей четверти
+        assert np.any((ang > q0 + 1) & (ang < min(q0 + 89, span_deg - 1)))
+    # Площадь — в пределах ошибки хорд: 1 − sin θ/θ на внешней (θ = h/r_out) и на внутренней
+    # (θ = h/r_in) окружностях, взвешенных их площадями, ≈ 0,25 %; запас 2.
+    e = lambda t: 1.0 - math.sin(t) / t                                     # noqa: E731
+    bound = 2.0 * (r_out ** 2 * e(h / r_out) + r_in ** 2 * e(h / r_in)) / (r_out ** 2 - r_in ** 2)
+    reg = np.asarray(p.cell_region)
+    area = sum(p.mesh.cell_area(c) for c in np.where(reg == 1)[0])
+    exact = 0.5 * math.radians(span_deg) * (r_out ** 2 - r_in ** 2)
+    assert abs(area / exact - 1.0) < bound

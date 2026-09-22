@@ -90,9 +90,13 @@ def run_picard_fixed_point(
     if not (0.0 < relaxation <= 1.0):
         raise ValueError("relaxation must be in (0, 1].")
 
+    # ν — либо скаляр на ячейку (n_cells,), либо ТЕНЗОР (n_cells,dim,dim) для анизотропного
+    # материала (спечённый магнит: вдоль лёгкой оси и поперёк неё проницаемость разная).
+    # Цикл к форме безразличен: и критерий (по B), и под-релаксация ν поэлементны.
     nu_cells = np.asarray(nu_init, dtype=float).copy()
-    if nu_cells.ndim != 1:
-        raise ValueError("nu_init must have shape (n_cells,).")
+    if nu_cells.ndim not in (1, 3):
+        raise ValueError("nu_init must have shape (n_cells,) or (n_cells, dim, dim).")
+    nu_shape = nu_cells.shape
     n_cells = nu_cells.shape[0]
 
     B_prev: np.ndarray | None = None
@@ -114,8 +118,8 @@ def run_picard_fixed_point(
         B_prev = B_cells
 
         nu_new = np.asarray(nu_of_B(B_cells), dtype=float)
-        if nu_new.shape != (n_cells,):
-            raise ValueError("nu_of_B must return an array of shape (n_cells,).")
+        if nu_new.shape != nu_shape:
+            raise ValueError("nu_of_B must return an array of shape %s (as nu_init)." % (nu_shape,))
         nu_cells = (1.0 - relaxation) * nu_cells + relaxation * nu_new
 
     return PicardLoopResult(

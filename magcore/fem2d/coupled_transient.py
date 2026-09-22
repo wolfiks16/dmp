@@ -6,6 +6,7 @@ import numpy as np
 
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
+from magcore.fem2d.assembly import uniaxial_nu_tensor
 from magcore.fem2d.losses import copper_loss_density
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -57,8 +58,9 @@ class CoupledTransientResult:
     T_max: np.ndarray             # (n+1,) макс. температура в области [°C]
     T_magnet: np.ndarray          # (n+1,) hot-spot температура магнита [°C] (nan без магнита)
     retention_min: np.ndarray     # (n+1,) минимальная по ячейкам доля B_r_eff/B_r(T)
-    retention_mean: np.ndarray    # (n+1,) средняя доля
-    n_past_knee: np.ndarray       # (n+1,) число ячеек магнита за коленом
+    retention_mean: np.ndarray    # (n+1,) средняя доля — с весом площади ячеек (поштучное среднее зависит от сетки, Л-104)
+    n_past_knee: np.ndarray       # (n+1,) число ячеек магнита за коленом — только «есть / нет»: число зависит от сетки
+    past_knee_fraction: np.ndarray  # (n+1,) доля площади магнита за коленом
     loss_power: np.ndarray        # (n+1,) полные потери ∫q dV [Вт/м]
     stored_energy: np.ndarray     # (n+1,) ∫c·T dV [Дж/м]
     outflow: np.ndarray           # (n+1,) отвод ∫h(T−T_amb) ds [Вт/м]
@@ -117,6 +119,12 @@ class IrreversibleMagnetState:
         self.T_bin = float(T_bin)
         self.switch_band = float(switch_band)
         self.nu_rec = 1.0 / magnet.mu_rec
+        # ПОПЕРЕЧНАЯ реактивность — СВОЙСТВО МАТЕРИАЛА, постоянное. Поперечный отклик
+        # спечённого магнита — когерентный поворот моментов против поля анизотропии,
+        # χ_⊥ = J_s²/(2μ₀K₁); в него входит КВАДРАТ J_s, поэтому перемагниченное зерно
+        # (та же ось, тот же K₁, тот же |M_s|) даёт тот же отклик ⇒ μ_⊥ НЕ зависит от
+        # продольной необратимости. Именно это ломала прежняя скалярная сборка.
+        self.nu_perp_rel = 1.0 / magnet.mu_perp
 
         ax = np.asarray(axis, dtype=float)
         if ax.ndim == 1:
@@ -273,7 +281,12 @@ class IrreversibleMagnetState:
             nu_branch = (1.0 - self.omega) * nu_prev + self.omega * nu_branch
         self._prev = (b_branch, nu_branch)
 
-        nu_frozen = np.asarray(nu_cells, dtype=float)[self.idx]
+        # Замороженная ν вдоль лёгкой оси. При ТЕНЗОРНОЙ ν берём осевую компоненту eᵀνe:
+        # источник корректируется только вдоль оси, поперёк корректировать нечего (там ν
+        # и есть материальный закон).
+        nu_all = np.asarray(nu_cells, dtype=float)
+        nu_frozen = (np.einsum("ci,cij,cj->c", self.axes, nu_all[self.idx], self.axes)
+                     if nu_all.ndim == 3 else nu_all[self.idx])
         mu_frozen = self.mu0 / nu_frozen
         b_src = b_branch - mu_frozen * h_par           # источник под ЗАМОРОЖЕННУЮ ν
 
@@ -282,6 +295,26 @@ class IrreversibleMagnetState:
         self._pending = r_eff
         self.nu_rel = nu_branch                        # наклон ветви для следующей сборки
         out[self.idx] = (nu_frozen * b_src)[:, None] * self.axes      # источник ν·B_r
+        return out
+
+    def nu_field(self, nu_scalar) -> np.ndarray:
+        """
+        Полное поле ν как ТЕНЗОР (n_cells, 2, 2), действующий на B: изотропная ν·I вне
+        магнита, одноосный тензор ν_⊥(I − eeᵀ) + ν_∥ eeᵀ в магните.
+
+        ν_∥ — наклон рабочей ветви (`nu_rel`): вдоль оси он законен, потому что источник
+        строится под ту же ν и неподвижная точка от неё не зависит (см. `__call__`).
+        ν_⊥ — постоянная материала (`nu_perp_rel`): поперёк корректирующего источника нет,
+        и туда наклон ветви попадать не должен.
+        """
+        nu = np.asarray(nu_scalar, dtype=float).reshape(-1)
+        if nu.shape != (self.n_cells,):
+            raise ValueError("nu_scalar must have shape (n_cells,).")
+        out = nu[:, None, None] * np.broadcast_to(np.eye(self.dim),
+                                                  (self.n_cells, self.dim, self.dim))
+        out = np.array(out, dtype=float)
+        if self.idx.size:
+            out[self.idx] = uniaxial_nu_tensor(self.nu_rel, self.nu_perp_rel, self.axes)
         return out
 
     def commit(self) -> None:
@@ -353,6 +386,7 @@ def solve_coupled_magneto_thermal_transient(
     T_amb: float,
     dt: float,
     n_steps: int,
+    robin=None,
     j_cells=None,
     j_loss_cells=None,
     magnet: AnisotropicBHTMagnet | None = None,
@@ -374,6 +408,7 @@ def solve_coupled_magneto_thermal_transient(
     max_substeps: int = 32,
     em_abort_residual: float = 1.0e-2,
     steady_tol: float | None = None,
+    anisotropic_magnet: bool = True,
 ) -> CoupledTransientResult:
     """
     Связанный магнитотепловой расчёт ВО ВРЕМЕНИ с необратимым размагничиванием в петле.
@@ -404,6 +439,11 @@ def solve_coupled_magneto_thermal_transient(
     em_abort_residual — невязка, выше которой решение считается бессмысленным и расчёт
                 останавливается (`magnet_cascade=True`). Промах по `em_tol` на доли порядка
                 остановкой не считается — он отражается в `em_converged`/`em_residual`.
+    anisotropic_magnet — ν магнита как ТЕНЗОР (по умолчанию): вдоль лёгкой оси касательная
+                ν рабочей ветви, ПОПЕРЁК — постоянная ν_⊥ = 1/(μ₀μ_perp) материала. False
+                возвращает прежнюю СКАЛЯРНУЮ сборку, где наклон ветви действовал во все
+                стороны и повреждённая ячейка становилась проводником потока вбок; оставлено
+                ТОЛЬКО для абляции — физически этот режим неверен поперёк оси.
     steady_tol — если задан [°C/с], расчёт ОСТАНАВЛИВАЕТСЯ по выходу на установившийся режим:
                 как только |ΔT_max|/dt между соседними шагами падает ниже него (после ≥2 шагов
                 нагрева). Это НЕ аварийная остановка (runaway=cascade=False) — поле уже стационарно
@@ -434,17 +474,30 @@ def solve_coupled_magneto_thermal_transient(
             magnet, magnet_mask, nc, axis=magnet_axis,
             relaxation=demag_relaxation, switch_band=switch_band, T_bin=T_bin,
         )
+        # ⚠ Базовая ν (воздух/сталь) обязана оставаться СКАЛЯРНОЙ: `nu_fn` строит из неё
+        #   тензор. Замыкание держит СВОЮ копию — `nu0` ниже перевязывается на тензор, и
+        #   захват по имени вернул бы тензор во вход `nu_field`.
         nu0 = np.asarray(nu_init, dtype=float)
-        nu_base = (lambda B: nu0.copy()) if nu_of_B is None else nu_of_B
+        nu_base = ((lambda B, _v=nu0.copy(): _v.copy()) if nu_of_B is None else nu_of_B)
 
-        def nu_fn(B_cells, _st=state, _base=nu_base):
-            """ν по ячейкам: воздух/сталь — от пользователя, магнит — КАСАТЕЛЬНАЯ ν ветви."""
+        def nu_fn(B_cells, _st=state, _base=nu_base, _aniso=bool(anisotropic_magnet)):
+            """
+            ν по ячейкам: воздух/сталь — от пользователя, магнит — своя.
+
+            _aniso=True (по умолчанию): ТЕНЗОР — вдоль оси касательная ν ветви, поперёк
+            постоянная ν_⊥ материала. _aniso=False: прежний СКАЛЯР (наклон ветви во все
+            стороны) — оставлен только для абляции, физически он неверен поперёк оси.
+            """
             nu = np.asarray(_base(B_cells), dtype=float).copy()
+            if _aniso:
+                return _st.nu_field(nu)
             nu[_st.idx] = _st.nu_rel
             return nu
 
         nu0 = nu0.copy()
         nu0[state.idx] = state.nu_rel
+        if anisotropic_magnet:
+            nu0 = state.nu_field(nu0)
         ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
 
     # Предел модели магнита проверяется ТОЛЬКО по ячейкам магнита. Глобальный T_cap — это
@@ -455,7 +508,8 @@ def solve_coupled_magneto_thermal_transient(
     if T_cap is None:
         T_cap = float("inf")
 
-    stepper = ImplicitEulerThermalStepper(space, k_cells, capacity_cells, dt=dt, h=h, T_amb=T_amb)
+    stepper = ImplicitEulerThermalStepper(space, k_cells, capacity_cells, dt=dt, h=h,
+                                          T_amb=T_amb, robin=robin)
     areas = np.array([mesh.cell_area(c) for c in range(nc)], dtype=float)
 
     T = (np.full(space.ndofs, float(T_amb), dtype=float)
@@ -468,6 +522,7 @@ def solve_coupled_magneto_thermal_transient(
     ret_min: list[float] = []
     ret_mean: list[float] = []
     knee_cnt: list[int] = []
+    knee_frac: list[float] = []
     p_loss: list[float] = []
     energy: list[float] = []
     outflow: list[float] = []
@@ -484,16 +539,19 @@ def solve_coupled_magneto_thermal_transient(
         times.append(t)
         T_hist.append(T_field.copy())
         T_max.append(float(T_field.max()))
-        if state is not None:
-            T_mag_hist.append(float(state.T_mag.max()) if state.idx.size else float("nan"))
-            ret_min.append(float(state.retention.min()) if state.idx.size else 1.0)
-            ret_mean.append(float(state.retention.mean()) if state.idx.size else 1.0)
-            knee_cnt.append(state.n_past_knee() if state.idx.size else 0)
+        if state is not None and state.idx.size:
+            a_m = areas[state.idx]
+            T_mag_hist.append(float(state.T_mag.max()))
+            ret_min.append(float(state.retention.min()))
+            ret_mean.append(float(np.average(state.retention, weights=a_m)))
+            knee_cnt.append(state.n_past_knee())
+            knee_frac.append(float(a_m[state.margins() < 0.0].sum() / a_m.sum()))
         else:
             T_mag_hist.append(float("nan"))
             ret_min.append(1.0)
             ret_mean.append(1.0)
             knee_cnt.append(0)
+            knee_frac.append(0.0)
         p_loss.append(float((q * areas).sum()))
         em_iters.append(int(n_it))
         em_res.append(float(res))
@@ -611,6 +669,7 @@ def solve_coupled_magneto_thermal_transient(
         times=np.asarray(times), T_hist=np.asarray(T_hist), T_max=np.asarray(T_max),
         T_magnet=np.asarray(T_mag_hist), retention_min=np.asarray(ret_min),
         retention_mean=np.asarray(ret_mean), n_past_knee=np.asarray(knee_cnt),
+        past_knee_fraction=np.asarray(knee_frac),
         loss_power=np.asarray(p_loss), stored_energy=np.asarray(energy),
         outflow=np.asarray(outflow), runaway=runaway, magnet_cascade=cascade,
         stop_reason=reason,

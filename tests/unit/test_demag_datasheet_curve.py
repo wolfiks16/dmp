@@ -5,10 +5,12 @@ import pytest
 
 from magcore.constants import MU0
 from magcore.domain.magnet_curves import (
+    DemagnetizationCurveBH,
     demag_curve_from_datasheet,
     demag_curve_from_datasheet_cgs,
     _KOE_TO_A_PER_M,
 )
+from magcore.domain.magnet_model import n42sh_magnet
 
 
 def _user_curve():
@@ -86,3 +88,48 @@ def test_cgs_conversion_consistent_with_si() -> None:
     )
     assert np.allclose(c_cgs.B_values, c_si.B_values)
     assert np.allclose(c_cgs.H_values, c_si.H_values)
+
+
+# ---------------------------------------------------------------------------
+# ФАКТИЧЕСКИЙ H_cB (нуль нормальной кривой) vs даташит-ПАРАМЕТР Hcb.
+# Параметр задаёт лишь наклон mu_rec = Br/(mu0*Hcb) — «где был бы ноль, если бы
+# прямой участок шёл НЕ ЛОМАЯСЬ». Пока колено ЗА H_cB, оба числа совпадают; как
+# только колено заходит ПЕРЕД H_cB (нагрев), кривая ломается раньше.
+# ---------------------------------------------------------------------------
+
+
+def test_hcb_actual_equals_parameter_when_knee_is_beyond() -> None:
+    """Колено (15.6 кЭ) ЗА H_cB (10.4 кЭ) ⇒ прямая доходит до нуля неломаясь."""
+    c = _user_curve()
+    Hcb = 10.4 * _KOE_TO_A_PER_M
+    assert c.Hcb_actual() == pytest.approx(Hcb, rel=1e-4)
+    assert c.B_of_H(-c.Hcb_actual()) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_hcb_actual_is_smaller_when_knee_comes_first() -> None:
+    """Колено ПЕРЕД H_cB ⇒ кривая ломается вниз и ноль наступает раньше параметра."""
+    Br, Hcb_par, Hk, Hcj = 1.1, 7.9e5, 3.9e5, 4.6e5      # Hk < Hcb_par (горячий магнит)
+    c = demag_curve_from_datasheet("hot", "hot", Br=Br, Hcb=Hcb_par, Hk=Hk, Hcj=Hcj)
+    assert c.Hcb_actual() < Hcb_par                        # параметр завышает
+    assert Hk < c.Hcb_actual() < Hcj                       # ноль между коленом и H_cJ
+    assert c.B_of_H(-c.Hcb_actual()) == pytest.approx(0.0, abs=1e-6)
+
+
+def test_hcb_actual_collapses_faster_than_Br_on_heating() -> None:
+    """Физический оракул: у NdFeB H_cB с нагревом падает кратно быстрее, чем B_r."""
+    mag = n42sh_magnet((1.0, 0.0, 0.0))
+    c20, c150 = mag.curve_at(20.0), mag.curve_at(150.0)
+    # при 20 °C колено (17 кЭ) ЗА H_cB (11.6 кЭ) ⇒ параметр и кривая совпадают
+    assert c20.Hcb_actual() == pytest.approx(mag.Hcb(20.0), rel=1e-4)
+    # при 150 °C колено заходит вперёд ⇒ параметр уже НЕ равен нулю кривой
+    assert c150.Hcb_actual() < 0.75 * mag.Hcb(150.0)
+    drop_Hcb = 1.0 - c150.Hcb_actual() / c20.Hcb_actual()
+    drop_Br = 1.0 - mag.Br(150.0) / mag.Br(20.0)
+    assert drop_Hcb > 2.0 * drop_Br
+
+
+def test_hcb_actual_rejects_curve_without_zero_crossing() -> None:
+    with pytest.raises(ValueError):        # вся кривая выше нуля
+        DemagnetizationCurveBH("p", "p", np.array([-1.0e5, 0.0]), np.array([0.5, 1.0])).Hcb_actual()
+    with pytest.raises(ValueError):        # вся кривая ниже нуля
+        DemagnetizationCurveBH("n", "n", np.array([-1.0e5, 0.0]), np.array([-2.0, -1.0])).Hcb_actual()

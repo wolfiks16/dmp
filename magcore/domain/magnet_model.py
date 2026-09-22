@@ -151,14 +151,30 @@ class AnisotropicBHTMagnet:
 
     # --- главная кривая / необратимое состояние ---
     def B_major_parallel(self, H_par, T):
-        """Нормальная главная кривая B(H_par) вдоль e при T (векторизуемо по H_par)."""
+        """
+        Нормальная главная кривая B(H_par) вдоль e при T (векторизуемо по H_par).
+
+        Таблица кривой покрывает H ∈ [−H_cJ, 0]. За её краями — то же доопределение, что в ядре
+        К6′ (`fem2d.coupled_transient._curve_eval`), а не обрезка: при H > 0 (подмагничивающее
+        поле) — линия возврата B_r(T) + μ0·μ_rec·H (потерь нет); левее −H_cJ — консервативно
+        полная потеря, линия возврата из начала координат μ0·μ_rec·H (B_r,eff = 0). Обрезка при
+        H > 0 давала ложную необратимую «потерю» μ0·μ_rec·H — 0,14 Тл при +100 кА/м (Л-92).
+        """
         curve = self.curve_at(T)
-        Hc = np.clip(
-            np.asarray(H_par, dtype=float),
-            float(curve.H_values[0]),
-            float(curve.H_values[-1]),
-        )
-        return np.interp(Hc, curve.H_values, curve.B_values)
+        Hv, Bv = curve.H_values, curve.B_values
+        H = np.asarray(H_par, dtype=float)
+        B = np.interp(np.clip(H, Hv[0], Hv[-1]), Hv, Bv)
+        B = np.where(H > Hv[-1], Bv[-1] + MU0 * self.mu_rec * (H - Hv[-1]), B)
+        return np.where(H < Hv[0], MU0 * self.mu_rec * H, B)
+
+    def B_major_slope(self, H_par, T):
+        """Наклон главной кривой dB/dH_par [Тл·м/А] при T — касательная для метода Ньютона."""
+        curve = self.curve_at(T)
+        Hv, Bv = curve.H_values, curve.B_values
+        H = np.asarray(H_par, dtype=float)
+        idx = np.clip(np.searchsorted(Hv, H, side="right") - 1, 0, Hv.size - 2)
+        s = (Bv[idx + 1] - Bv[idx]) / (Hv[idx + 1] - Hv[idx])
+        return np.where((H >= Hv[-1]) | (H < Hv[0]), MU0 * self.mu_rec, s)
 
     def effective_Br(self, H_min, T):
         """B_r_eff = B^maj_T(H_min) - mu0*mu_rec*H_min (обобщ. форма; >= потерь нет выше колена)."""
@@ -168,6 +184,42 @@ class AnisotropicBHTMagnet:
     def irreversible_loss(self, H_min, T):
         """Необратимая потеря ремнантности dBr = Br(T) - B_r_eff >= 0."""
         return self.Br(T) - self.effective_Br(H_min, T)
+
+    # --- необратимая память: сохранённая доля ремнантности r (постановка (S2), Л-100) ---
+    def retention_now(self, H_par, T):
+        """
+        Доля ремнантности r_now(H∥, T) ∈ [0, 1], которую оставило бы наихудшее поле H∥ при температуре T:
+        r_now = clip((B^maj(H∥, T) − μ0·μ_rec·H∥) / B_r(T), 0, 1) — пересечение линии возврата из точки
+        главной кривой с осью H = 0, отнесённое к номиналу. Выше колена и при H∥ > 0 — ровно 1: шум
+        интерполяции 1 − O(1e-16) привязывается к единице, иначе защёлка копила бы его как «потерю»;
+        ниже −H_cJ — 0 (полная потеря). Правило то же, что в ядре К6′
+        (`fem2d.coupled_transient.IrreversibleMagnetState.__call__`); совпадение закреплено тестом.
+
+        Переменная состояния необратимости — доля r = min по истории r_now (постановка (S2),
+        docs/math/coupled_problem.md): при смене температуры потерянная доля сохраняется, при остывании
+        возвращается только обратимая часть через B_r(T). Хранить вместо неё наихудшее поле нельзя —
+        при остывании колено уходит глубже, и магнит «вылечился» бы (Л-100).
+        """
+        r = np.clip(np.asarray(self.effective_Br(H_par, T), dtype=float) / self.Br(T), 0.0, 1.0)
+        return np.where(r > 1.0 - 1.0e-9, 1.0, r)
+
+    def switch_field(self, retention, T):
+        """
+        Поле переключения H*(r, T) [А/м] ячейки с сохранённой долей r: при H∥ ≥ H* закон — линия
+        возврата r·B_r(T) + μ0·μ_rec·H∥, при H∥ < H* — главная кривая (новая потеря). Обращение
+        r_now(H, T), которое на отрезке таблицы [−H_cJ, H_k] кусочно-линейно и строго возрастает:
+        r = 1 → колено H_k(T); r ниже r_now(−H_cJ, T) (такая доля бывает, если потеря получена при
+        другой температуре) → −H_cJ(T): линия возврата на всей таблице ниже главной кривой, и новая
+        потеря начинается только за −H_cJ. Нужна для коэнергии закона (энергия и виртуальная работа).
+        """
+        curve = self.curve_at(T)
+        Hv = np.asarray(curve.H_values, dtype=float)
+        Bv = np.asarray(curve.B_values, dtype=float)
+        k = int(np.argmin(np.abs(Hv - self.knee_field(T))))                 # узел колена
+        g = (Bv[: k + 1] - MU0 * self.mu_rec * Hv[: k + 1]) / self.Br(T)    # r_now на узлах [−H_cJ, H_k]
+        if not np.all(np.diff(g) > 0.0):
+            raise ValueError("r_now на отрезке [−H_cJ, H_k] не возрастает строго — таблица кривой некорректна.")
+        return np.interp(np.asarray(retention, dtype=float), g, Hv[: k + 1])
 
     def effective_remanence_vector(self, H_min, T) -> np.ndarray:
         """Вектор эффективной ремнантности B_r_eff * e (FEM-источник A-3)."""
@@ -281,5 +333,39 @@ def sm2co17_magnet(easy_axis, T0: float = 20.0) -> AnisotropicBHTMagnet:
     return magnet_from_datasheet(
         "KS25DС-representative", "Sm2Co17 (representative КС25ДЦ)", easy_axis,
         Br=1.05, Hcb=780.0e3, Hk=1100.0e3, Hcj=1600.0e3,
+        alpha_Br=0.030, gamma_Hc=0.20, T0=T0,
+    )
+
+
+def n35_magnet(easy_axis, T0: float = 20.0) -> AnisotropicBHTMagnet:
+    """
+    **N35** (NdFeB, СТАНДАРТНАЯ марка без термо-суффикса) — магниты изделия ДП25
+    (уточнено Sergey, 2026-08-05).
+
+    Br 1.17–1.21 Тл (взято 1.19), HcB ≥ 868 кА/м (10.9 кЭ), HcJ ≥ 955 кА/м (12 кЭ),
+    (BH)max 263–287 кДж/м³. ⚠ В отличие от N42SH (суффикс SH = высокотемпературная),
+    у стандартной N-марки **колено близко к HcB** и температурные коэффициенты хуже:
+    α_Br ≈ −0.12 %/°C, γ_HcJ ≈ −0.60 %/°C, предельная рабочая T ≈ 80 °C.
+    """
+    return magnet_from_datasheet_cgs(
+        "N35", "N35 (стандартный NdFeB)", easy_axis,
+        Br_gauss=11900.0, Hcb_kOe=10.9, Hk_kOe=11.4, Hcj_kOe=12.0,
+        alpha_Br=0.12, gamma_Hc=0.60, T0=T0,
+    )
+
+
+def ks25dts240_magnet(easy_axis, T0: float = 20.0) -> AnisotropicBHTMagnet:
+    """
+    **КС25ДЦ-240** (Sm2Co17, ГОСТ 21559-76) — ВЕРХНЯЯ марка диапазона, конкретно заданная
+    для расчётов (Sergey, 2026-08-03), в отличие от `sm2co17_magnet` (середина диапазона).
+
+    Индекс 240 = (BH)max в кДж/м³. Для линейного магнита (BH)max ≈ Br²/(4μ₀) ⇒
+    Br = √(4μ₀·240е3) ≈ **1.10 Тл** — верх диапазона ГОСТ (0.90–1.10 Тл); HcB берётся
+    верхним по ГОСТ (780 кА/м). Температурные коэффициенты — как у Sm2Co17.
+    ⚠ Hk/HcJ — представительные для 2:17 (ГОСТ их не нормирует), сверить с паспортом партии.
+    """
+    return magnet_from_datasheet(
+        "KS25DTs-240", "Sm2Co17 КС25ДЦ-240 (ГОСТ 21559-76)", easy_axis,
+        Br=1.10, Hcb=780.0e3, Hk=1150.0e3, Hcj=1600.0e3,
         alpha_Br=0.030, gamma_Hc=0.20, T0=T0,
     )

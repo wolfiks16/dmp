@@ -13,10 +13,13 @@ from magcore.fem2d.coupled_transient import (
 )
 from magcore.fem2d.losses import copper_loss_density
 from magcore.fem2d.machines.excitation import slot_areas, winding_current_density
+from magcore.fem2d.machines.iron_loss import stator_iron_loss_density
+from magcore.fem2d.machines.magnet_loss import magnet_rotor_loss_density
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES, MachineGeometry, Region
 from magcore.fem2d.machines.scenario import MachineScenario
 from magcore.fem2d.machines.static_solver import machine_reluctivity
 from magcore.fem2d.spaces import LagrangeP1Space2D
+from magcore.fem2d.thermal import assemble_robin_multi, classify_boundary_edges
 
 # S3, инкремент 4: сценарий «ТЕПЛОВАЯ СТОЙКОСТЬ МАГНИТА» на РЕАЛЬНОЙ машине.
 # Переносит верифицированную на сегменте связку (coupled_transient) на сечение outrunner PMSM
@@ -190,6 +193,37 @@ def magnet_fundamental_ratio(
     return float(np.abs((r * phasor).sum()) / nominal)
 
 
+def precompute_core_loss_density(
+    params, magnet: AnisotropicBHTMagnet, steel, *,
+    speed_rpm: float, i_peak: float, gamma_elec: float, turns_per_slot: float, T: float,
+    sigma_pm: float, magnet_seg_width: float, steinmetz=None,
+    mech_span: float | None = None, n_positions: int = 48,
+    relaxation: float = 0.1, max_iter: int = 300,
+    rotor_solid: bool = False, sigma_rotor: float | None = None,
+    rotor_thickness: float | None = None, rotor_mu_r: float = 500.0,
+) -> np.ndarray:
+    """
+    P-B5: полная карта потерь ядра q_core [Вт/м³] (n_cells,) при рабочей точке =
+    сталь СТАТОРА (P-B3) + ротор-сторона (вихревые магнита + сталь ротора, P-B4).
+    Медь считается ВНУТРИ связки (ρ(T)·J²) отдельно. Карта предвычисляется один раз и
+    подаётся как замороженный за тепловой шаг источник (разделение масштабов, §6).
+    """
+    q_stator, _ = stator_iron_loss_density(
+        params, magnet, steel, speed_rpm=speed_rpm, i_peak=i_peak, gamma_elec=gamma_elec,
+        turns_per_slot=turns_per_slot, T=T, coeffs=steinmetz, n_positions=n_positions,
+        relaxation=relaxation, max_iter=max_iter,
+    )
+    q_rotor, _ = magnet_rotor_loss_density(
+        params, magnet, steel, speed_rpm=speed_rpm, sigma_pm=sigma_pm,
+        magnet_seg_width=magnet_seg_width, i_peak=i_peak, gamma_elec=gamma_elec,
+        turns_per_slot=turns_per_slot, T=T, steinmetz=steinmetz, mech_span=mech_span,
+        n_positions=n_positions, relaxation=relaxation, max_iter=max_iter,
+        rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
+        rotor_thickness=rotor_thickness, rotor_mu_r=rotor_mu_r,
+    )
+    return q_stator + q_rotor
+
+
 def run_machine_thermal_demag(
     scenario: MachineScenario,
     *,
@@ -199,6 +233,8 @@ def run_machine_thermal_demag(
     slot_fill: float = 0.45,
     h: float,
     T_amb: float = 20.0,
+    h_in: float | None = None,
+    T_frame: float | None = None,
     dt: float,
     n_steps: int,
     thermal: MachineThermalProperties | None = None,
@@ -206,6 +242,17 @@ def run_machine_thermal_demag(
     em_relaxation: float = 0.1,
     em_max_iter: int = 300,
     em_tol: float = 1.0e-6,
+    core_losses: bool = False,
+    speed_rpm: float | None = None,
+    sigma_pm: float | None = None,
+    magnet_seg_width: float | None = None,
+    steinmetz=None,
+    loss_mech_span: float | None = None,
+    loss_n_positions: int = 48,
+    rotor_solid: bool = False,
+    sigma_rotor: float | None = None,
+    rotor_thickness: float | None = None,
+    rotor_mu_r: float = 500.0,
     **transient_kwargs,
 ) -> MachineThermalDemagResult:
     """
@@ -244,8 +291,38 @@ def run_machine_thermal_demag(
     space = LagrangeP1Space2D(geometry.mesh)
     T_start = None if T0 is None else np.full(space.ndofs, float(T0), dtype=float)
 
+    # P-B1: дифференцированные ГУ. Если задан h_in — внутренняя расточка (статор→рама, T_frame,
+    # сильный h_in) отделяется от наружной поверхности (ротор→среда, T_amb, h). Иначе — однородное h.
+    robin = None
+    if h_in is not None:
+        p = geometry.params
+        inner, outer = classify_boundary_edges(space, p.R_bore, p.R_out)
+        t_frame = T_amb if T_frame is None else T_frame
+        robin = assemble_robin_multi(space, [(inner, h_in, t_frame), (outer, h, T_amb)])
+
+    # P-B5: полные потери ядра (сталь статора + ротор-сторона) как замороженный источник тепла.
+    if core_losses:
+        if speed_rpm is None or sigma_pm is None or magnet_seg_width is None:
+            raise ValueError("core_losses=True требует speed_rpm, sigma_pm, magnet_seg_width.")
+        q_core = precompute_core_loss_density(
+            geometry.params, scenario.magnet, scenario.steel,
+            speed_rpm=speed_rpm, i_peak=i_peak, gamma_elec=gamma_elec,
+            turns_per_slot=turns_per_slot, T=(T_amb if T0 is None else T0),
+            sigma_pm=sigma_pm, magnet_seg_width=magnet_seg_width, steinmetz=steinmetz,
+            mech_span=loss_mech_span, n_positions=loss_n_positions,
+            relaxation=em_relaxation, max_iter=em_max_iter,
+            rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
+            rotor_thickness=rotor_thickness, rotor_mu_r=rotor_mu_r,
+        )
+        _user = transient_kwargs.pop("extra_loss", None)
+
+        def _extra(Tc, em, _q=q_core, _u=_user):
+            return _q if _u is None else _q + np.asarray(_u(Tc, em), dtype=float)
+
+        transient_kwargs["extra_loss"] = _extra
+
     transient = solve_coupled_magneto_thermal_transient(
-        space, k_cells=k_cells, capacity_cells=c_cells, h=h, T_amb=T_amb,
+        space, k_cells=k_cells, capacity_cells=c_cells, h=h, T_amb=T_amb, robin=robin,
         dt=dt, n_steps=n_steps, j_cells=j_mag, j_loss_cells=j_loss,
         magnet=scenario.magnet, magnet_mask=magnet_mask,
         magnet_axis=geometry.magnet_easy_axis, nu_of_B=nu_of_B, nu_init=nu_init,

@@ -18,6 +18,59 @@ def _nu_per_cell(nu, n_cells: int) -> np.ndarray:
     return arr
 
 
+# ---------------------------------------------------------------- анизотропная ν (тензор)
+# ЗАЧЕМ. Спечённый магнит анизотропен: вдоль лёгкой оси ν_∥, поперёк ν_⊥, и это РАЗНЫЕ
+# величины (поперечный отклик — поворот моментов против поля анизотропии,
+# χ_⊥ = J_s²/(2μ₀K₁), он от продольного перемагничивания не зависит). Скалярная ν
+# применяет одно число во все стороны; вдоль оси это безвредно (источник строится под
+# замороженную ν, неподвижная точка лежит на кривой ветви при любой ν — см.
+# `IrreversibleMagnetState.__call__`), а ПОПЕРЁК защиты нет: там ν работает как настоящее
+# свойство материала. Замер: подаём ν=1/μ_rec — решатель применяет поперёк μ_r=1.11 при
+# любом заданном μ_perp (tests/unit/test_magnet_anisotropy.py).
+#
+# ПОВОРОТ. В планарной A_z-постановке B = rot(A_z ẑ) = R∇A_z, где R — поворот на −90°:
+#     R = [[0, 1], [−1, 0]].
+# Энергия ∫ Bᵀ ν B = ∫ (R∇A)ᵀ ν (R∇A) = ∫ ∇Aᵀ (Rᵀ ν R) ∇A, поэтому в матрицу жёсткости
+# идёт ПОВЁРНУТЫЙ тензор ν̃ = Rᵀ ν R. Покомпонентно для ν=[[a,b],[c,d]]:
+#     ν̃ = [[d, −c], [−b, a]].
+# Для одноосного ν = ν_⊥(I − eeᵀ) + ν_∥ eeᵀ это даёт ν̃ = ν_⊥ eeᵀ + ν_∥ e^⊥(e^⊥)ᵀ —
+# роли МЕНЯЮТСЯ МЕСТАМИ, и это правильно: ∇A_z вдоль e отвечает B вдоль e^⊥.
+# Скалярная ν — частный случай: Rᵀ(νI)R = νI, поэтому старый путь не меняется.
+
+_ROT_MINUS90 = np.array([[0.0, 1.0], [-1.0, 0.0]])
+
+
+def rotate_nu_to_gradient(nu_tensor: np.ndarray) -> np.ndarray:
+    """ν̃ = Rᵀ ν R — перевод ν, действующей на B, в тензор при ∇A_z. (n_cells,2,2)→(n_cells,2,2)."""
+    arr = np.asarray(nu_tensor, dtype=float)
+    if arr.ndim != 3 or arr.shape[1:] != (2, 2):
+        raise ValueError("nu tensor must have shape (n_cells, 2, 2).")
+    return np.einsum("da,cde,eb->cab", _ROT_MINUS90, arr, _ROT_MINUS90)
+
+
+def uniaxial_nu_tensor(nu_par, nu_perp, axis) -> np.ndarray:
+    """
+    Одноосная ν = ν_⊥(I − eeᵀ) + ν_∥ eeᵀ по ячейкам → (n_cells, 2, 2), действующая на B.
+
+    nu_par, nu_perp — скаляр или (n_cells,); axis — (2,) или (n_cells, 2) (нормируется).
+    Возвращает НЕПОВЁРНУТЫЙ тензор: поворот делает сборка (одно место на весь код).
+    """
+    e = np.asarray(axis, dtype=float)
+    if e.ndim == 1:
+        e = e[None, :]
+    if e.ndim != 2 or e.shape[1] != 2:
+        raise ValueError("axis must be (2,) or (n_cells, 2).")
+    norm = np.linalg.norm(e, axis=1)
+    if np.any(norm <= 0.0):
+        raise ValueError("axis must be non-zero.")
+    e = e / norm[:, None]
+    par = np.broadcast_to(np.asarray(nu_par, dtype=float), (e.shape[0],))
+    perp = np.broadcast_to(np.asarray(nu_perp, dtype=float), (e.shape[0],))
+    ee = np.einsum("ci,cj->cij", e, e)
+    eye = np.broadcast_to(np.eye(2), (e.shape[0], 2, 2))
+    return perp[:, None, None] * (eye - ee) + par[:, None, None] * ee
+
+
 def p1_cell_geometry(mesh) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     ВЕКТОРИЗОВАННАЯ геометрия P1 для всей сетки за раз (для разрежённой сборки):
@@ -49,34 +102,63 @@ def _scatter_local(cells: np.ndarray, local: np.ndarray, n: int) -> sp.csr_matri
     return sp.coo_matrix((local.ravel(), (rows, cols)), shape=(n, n)).tocsr()
 
 
+def _stiffness_local_blocks(nu, grad: np.ndarray, area: np.ndarray) -> np.ndarray:
+    """
+    Локальные блоки (n_cells,3,3) матрицы жёсткости. ν задаётся как действующая на B:
+    скаляр | (n_cells,) — изотропная; (n_cells,2,2) — тензор (анизотропный магнит).
+    Тензор поворачивается здесь (ν̃ = Rᵀ ν R) — единственное место в коде, где живёт
+    планарная конвенция B = R∇A_z.
+    """
+    arr = np.asarray(nu, dtype=float)
+    if arr.ndim == 3:
+        nu_t = rotate_nu_to_gradient(_nu_tensor_per_cell(arr, grad.shape[0]))
+        return area[:, None, None] * np.einsum("cad,cde,cbe->cab", grad, nu_t, grad)
+    nu_cells = _nu_per_cell(arr, grad.shape[0])
+    gg = np.einsum("cad,cbd->cab", grad, grad)                   # (nc,3,3) ∇φ_a·∇φ_b
+    return (nu_cells * area)[:, None, None] * gg
+
+
+def _nu_tensor_per_cell(nu, n_cells: int) -> np.ndarray:
+    arr = np.asarray(nu, dtype=float)
+    if arr.shape != (n_cells, 2, 2):
+        raise ValueError("nu tensor must have shape (n_cells, 2, 2).")
+    return arr
+
+
 def assemble_stiffness_sparse(space: LagrangeP1Space2D, nu) -> sp.csr_matrix:
     """
-    РАЗРЕЖЁННАЯ матрица жёсткости K_ij=∫ ν ∇φ_i·∇φ_j dx (для реальных сеток — плотная
+    РАЗРЕЖЁННАЯ матрица жёсткости K_ij=∫ ∇φ_i·ν̃·∇φ_j dx (для реальных сеток — плотная
     (n,n) не помещается в память: P1 даёт ~7 ненулей в строке). Численно идентична
-    `assemble_stiffness` (тот же локальный блок ν·A·(∇φ·∇φ)), но CSR + векторизовано.
+    `assemble_stiffness`, но CSR + векторизовано.
+
+    ν — скаляр | (n_cells,) | (n_cells,2,2), задаётся как действующая на B (см.
+    `rotate_nu_to_gradient`). Скалярный путь численно НЕ ИЗМЕНИЛСЯ.
     """
     mesh = space.mesh
-    nu_cells = _nu_per_cell(nu, mesh.n_cells)
     cells, grad, area = p1_cell_geometry(mesh)
-    gg = np.einsum("cad,cbd->cab", grad, grad)                   # (nc,3,3) ∇φ_a·∇φ_b
-    local = (nu_cells * area)[:, None, None] * gg
-    return _scatter_local(cells, local, space.ndofs)
+    return _scatter_local(cells, _stiffness_local_blocks(nu, grad, area), space.ndofs)
 
 
 def assemble_stiffness(space: LagrangeP1Space2D, nu) -> np.ndarray:
     """
-    Матрица жёсткости планарной магнитостатики: K_ij = ∫ ν ∇φ_i·∇φ_j dx (2D-аналог
-    curl-curl). Поячеечная ν (скаляр|(n_cells,)). Плотная (масштаб верификации).
+    Матрица жёсткости планарной магнитостатики: K_ij = ∫ ∇φ_i·ν̃·∇φ_j dx (2D-аналог
+    curl-curl). Плотная (масштаб верификации). ν — как в `assemble_stiffness_sparse`.
     """
     mesh = space.mesh
     n = space.ndofs
-    nu_cells = _nu_per_cell(nu, mesh.n_cells)
     K = np.zeros((n, n), dtype=float)
+    arr = np.asarray(nu, dtype=float)
+    if arr.ndim == 3:
+        nu_t = rotate_nu_to_gradient(_nu_tensor_per_cell(arr, mesh.n_cells))
+    else:
+        nu_cells = _nu_per_cell(arr, mesh.n_cells)
+        nu_t = None
     for c in range(mesh.n_cells):
         verts = mesh.cell_vertices(c)
         area = triangle_area(verts)
         grads = p1_gradients(verts)                 # (3,2), const по ячейке
-        local = nu_cells[c] * area * (grads @ grads.T)  # (3,3)
+        local = (area * (grads @ nu_t[c] @ grads.T) if nu_t is not None
+                 else nu_cells[c] * area * (grads @ grads.T))     # (3,3)
         idx = mesh.cell_vertex_indices(c)
         for a in range(3):
             for b in range(3):

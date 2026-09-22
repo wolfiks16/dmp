@@ -71,8 +71,11 @@ def solve_nonlinear_2d_picard(
         raise ValueError("relaxation must be in (0, 1].")
     n_cells = space.mesh.n_cells
     nu0 = np.asarray(nu_init, dtype=float).copy()
-    if nu0.shape != (n_cells,):
-        raise ValueError("nu_init must have shape (n_cells,).")
+    # (n_cells,) — изотропная ν; (n_cells,2,2) — ТЕНЗОР, действующий на B (анизотропный
+    # магнит: вдоль лёгкой оси и поперёк неё проницаемость разная). Поворот к ∇A_z
+    # (ν̃ = Rᵀ ν R) делает сборка, см. `assembly.rotate_nu_to_gradient`.
+    if nu0.shape not in ((n_cells,), (n_cells, 2, 2)):
+        raise ValueError("nu_init must have shape (n_cells,) or (n_cells, 2, 2).")
 
     ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
     mag_fn = resolve_magnetization(magnetization, n_cells, dim=2)
@@ -107,7 +110,11 @@ def solve_nonlinear_2d_picard(
         K_bc, f_bc = apply_dirichlet(K, f, ddofs, dirichlet_values)
         a = solve_scalar(K_bc, f_bc)
         B = reconstruct_B_on_cells(space, a)
-        H = nu_frozen[:, None] * B - nu_br
+        # H = ν·B − ν·B_r; ν действует на B, поэтому для тензора это свёртка, а не
+        # поэлементное умножение (иначе поперечная компонента H была бы неверной).
+        nu_B = (np.einsum("cij,cj->ci", nu_frozen, B) if nu_frozen.ndim == 3
+                else nu_frozen[:, None] * B)
+        H = nu_B - nu_br
         state.update(a=a, B=B, H=H, nu_br=nu_br)
         return B
 

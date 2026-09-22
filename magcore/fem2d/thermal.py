@@ -49,6 +49,60 @@ def assemble_robin_boundary(
     return R, amb
 
 
+# --- P-B1: дифференцированные ГУ (h_in≠h_out, разные T_ref) ---
+
+def classify_boundary_edges(space, r_inner: float, r_outer: float):
+    """
+    Разделить граничные рёбра на (внутренние, внешние) по радиусу середины ребра.
+    Внутреннее — ближе к r_inner (расточка статора → рама), внешнее — к r_outer (ротор → среда).
+    Радиус от центра сетки (машина центрирована в начале координат).
+    """
+    mesh = space.mesh
+    inner: list = []
+    outer: list = []
+    for i, j in mesh.boundary_edges():
+        mid = 0.5 * (mesh.vertices[i] + mesh.vertices[j])
+        r = float(np.hypot(mid[0], mid[1]))
+        (inner if abs(r - r_inner) <= abs(r - r_outer) else outer).append((i, j))
+    return inner, outer
+
+
+def assemble_robin_edges(space: LagrangeP1Space2D, edges, h: float):
+    """
+    Robin-вклад по ЗАДАННОМУ списку рёбер: (R, load), где R_ij=∫h φ_i φ_j,
+    load_i=∫h φ_i (домножить на T_ref для RHS). Краевая масса (L/6)[[2,1],[1,2]].
+    """
+    mesh = space.mesh
+    n = space.ndofs
+    R = np.zeros((n, n), dtype=float)
+    load = np.zeros(n, dtype=float)
+    for i, j in edges:
+        L = float(np.linalg.norm(mesh.vertices[i] - mesh.vertices[j]))
+        R[i, i] += h * L / 3.0
+        R[j, j] += h * L / 3.0
+        R[i, j] += h * L / 6.0
+        R[j, i] += h * L / 6.0
+        load[i] += h * L / 2.0
+        load[j] += h * L / 2.0
+    return R, load
+
+
+def assemble_robin_multi(space: LagrangeP1Space2D, specs):
+    """
+    Дифференцированное ГУ конвекции: specs = список (edges, h, T_ref).
+    Возвращает (R, rhs_conv), где rhs_conv_i = Σ (h·T_ref)∫φ_i УЖЕ включает T_ref
+    (для шага неявного Эйлера: A = Cdt+K+R, правая часть += rhs_conv).
+    """
+    n = space.ndofs
+    R = np.zeros((n, n), dtype=float)
+    rhs = np.zeros(n, dtype=float)
+    for edges, h, T_ref in specs:
+        Re, load = assemble_robin_edges(space, edges, float(h))
+        R += Re
+        rhs += float(T_ref) * load
+    return R, rhs
+
+
 def solve_thermal(
     space: LagrangeP1Space2D,
     k,
@@ -115,7 +169,8 @@ class ImplicitEulerThermalStepper:
     при h>0), поэтому шаг ограничен только точностью, а не устойчивостью.
     """
 
-    def __init__(self, space: LagrangeP1Space2D, k, capacity, *, dt: float, h: float, T_amb: float):
+    def __init__(self, space: LagrangeP1Space2D, k, capacity, *, dt: float,
+                 h: float = 0.0, T_amb: float = 0.0, robin=None):
         if float(dt) <= 0.0:
             raise ValueError("dt must be positive.")
         self.space = space
@@ -123,7 +178,15 @@ class ImplicitEulerThermalStepper:
         self.T_amb = float(T_amb)
         self.K = assemble_stiffness(space, k)
         self.C = assemble_capacity(space, capacity)
-        self.R, self.amb_load = assemble_robin_boundary(space, float(h))
+        if robin is not None:
+            # Дифференцированные ГУ (P-B1): готовые (R, rhs_conv), rhs_conv уже с T_ref.
+            R, robin_rhs = robin
+            self.R = np.asarray(R, dtype=float)
+            self.robin_rhs = np.asarray(robin_rhs, dtype=float)
+        else:
+            # Скалярное однородное ГУ (обратная совместимость): rhs = T_amb·∫h φ.
+            self.R, amb_load = assemble_robin_boundary(space, float(h))
+            self.robin_rhs = float(T_amb) * amb_load
         self.Cdt = self.C / self.dt
         self.A = self.Cdt + self.K + self.R
 
@@ -131,7 +194,7 @@ class ImplicitEulerThermalStepper:
         """Поле на следующем шаге по текущему T и источнику потерь q [Вт/м³] (по ячейкам)."""
         f = assemble_source_rhs(self.space, np.asarray(q_cells, dtype=float))
         return solve_scalar(self.A, self.Cdt @ np.asarray(T, dtype=float)
-                            + f + self.T_amb * self.amb_load)
+                            + f + self.robin_rhs)
 
     # --- диагностика энергобаланса (оракул связки) ---
     def stored_energy(self, T) -> float:
@@ -139,9 +202,9 @@ class ImplicitEulerThermalStepper:
         return float(np.asarray(T, dtype=float) @ self.C.sum(axis=0))
 
     def convective_outflow(self, T) -> float:
-        """Отвод конвекцией ∫ h(T−T_amb) ds = 1ᵀR·T − T_amb·1ᵀ·amb_load [Вт/м]."""
+        """Отвод конвекцией ∫ h(T−T_ref) ds = 1ᵀR·T − 1ᵀ·rhs_conv [Вт/м] (обобщённо на дифф. ГУ)."""
         Tv = np.asarray(T, dtype=float)
-        return float(Tv @ self.R.sum(axis=0)) - self.T_amb * float(self.amb_load.sum())
+        return float(Tv @ self.R.sum(axis=0)) - float(self.robin_rhs.sum())
 
 
 def solve_thermal_transient(

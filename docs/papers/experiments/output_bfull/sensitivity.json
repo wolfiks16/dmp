@@ -1,0 +1,225 @@
+{
+  "base": {
+    "T_amb": 70.0,
+    "i_peak": 40.0,
+    "material": "ndfeb"
+  },
+  "runs": {
+    "k_hyst": [
+      {
+        "T_magnet": 160.05627257771764,
+        "ke_drop": 0.02372241476147985,
+        "ret_min": 0.7539137757021996,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "k_hyst": 0.06
+      },
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "k_hyst": 0.1
+      },
+      {
+        "T_magnet": 168.94294347033141,
+        "ke_drop": 0.07754110916822443,
+        "ret_min": 0.5977889137185215,
+        "survived": false,
+        "runaway": false,
+        "cascade": true,
+        "k_hyst": 0.15
+      }
+    ],
+    "mu_r": [
+      {
+        "T_magnet": 170.82761498285748,
+        "ke_drop": 0.08933480267967431,
+        "ret_min": 0.4410837628240593,
+        "survived": false,
+        "runaway": false,
+        "cascade": true,
+        "mu_r": 200.0
+      },
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "mu_r": 500.0
+      },
+      {
+        "T_magnet": 155.50681832052157,
+        "ke_drop": 0.010286477226317148,
+        "ret_min": 0.8362159433557592,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "mu_r": 1000.0
+      }
+    ],
+    "h_out": [
+      {
+        "T_magnet": 165.97777511000402,
+        "ke_drop": 0.05831210595022829,
+        "ret_min": 0.6451256003367277,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "h_out": 10.0
+      },
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "h_out": 20.0
+      },
+      {
+        "T_magnet": 162.8857997694504,
+        "ke_drop": 0.03652524619493536,
+        "ret_min": 0.7144065827429722,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "h_out": 50.0
+      }
+    ],
+    "rho": [
+      {
+        "T_magnet": 166.01619763126348,
+        "ke_drop": 0.05553060395003018,
+        "ret_min": 0.6607491816885517,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "rho": 1.3e-07
+      },
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "rho": 1.4e-07
+      },
+      {
+        "T_magnet": 165.55520241060006,
+        "ke_drop": 0.05233917455208115,
+        "ret_min": 0.6590669892677712,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "rho": 1.6e-07
+      }
+    ],
+    "sigma_scale": [
+      {
+        "T_magnet": 157.73602112069418,
+        "ke_drop": 0.01737676817087741,
+        "ret_min": 0.7966553919805239,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "sigma_scale": 0.85
+      },
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "sigma_scale": 1.0
+      },
+      {
+        "T_magnet": 171.9537237544653,
+        "ke_drop": 0.09667985344084029,
+        "ret_min": 0.40032272182727163,
+        "survived": false,
+        "runaway": false,
+        "cascade": true,
+        "sigma_scale": 1.15
+      },
+      {
+        "T_magnet": 176.62192794171236,
+        "ke_drop": 0.10269581738659206,
+        "ret_min": 0.5396313958067508,
+        "survived": false,
+        "runaway": false,
+        "cascade": true,
+        "sigma_scale": 2.0
+      }
+    ],
+    "n_seg": [
+      {
+        "T_magnet": 164.97822913905333,
+        "ke_drop": 0.0516475979578751,
+        "ret_min": 0.6731258174141281,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "n_seg": 1
+      },
+      {
+        "T_magnet": 125.31778398609474,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "n_seg": 2
+      },
+      {
+        "T_magnet": 115.8558283174384,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
+        "survived": true,
+        "runaway": false,
+        "cascade": false,
+        "n_seg": 4
+      }
+    ]
+  },
+  "base_result": {
+    "T_magnet": 164.97822913905333,
+    "ke_drop": 0.0516475979578751,
+    "ret_min": 0.6731258174141281,
+    "survived": true,
+    "runaway": false,
+    "cascade": false
+  },
+  "worst_case": {
+    "smco": {
+      "T_magnet": 196.27277465107161,
+      "ke_drop": 0.0,
+      "ret_min": 1.0,
+      "survived": false,
+      "runaway": true,
+      "cascade": false
+    },
+    "ndfeb": {
+      "T_magnet": 173.90114042642972,
+      "ke_drop": 0.08284581512459843,
+      "ret_min": 0.40192234190184467,
+      "survived": false,
+      "runaway": false,
+      "cascade": true
+    }
+  },
+  "verdict": {
+    "n_runs": 19,
+    "n_with_demag": 17,
+    "ke_drop_min": 0.0,
+    "ke_drop_max": 0.10269581738659206,
+    "smco_intact_worst": true
+  }
+}

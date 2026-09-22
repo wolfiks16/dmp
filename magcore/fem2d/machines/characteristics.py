@@ -5,8 +5,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from magcore.constants import MU0
+from magcore.fem2d.losses import copper_resistivity
 from magcore.fem2d.machines.bridge import pmsm_to_problem
-from magcore.fem2d.machines.excitation import winding_current_density
+from magcore.fem2d.machines.excitation import slot_areas, winding_current_density
 from magcore.fem2d.machines.loss import phase_flux_linkage
 from magcore.fem2d.machines.postproc import (
     back_emf_constant,
@@ -194,3 +195,83 @@ class CharacteristicsComparison:
         и корректные средние значения требуют прогонки по положениям ротора (не реализовано).
         """
         return abs(self.torque_constant_drop - (1.0 - self.fundamental_ratio))
+
+
+# --- P-B6: режим напряжения (деградация характеристик при нагреве) ---
+
+def tooth_coil_end_length(geometry: MachineGeometry) -> float:
+    """
+    Длина ЛОБОВЫХ соединений на ОДИН виток зубцовой катушки [м] (оба торца вместе).
+
+    Конструкция всех серийных БПЛА-аутраннеров с дробной обмоткой (36N40P, 12N14P …):
+    каждый зуб намотан своей катушкой, сторона катушки занимает ПОЛОВИНУ паза у своего зуба.
+    Центры двух сторон одной катушки разнесены на c = R_ср·(θ_зуба + θ_паза/2) по дуге
+    среднего радиуса зубцовой зоны; лобовая часть огибает торец зуба полуокружностью
+    диаметра c ⇒ π·c/2 на торец, π·c на виток.
+
+    ⚠ Оценка геометрическая (реальная лобовая часть — скруглённый прямоугольник, с вылетом
+    на изоляцию торца). Для короткого пакета она СУЩЕСТВЕННА: у IM-8008 (пакет 8 мм) лобовые
+    части почти удваивают сопротивление — ровно поэтому их нельзя опускать у «блинов».
+    """
+    p = geometry.params
+    slot_pitch = 2.0 * np.pi / p.n_slots
+    tooth_ang = p.tooth_width_frac * slot_pitch
+    slot_ang = slot_pitch - tooth_ang
+    r_mid = 0.5 * (p.R_sy + p.R_s_out)
+    c = r_mid * (tooth_ang + 0.5 * slot_ang)
+    return float(np.pi * c)
+
+
+def phase_resistance(
+    geometry: MachineGeometry, *, turns_per_slot: float, slot_fill: float, T: float,
+    end_length_per_turn: float = 0.0, ac_factor: float = 1.0,
+) -> float:
+    """
+    Сопротивление фазы R(T) [Ом], согласованное с моделью потерь меди:
+    R_фазы = (1/3)·Σ_пазов ρ_cu(T)·(F_R·L + l_лоб/2)·N²/(k_зап·A_паз). Растёт с T через ρ_cu(T).
+
+    Вывод: суммарные потери меди P = Σ ρ(T)·J²·V = I_скз²·Σ ρ(T)·N²·L/(k·A_паз), а
+    P = 3·I_скз²·R_фазы ⇒ R_фазы = (1/3)·Σ ρ(T)·N²·L/(k·A_паз).
+
+    `end_length_per_turn` — лобовые части на ВИТОК, оба торца [м] (см. `tooth_coil_end_length`);
+        на одну сторону катушки (проводник паза) приходится половина. 0 — прежнее поведение
+        (только активная длина: занижает R; у короткого пакета — почти вдвое).
+    `ac_factor` — F_R = R_ac/R_dc для части В ПАЗУ (см. `losses.dowell_ac_factor`); лобовые
+        части в воздухе, к ним он не применяется. 1 — постоянный ток.
+    """
+    if not (0.0 < slot_fill <= 1.0):
+        raise ValueError("slot_fill in (0, 1].")
+    if end_length_per_turn < 0.0:
+        raise ValueError("end_length_per_turn must be non-negative.")
+    if ac_factor < 1.0:
+        raise ValueError("ac_factor must be >= 1 (переменный ток сопротивление не уменьшает).")
+    A_slot = np.asarray(slot_areas(geometry), dtype=float)
+    L = geometry.params.axial_length
+    length = float(ac_factor) * L + 0.5 * float(end_length_per_turn)
+    rho = float(copper_resistivity(T))
+    R_slots = rho * length * float(turns_per_slot) ** 2 / (float(slot_fill) * A_slot)
+    return float(R_slots.sum() / 3.0)
+
+
+def voltage_limited_operating_point(
+    *, voltage: float, omega_mech: float, emf_constant: float, resistance: float,
+    core_loss_w: float = 0.0,
+) -> dict:
+    """
+    Рабочая точка под ОГРАНИЧЕНИЕМ НАПРЯЖЕНИЯ (лумпед DC-эквивалент BLDC — для иллюстрации
+    ДЕГРАДАЦИИ характеристик, не точного КПД): противо-ЭДС E=K_e·ω, ток I=(U−E)/R (зажат ≥0),
+    момент = K_e·I (K_t≡K_e в лумпед-модели), P_мех=E·I. Реактивность пренебрежена (она
+    ~T-независима и не влияет на ДЕЛЬТУ деградации). Нагрев бьёт двояко: R(T)↑ и K_e(T,демаг)↓.
+
+    Возвращает dict(current, back_emf, torque, p_mech, p_cu, efficiency).
+    """
+    if resistance <= 0.0:
+        raise ValueError("resistance must be positive.")
+    E = float(emf_constant) * float(omega_mech)
+    I = max(float(voltage) - E, 0.0) / float(resistance)
+    torque = float(emf_constant) * I
+    p_mech = E * I
+    p_cu = I * I * float(resistance)
+    denom = p_mech + p_cu + float(core_loss_w)
+    eff = float(p_mech / denom) if denom > 0.0 else 0.0
+    return dict(current=I, back_emf=E, torque=torque, p_mech=p_mech, p_cu=p_cu, efficiency=eff)

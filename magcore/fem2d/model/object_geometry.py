@@ -30,6 +30,7 @@ class GeoObject:
     magnet_dir: object = None            # 'radial' | 'radial-in' | (dx,dy) — ось намагничивания
     mesh_size: float | None = None       # свой размер элемента, иначе общий
     priority: int = 1                    # приоритет наложения: больше = ВЫШЕ (перекрывает)
+    magnet_angle: float = 0.0            # [рад] поворот направления из magnet_dir вокруг оси Z (против часовой)
 
     def center(self) -> tuple[float, float]:
         p = self.params
@@ -54,6 +55,8 @@ class GeoObject:
             raise ValueError(f"{self.name}: mesh_size должен быть > 0.")
         if not (self.priority >= 1):
             raise ValueError(f"{self.name}: priority должен быть ≥ 1.")
+        if not math.isfinite(float(self.magnet_angle)):
+            raise ValueError(f"{self.name}: magnet_angle должен быть конечным числом.")
 
 
 def _ang_between(th: float, a1: float, a2: float) -> bool:
@@ -99,16 +102,23 @@ def contains(obj: GeoObject, x: float, y: float) -> bool:
 
 
 def _magnet_axis(obj: GeoObject, x: float, y: float) -> tuple[float, float]:
+    """Ось намагничивания в точке: направление из magnet_dir, повёрнутое на magnet_angle вокруг Z."""
     d = obj.magnet_dir
     if d is None or d == "radial" or d == "radial-in":
         ox, oy = obj.center()
         vx, vy = x - ox, y - oy
         n = math.hypot(vx, vy) or 1.0
         s = -1.0 if d == "radial-in" else 1.0
-        return s * vx / n, s * vy / n
-    dx, dy = float(d[0]), float(d[1])
-    n = math.hypot(dx, dy) or 1.0
-    return dx / n, dy / n
+        ex, ey = s * vx / n, s * vy / n
+    else:
+        dx, dy = float(d[0]), float(d[1])
+        n = math.hypot(dx, dy) or 1.0
+        ex, ey = dx / n, dy / n
+    a = float(obj.magnet_angle)
+    if a == 0.0:
+        return ex, ey
+    c, s = math.cos(a), math.sin(a)
+    return ex * c - ey * s, ex * s + ey * c
 
 
 def _add_surface(occ, obj: GeoObject) -> int:
@@ -132,6 +142,20 @@ def _add_surface(occ, obj: GeoObject) -> int:
         return out[0][1]
     if k == "sector":
         cx, cy, ra, rb, a1, a2 = p["cx"], p["cy"], p["r_in"], p["r_out"], p["a1"], p["a2"]
+        span = (a2 - a1) % (2.0 * math.pi) or 2.0 * math.pi
+        if span >= math.pi * (1.0 - 1e-9):
+            # Дуга gmsh строго меньше π: одной дугой сектор ≥ 180° ложился на КОРОТКУЮ сторону
+            # окружности (Л-87). Делим на дуги ≤ π/2; сектора < 180° строятся как раньше.
+            n_arc = math.ceil(span / (0.5 * math.pi))
+            angs = [a1 + span * i / n_arc for i in range(n_arc + 1)]
+            o = occ.addPoint(cx, cy, 0)
+            outer = [occ.addPoint(cx + rb * math.cos(t), cy + rb * math.sin(t), 0) for t in angs]
+            inner = [occ.addPoint(cx + ra * math.cos(t), cy + ra * math.sin(t), 0) for t in angs]
+            curves = [occ.addLine(inner[0], outer[0])]
+            curves += [occ.addCircleArc(outer[i], o, outer[i + 1]) for i in range(n_arc)]
+            curves.append(occ.addLine(outer[-1], inner[-1]))
+            curves += [occ.addCircleArc(inner[i + 1], o, inner[i]) for i in reversed(range(n_arc))]
+            return occ.addPlaneSurface([occ.addCurveLoop(curves)])
         o = occ.addPoint(cx, cy, 0)
         a = occ.addPoint(cx + ra * math.cos(a1), cy + ra * math.sin(a1), 0)
         b = occ.addPoint(cx + rb * math.cos(a1), cy + rb * math.sin(a1), 0)

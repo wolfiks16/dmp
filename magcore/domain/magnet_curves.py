@@ -70,6 +70,27 @@ class DemagnetizationCurveBH:
         Hc = self.clamp_H(H)
         return float(np.interp(Hc, self.H_values, self.B_values))
 
+    def Hcb_actual(self) -> float:
+        """
+        ФАКТИЧЕСКИЙ |H_cB| [А/м] (> 0) — поле, где НОРМАЛЬНАЯ кривая пересекает B = 0,
+        снятое С САМОЙ КРИВОЙ.
+
+        ⚠ Не путать с даташит-параметром `AnisotropicBHTMagnet.Hcb(T)`: тот масштабируется
+        коэффициентом alpha_Br и служит ТОЛЬКО для наклона mu_rec = Br/(mu0*Hcb), то есть
+        отвечает на вопрос «где был бы ноль, если бы прямой участок шёл дальше НЕ ЛОМАЯСЬ».
+        Пока колено лежит ЗА H_cB (холодный высококоэрцитивный магнит) оба числа совпадают.
+        Как только колено заходит ПЕРЕД H_cB (нагретый магнит), кривая ломается раньше и
+        настоящий |H_cB| заметно меньше параметра — у N42SH при 150 °C 433 против 785 кА/м.
+        Для отчётов/сверки с даташитом брать ЭТУ величину.
+        """
+        B = self.B_values
+        if B[0] > 0.0:
+            raise ValueError("Curve does not reach B = 0 (starts above zero).")
+        if B[-1] < 0.0:
+            raise ValueError("Curve does not reach B = 0 (ends below zero).")
+        # B монотонно неубывает по H => интерполируем H как функцию B
+        return -float(np.interp(0.0, B, self.H_values))
+
     def slope_dBdH(self, H: float) -> float:
         idx = self.segment_index(H)
         h0 = self.H_values[idx]
@@ -167,8 +188,10 @@ def demag_curve_from_datasheet(
     Br [Тл], |H_cB|, |H_k|, |H_cJ| [А/м] (положительные модули).
 
     Форма C¹ (см. docs/math/nonlinear_materials.md §4):
-      mu_rec = Br/(mu0*Hcb);  s_J = mu0*(mu_rec-1)  (интринзик-наклон);
-      интринзик J(H): прямая J=Br+s_J*H выше колена H_k=-|H_k|; ниже — парабола
+      mu_rec = Br/(mu0*Hcb);  s_J = mu0*(mu_rec-1)  (наклон кривой по намагниченности);
+      кривая по НАМАГНИЧЕННОСТИ J(H) (в англ. даташитах intrinsic; J = B - mu0*H —
+      вклад самого материала, без вклада внешнего поля):
+      прямая J=Br+s_J*H выше колена H_k=-|H_k|; ниже — парабола
         a*H^2+b*H+c, КАСАТЕЛЬНАЯ к прямой в колене (C^1) и J(-|H_cJ|)=0;
       нормальная кривая B(H)=J(H)+mu0*H  (выше колена даёт recoil Br+mu0*mu_rec*H,
       ноль при H=-|H_cB|; ниже колена уходит в минус — это нормально для нормальной

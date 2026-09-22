@@ -127,6 +127,21 @@ class DemagRiskMap:
     T: float
     Br_nominal: float          # Br(T) без потерь [Тл]
     knee_field: float          # H_knee(T) [А/м] (<0)
+    retention: np.ndarray | None = None    # (n_mag,) сохранённая доля ремнантности r_eff = min(история, r_now) —
+                                           # по ней считана потеря: Br_eff = r_eff·Br(T) (Л-100)
+    beyond_hcj: np.ndarray | None = None   # (n_mag,) bool: r_eff = 0 — поле хоть раз было ниже −H_cJ; модель
+                                           # магнита там не определена, потеря принята полной (как стоп «каскад» в 2D)
+
+    @property
+    def n_damaged(self) -> int:
+        """Ячеек с необратимой потерей — сейчас или на прежних нагружениях, при любой температуре: r_eff < 1."""
+        if self.retention is None:
+            return int(np.count_nonzero(self.H_par < self.knee_field))
+        return int(np.count_nonzero(self.retention < 1.0))
+
+    @property
+    def n_beyond_hcj(self) -> int:
+        return 0 if self.beyond_hcj is None else int(np.count_nonzero(self.beyond_hcj))
 
     @property
     def n_demagnetized(self) -> int:
@@ -149,14 +164,20 @@ def compute_demag_risk_map(
     *,
     mu0: float = MU0,
     axis=None,
+    retention=None,
 ) -> DemagRiskMap:
     """
     Построить карту риска из сошедшегося решения: на каждой ячейке магнита взять
-    рабочее поле H_par (мост H_solver/μ₀), маржу к колену, эффективную ремнантность
+    рабочее поле H_par (мост H_solver/μ₀), маржу к колену, сохранённую долю ремнантности
     и необратимую потерю. См. docs/math/nonlinear_materials.md §7.
 
     `result` — любой объект с полем `.H_cells` (3D CoupledPicardResult или 2D-результат).
     `axis` — ось проекции (по умолчанию 3D easy_axis; для 2D передаётся плоскостная).
+    `retention` — для решения с историей нагружения: сохранённая доля ремнантности r ∈ [0, 1]
+    после прежних нагружений (массив по всем ячейкам; вне магнита не используется). Потеря
+    считается по r_eff = min(r, r_now(H∥ сейчас, T)) — магнит, вернувшийся по линии возврата,
+    сохраняет потерю, в том числе при другой температуре (Л-100); маржа и `demagnetized` — по
+    текущему полю («за коленом сейчас»). None — истории нет, потеря по текущему полю.
     """
     mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
     idx = np.where(mask)[0]
@@ -165,17 +186,21 @@ def compute_demag_risk_map(
 
     h_par = np.einsum("ij,ij->i", result.H_cells[idx], axes) / float(mu0)   # А/м
     margin = np.asarray(magnet.risk_margin(h_par, T), dtype=float)
-    br_eff = np.asarray(magnet.effective_Br(h_par, T), dtype=float)
+    r_eff = np.asarray(magnet.retention_now(h_par, T), dtype=float)
+    if retention is not None:
+        r_eff = np.minimum(r_eff, np.asarray(retention, dtype=float).reshape(-1)[idx])
     br_nom = float(magnet.Br(T))
-    loss = br_nom - br_eff
+    br_eff = r_eff * br_nom
     return DemagRiskMap(
         cell_indices=idx,
         H_par=h_par,
         margin=margin,
         Br_eff=br_eff,
-        loss=loss,
+        loss=br_nom - br_eff,
         demagnetized=margin < 0.0,
         T=float(T),
         Br_nominal=br_nom,
         knee_field=float(magnet.knee_field(T)),
+        retention=r_eff,
+        beyond_hcj=r_eff == 0.0,
     )

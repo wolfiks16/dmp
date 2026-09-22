@@ -161,7 +161,7 @@ def test_no_damage_below_knee_stays_exactly_pristine():
     )
     assert res.T_magnet[-1] > 60.0                       # нагрев действительно был
     assert np.all(res.retention_min == 1.0)
-    assert np.all(res.n_past_knee == 0)
+    assert np.all(res.n_past_knee == 0) and np.all(res.past_knee_fraction == 0.0)
     assert res.em_converged
 
 
@@ -286,7 +286,10 @@ def test_cascade_stops_the_run_and_history_stays_trustworthy():
     assert res.em_residual.max() <= 1.0e-2
     assert res.retention_mean[-1] < 0.99                   # повреждение до срыва реально
     # Состояние магнита откачено к последнему достоверному шагу (не к мусору внутри срыва).
-    assert abs(float(res.state.retention.mean()) - res.retention_mean[-1]) < 1e-12
+    # Средняя доля — с весом площади ячеек: поштучное среднее зависит от сетки (Л-104).
+    a = np.array([space.mesh.cell_area(int(c)) for c in res.state.idx])
+    assert abs(float(np.average(res.state.retention, weights=a)) - res.retention_mean[-1]) < 1e-12
+    assert 0.0 < res.past_knee_fraction.max() <= 1.0
 
 
 def test_substepping_is_engaged_but_idle_when_not_needed():
