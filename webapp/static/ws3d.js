@@ -28,7 +28,7 @@ const MATCOL = { magnet: '#9a72d6', steel: '#8391a6', linear: '#4d8bff', air: '#
 const AIR_RGB = [28, 37, 54], GRAY_RGB = [70, 80, 96], LINE_ON_SECTION = [238, 243, 252];
 
 const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20, bc: 'neumann', H0: [0, 0, 0],
-  model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B', pal: 'rainbow',
+  model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B', pal: 'viridis',   // равномерная палитра
   field3d: null, restoring: false, restoreNote: '',     // сетка и φ решения для файла расчёта (этап 3D-9)
   sec: { axis: 'off', pos: 0, flip: false, lo: -50, hi: 50 }, secData: null, secSeq: 0, secTimer: 0,
   bodies: new Set(), opacity: 1, pvTimer: 0, pvSeq: 0, pvBBox: null, pvAxes: null, pvArrows: null, pvArrowsOn: false,
@@ -456,7 +456,9 @@ async function solve(quiet = false) {
       await setQuantity(S.q);
       renderResults(); updateResults(); updateLines();
       const ok = j.result.converged;
-      setConv(ok ? 'g' : 'c', (ok ? '● Решено' : '● Не сошлось') + ' · итераций ' + j.result.iters
+      // «не сохранено» — заметно, поверх вида (как в 2D), а не мелко в строке состояния
+      if (ok && via === 'none') setConv('c', '● Решено, но не сохранено — задайте рабочую папку в ⚙ · итераций ' + j.result.iters);
+      else setConv(ok ? 'g' : 'c', (ok ? '● Решено' : '● Не сошлось') + ' · итераций ' + j.result.iters
         + (via === 'none' ? ' — не сохранено: задайте рабочую папку в ⚙' : ''));
       $('st-iters').textContent = 'итераций ' + j.result.iters;
       return;
@@ -631,6 +633,7 @@ function renderList() {
     + '<button class="o3btn" data-edit3="' + i + '" title="Изменить">✎</button>'
     + '<button class="o3btn" data-del3="' + i + '" title="Удалить">✕</button></div>').join('')
     || '<p class="hint" style="padding:6px 10px">Пусто — добавьте тело кнопками над видом.</p>';
+  updateSteps();                                            // строка шагов в шапке: тела есть / нет
 }
 function select(i) {
   S.sel = (i >= 0 && i < S.objects.length) ? i : -1;
@@ -846,6 +849,7 @@ function reset() {
     v.setCoordAxes(null); v.setBodyAxes(null); v.setArrows(null); v.setFieldLines(null);
   }
   document.querySelectorAll('#sec3d-axis button').forEach(b => b.classList.toggle('on', b.dataset.ax === 'off'));
+  $('vt3-sec').hidden = true;
   $('op3d').value = 100; $('sec3d-flip').checked = false;
   if (act) { renderList(); renderResults(); updateLegend(); }
 }
@@ -902,6 +906,7 @@ function bindUI() {
   document.querySelectorAll('#sec3d-axis button').forEach(b => b.onclick = () => {
     S.sec.axis = b.dataset.ax;
     document.querySelectorAll('#sec3d-axis button').forEach(x => x.classList.toggle('on', x === b));
+    $('vt3-sec').hidden = S.sec.axis === 'off';               // положение разреза — только при включённом разрезе
     updateSecRange(true); updateSection();
   });
   $('sec3d-pos').oninput = () => {
@@ -945,7 +950,7 @@ function bindUI() {
 
 window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, nextView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
-  hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
+  hasModel: () => !!S.model, hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
   zoom: f => { if (S.viewer) S.viewer.zoom(f); }, fit: () => { if (S.viewer) S.viewer.fit(); } };
 bindUI();
 if (MODE === 'objects3d') activate();
