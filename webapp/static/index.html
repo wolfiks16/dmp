@@ -21,7 +21,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .seg button{background:var(--panel2);border:0;color:var(--muted);padding:6px 11px;font:600 11px/1 var(--mono);cursor:pointer}
 .seg button.on{background:var(--accent);color:#04140e}.seg button:disabled{color:var(--dim);cursor:not-allowed}
 /* строка шагов в шапке: ✓ — сделано, «!» — устарело (геометрия менялась после сетки), пустой круг — ещё нет */
-.steps{display:flex;align-items:center;gap:1px;min-width:0}
+.steps{display:flex;align-items:center;gap:1px;min-width:0;overflow-x:auto;scrollbar-width:none}   /* очень узкое окно: шаги прокручиваются, не наезжая на кнопки справа */
+.steps::-webkit-scrollbar{display:none}
 .step{display:flex;align-items:center;gap:7px;background:none;border:0;color:var(--muted);font:600 12.5px/1 var(--ui);padding:7px 9px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .step:hover{color:var(--text);background:var(--panel2)}
 .step .sti{width:15px;height:15px;flex:0 0 15px;border-radius:50%;border:1.5px solid var(--line2);display:grid;place-items:center;font:800 9px/1 var(--ui);font-style:normal;color:#04140e}
@@ -38,6 +39,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .body{flex:1;min-height:0;display:grid;--lw:250px;--rw:292px;grid-template-columns:var(--lw) 1fr var(--rw)}
 /* боковые панели сворачиваются (кнопки в шапке; на узком окне панель проекта убирается сама);
    этап в правой панели держит её открытой */
+.body>.left{grid-column:1}.body>.center{grid-column:2}.body>.right{grid-column:3}   /* свёрнутая панель не сдвигает остальные */
 .body.noleft{--lw:0px}.body.noleft>.left{display:none}
 .body.noright:not(.docked){--rw:0px}.body.noright:not(.docked)>.right{display:none}
 .tbtn svg{width:16px;height:16px;display:block}.tbtn[aria-pressed="true"]{color:var(--text)}
@@ -77,7 +79,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .toggle::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;background:var(--muted);transition:.15s}
 .toggle.on{background:var(--accent2)}.toggle.on::after{left:17px;background:#eafff6}
 .center-body{flex:1;min-height:0;display:flex;flex-direction:column;padding:14px 16px}
-.viewport{position:relative;flex:1;min-height:0;background:#0a0f18;border:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
+.viewport{position:relative;flex:1;min-height:0;background:var(--cv-bg,#0a0f18);border:1px solid var(--line);border-radius:var(--radius) var(--radius) 0 0;overflow:hidden}
 .viewport canvas{width:100%;height:100%;display:block;cursor:grab}.viewport canvas.pt{cursor:crosshair}.viewport canvas.pan{cursor:grabbing}
 .vp-overlay{position:absolute;left:12px;top:10px;font:600 12px/1.4 var(--mono);color:var(--muted);pointer-events:none}.vp-overlay b{color:var(--text)}
 .vp-coord{position:absolute;right:12px;top:10px;font:600 11px/1 var(--mono);color:var(--dim);pointer-events:none}
@@ -353,7 +355,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .status>span{flex:0 0 auto;white-space:nowrap}
 .status #st-conv{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
 #st-ver{border:1px solid var(--line2);padding:2px 7px;border-radius:4px;color:var(--muted)}
-.v3d{position:absolute;inset:0;display:none;background:#0a0f18}
+.v3d{position:absolute;inset:0;display:none;background:var(--cv-bg,#0a0f18)}
 .v3d canvas{cursor:grab}.v3d canvas:active{cursor:grabbing}
 .sw3{width:10px;height:10px;border-radius:2px;flex:0 0 10px;border:1px solid var(--line2)}
 .o3name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -827,8 +829,24 @@ function rainbow(t){t=clamp(t,0,1);return[clamp(1.5-Math.abs(4*t-3),0,1)*255,cla
 function viridis(t){t=clamp(t,0,1);const s=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],x=t*4,i=x|0,f=x-i,a=s[i],b=s[Math.min(i+1,4)];return[lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f)];}
 function diverging(t){t=clamp(t,-1,1);const w=[233,238,245];if(t>=0){const c=[224,72,60];return[lerp(w[0],c[0],t),lerp(w[1],c[1],t),lerp(w[2],c[2],t)];}const c=[62,122,224],a=-t;return[lerp(w[0],c[0],a),lerp(w[1],c[1],a),lerp(w[2],c[2],a)];}
 const ramp=t=>PAL==='viridis'?viridis(t):rainbow(t);
+// Нейтральные цвета холста, графиков и вида 3D — из переменных стиля --cv-*/--ch-* (облик задаёт свои);
+// без них — прежние тёмные. Цвета ДАННЫХ (палитры поля, риска, тепла) обликом не меняются.
+const TH={};
+function readTheme(){const cs=getComputedStyle(document.documentElement),v=(k,d)=>cs.getPropertyValue(k).trim()||d;
+  Object.assign(TH,{bg:v('--cv-bg','#0a0f18'),grid:v('--cv-grid','#172032'),snap:v('--cv-snap','#111a27'),axis:v('--cv-axis','#7286a8'),
+    label:v('--cv-label','#c8d4ea'),halo:v('--cv-halo','#0a0f18'),font:v('--cv-font','ui-monospace,monospace'),
+    ink:v('--cv-ink','#eef3fc'),inkHalo:v('--cv-ink-halo',''),arrow:v('--cv-arrow','#f2f5fa'),probe:v('--cv-probe','#ffffff'),
+    outline:v('--cv-outline','#a7b6d0'),sel:v('--cv-sel','#2fd39c'),knob:v('--cv-knob','#0d1420'),rot:v('--cv-rot','#e0a53a'),add:v('--cv-add','#5dcaa5'),
+    selFill:v('--cv-sel-fill','rgba(47,211,156,0.34)'),
+    magnet:v('--cv-magnet','#7e64a6'),copper:v('--cv-copper','#9c6438'),gap:v('--cv-gap','#161d2b'),steel:v('--cv-steel','#48586e'),
+    air:v('--cv-air','#202a3b'),other:v('--cv-other','#556075'),
+    chGrid:v('--ch-grid','#25314a'),chAxis:v('--ch-axis','#31405d'),chText:v('--ch-text','#5d6d8a'),chTitle:v('--ch-title','#8fa2bf'),
+    chTick:v('--ch-tick','#6b7c99'),chBox:v('--ch-box','#0d1420'),
+    cB:v('--ch-b','#2fd39c'),cJ:v('--ch-j','#7f9dc4'),cKnee:v('--ch-knee','#e0a53a'),     // кривая материала: B(H), J(H), колено
+    s1:v('--ch-s1','#42c25a'),s2:v('--ch-s2','#e0a53a'),s3:v('--ch-s3','#4d8bff')});}     // ряды графиков: B | Bx, Br, медь | By, Bθ, железо
+readTheme();
 function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.kind||'';
-  if(n==='magnet'||k==='magnet')return'#7e64a6';if(n==='slot')return'#9c6438';if(n==='air_gap')return'#161d2b';if(k==='steel')return'#48586e';if(k==='air')return'#202a3b';return'#556075';}
+  if(n==='magnet'||k==='magnet')return TH.magnet;if(n==='slot')return TH.copper;if(n==='air_gap')return TH.gap;if(k==='steel')return TH.steel;if(k==='air')return TH.air;return TH.other;}
 
 let SCENE=null,BX=null,BY=null,CENT=null,MESH_ID=null,REGIONS=[],GEOM=[];
 let LAST_FIELD=null;   // R2: полный payload результата (для архива снимка)
@@ -851,7 +869,9 @@ function heatColor(t){t=clamp(t,0,1);const s=[[26,26,120],[40,120,200],[70,200,1
 function riskColor(s){const R=[229,84,78],Y=[224,165,58],G=[66,194,90];
   if(s<0.5){const t=s/0.5;return[lerp(R[0],Y[0],t),lerp(R[1],Y[1],t),lerp(R[2],Y[2],t)];}
   const t=(s-0.5)/0.5;return[lerp(Y[0],G[0],t),lerp(Y[1],G[1],t),lerp(Y[2],G[2],t)];}
-function dimHex(hex,f){const n=parseInt(hex.slice(1),16);return'rgb('+[((n>>16&255)*f|0),((n>>8&255)*f|0),((n&255)*f|0)].join(',')+')';}
+// Приглушить цвет области: смешать с фоном холста (доля f своего цвета) — на тёмном и на светлом фоне одинаково.
+function dimHex(hex,f){const n=parseInt(hex.slice(1),16),b=parseInt(TH.bg.slice(1),16);
+  const mix=(s)=>((n>>s&255)*f+(b>>s&255)*(1-f))|0;return'rgb('+[mix(16),mix(8),mix(0)].join(',')+')';}
 const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
@@ -876,17 +896,17 @@ function signedComp(){return SHOWFIELD&&COMP!=='mag';}
 
 function niceStep(){const t=64,c=[1,2,5,10,20,50];let bs=c[0],bd=1e9;c.forEach(s=>{const d=Math.abs(scale*s-t);if(d<bd){bd=d;bs=s;}});return bs;}
 function grid(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep();ctx.lineWidth=1;
-  if(MODE==='objects'&&SNAP&&scale*SNAPSTEP>=6){const ss=SNAPSTEP;ctx.strokeStyle='#111a27';
+  if(MODE==='objects'&&SNAP&&scale*SNAPSTEP>=6){const ss=SNAPSTEP;ctx.strokeStyle=TH.snap;
     for(let x=Math.ceil(tl[0]/ss)*ss;x<=br[0];x+=ss){const s=w2s(x,0)[0];ctx.beginPath();ctx.moveTo(s,0);ctx.lineTo(s,H);ctx.stroke();}
     for(let y=Math.ceil(br[1]/ss)*ss;y<=tl[1];y+=ss){const s=w2s(0,y)[1];ctx.beginPath();ctx.moveTo(0,s);ctx.lineTo(W,s);ctx.stroke();}}
-  ctx.strokeStyle='#172032';
+  ctx.strokeStyle=TH.grid;
   for(let x=Math.ceil(tl[0]/step)*step;x<=br[0];x+=step){const s=w2s(x,0)[0];ctx.beginPath();ctx.moveTo(s,0);ctx.lineTo(s,H);ctx.stroke();}
   for(let y=Math.ceil(br[1]/step)*step;y<=tl[1];y+=step){const s=w2s(0,y)[1];ctx.beginPath();ctx.moveTo(0,s);ctx.lineTo(W,s);ctx.stroke();}
 }
 function axes(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep(),ax=w2s(0,0);
-  ctx.lineWidth=1.4;ctx.strokeStyle='#7286a8';
+  ctx.lineWidth=1.4;ctx.strokeStyle=TH.axis;
   ctx.beginPath();ctx.moveTo(0,ax[1]);ctx.lineTo(W,ax[1]);ctx.moveTo(ax[0],0);ctx.lineTo(ax[0],H);ctx.stroke();
-  ctx.font='10px ui-monospace,monospace';ctx.lineWidth=3;ctx.lineJoin='round';ctx.strokeStyle='#0a0f18';ctx.fillStyle='#c8d4ea';
+  ctx.font='10px '+TH.font;ctx.lineWidth=3;ctx.lineJoin='round';ctx.strokeStyle=TH.halo;ctx.fillStyle=TH.label;
   const lab=(t,x,y,al)=>{ctx.textAlign=al;ctx.strokeText(''+t,x,y);ctx.fillText(''+t,x,y);};
   for(let x=Math.ceil(tl[0]/step)*step;x<=br[0];x+=step){if(!x)continue;lab(x,w2s(x,0)[0],ax[1]+15,'center');}
   for(let y=Math.ceil(br[1]/step)*step;y<=tl[1];y+=step){if(!y)continue;lab(y,ax[0]-7,w2s(0,y)[1]+4,'right');}}
@@ -917,12 +937,13 @@ function buildLines2D(){
 function drawFieldLines2D(){
   if(!LINES2D||LINES2D.n!==NLINES2D)buildLines2D();
   const s=LINES2D.segs;if(!s.length)return;
-  ctx.strokeStyle='#eef3fc';ctx.lineWidth=1.1;ctx.beginPath();
+  ctx.beginPath();
   for(let i=0;i<s.length;i+=4){const a=w2s(s[i],s[i+1]),b=w2s(s[i+2],s[i+3]);ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);}
-  ctx.stroke();
+  if(TH.inkHalo){ctx.strokeStyle=TH.inkHalo;ctx.lineWidth=3;ctx.stroke();}   // подложка: линия видна и на тёмном, и на светлом поле
+  ctx.strokeStyle=TH.ink;ctx.lineWidth=1.1;ctx.stroke();
   if(!BX)return;                                                   // стрелки направления — по полю ячейки
   const step=Math.max(1,Math.round(s.length/4/150));
-  ctx.fillStyle='#eef3fc';
+  ctx.fillStyle=TH.ink;
   for(let i=0,k=0;i<s.length;i+=4,k++){
     if(k%step)continue;
     const ci=LINES2D.cells[k],bx=BX[ci],by=BY[ci],m=Math.hypot(bx,by);
@@ -955,7 +976,7 @@ function drawMagArrows2D(){
     seen[key]=1;arr.push([c[0],c[1],a[0]/m,a[1]/m]);
   }
   const L=Math.max(scale*h*0.7,12);
-  ctx.strokeStyle='#f2f5fa';ctx.fillStyle='#f2f5fa';ctx.lineWidth=1.5;
+  ctx.strokeStyle=TH.arrow;ctx.fillStyle=TH.arrow;ctx.lineWidth=1.5;
   for(const q of arr){
     const p=w2s(q[0],q[1]),dx=q[2]*L*0.5,dy=-q[3]*L*0.5,len=Math.hypot(dx,dy),W=3.2;
     ctx.beginPath();ctx.moveTo(p[0]-dx,p[1]-dy);ctx.lineTo(p[0]+0.4*dx,p[1]+0.4*dy);ctx.stroke();
@@ -966,10 +987,10 @@ function drawMagArrows2D(){
   }
 }
 function overlays(){ctx.lineWidth=1.7;
-  if(TOOL==='point'){const s=w2s(P.point.x,P.point.y);ctx.strokeStyle='#fff';ctx.beginPath();ctx.moveTo(s[0]-9,s[1]);ctx.lineTo(s[0]+9,s[1]);ctx.moveTo(s[0],s[1]-9);ctx.lineTo(s[0],s[1]+9);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(s[0],s[1],3.2,0,7);ctx.fill();}
-  else if(TOOL==='line'){const a=w2s(P.line.x1,P.line.y1),b=w2s(P.line.x2,P.line.y2);ctx.strokeStyle='#fff';ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#2fd39c';const n=Math.min(P.line.n,40);for(let i=0;i<=n;i++){const s=w2s(lerp(P.line.x1,P.line.x2,i/n),lerp(P.line.y1,P.line.y2,i/n));ctx.beginPath();ctx.arc(s[0],s[1],1.5,0,7);ctx.fill();}}
-  else if(TOOL==='circle'){ctx.strokeStyle='#2fd39c';ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}}
-function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle='#0a0f18';ctx.fillRect(0,0,W,H);
+  if(TOOL==='point'){const s=w2s(P.point.x,P.point.y);ctx.strokeStyle=TH.probe;ctx.beginPath();ctx.moveTo(s[0]-9,s[1]);ctx.lineTo(s[0]+9,s[1]);ctx.moveTo(s[0],s[1]-9);ctx.lineTo(s[0],s[1]+9);ctx.stroke();ctx.fillStyle=TH.probe;ctx.beginPath();ctx.arc(s[0],s[1],3.2,0,7);ctx.fill();}
+  else if(TOOL==='line'){const a=w2s(P.line.x1,P.line.y1),b=w2s(P.line.x2,P.line.y2);ctx.strokeStyle=TH.probe;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=TH.sel;const n=Math.min(P.line.n,40);for(let i=0;i<=n;i++){const s=w2s(lerp(P.line.x1,P.line.x2,i/n),lerp(P.line.y1,P.line.y2,i/n));ctx.beginPath();ctx.arc(s[0],s[1],1.5,0,7);ctx.fill();}}
+  else if(TOOL==='circle'){ctx.strokeStyle=TH.sel;ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}}
+function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect(0,0,W,H);
   if(!SCENE){grid();
     if(MODE==='objects'){drawObjects();}          // контуры фигур видны ДО сборки сетки
     axes();
@@ -993,7 +1014,7 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle='#0a0f18';ctx.fill
   if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
     const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
-    ctx.fillStyle='rgba(47,211,156,0.34)';ctx.fill();}}
+    ctx.fillStyle=TH.selFill;ctx.fill();}}
   if(MODE==='objects')drawObjects();
   if(SHOWLINES2D&&AZ)drawFieldLines2D();
   if(SHOWMAG2D&&SCENE&&SCENE.magnet_axis)drawMagArrows2D();
@@ -1017,15 +1038,15 @@ function shapePath(o){const p=o.params,DEG=Math.PI/180;ctx.beginPath();
   else if(o.kind==='polygon'){p.points.forEach((pt,i)=>{const q=w2s(pt[0],pt[1]);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);});ctx.closePath();}}
 function drawObjects(){for(let i=0;i<OBJECTS.length;i++){const o=OBJECTS[i];shapePath(o);
   ctx.fillStyle=matSwatch(o.material)+'66';ctx.fill('evenodd');
-  ctx.lineWidth=(i===SEL)?2.4:1.3;ctx.strokeStyle=(i===SEL)?'#2fd39c':'#a7b6d0';ctx.stroke();}}
+  ctx.lineWidth=(i===SEL)?2.4:1.3;ctx.strokeStyle=(i===SEL)?TH.sel:TH.outline;ctx.stroke();}}
 function paramsFromDrag(kind,a,b){const cx=(a[0]+b[0])/2,cy=(a[1]+b[1])/2,dw=Math.abs(b[0]-a[0]),dh=Math.abs(b[1]-a[1]),r=Math.hypot(b[0]-a[0],b[1]-a[1]);
   if(kind==='rect')return{cx,cy,w:Math.max(dw,0.5),h:Math.max(dh,0.5),angle:0};
   if(kind==='circle')return{cx:a[0],cy:a[1],r:Math.max(r,0.5)};
   if(kind==='ring')return{cx:a[0],cy:a[1],r_in:Math.max(r/2,0.3),r_out:Math.max(r,0.6)};
   return{cx:a[0],cy:a[1],r_in:Math.max(r/2,0.3),r_out:Math.max(r,0.6),a1:0,a2:90};}
-function drawPreview(){ctx.save();ctx.lineWidth=1.8;ctx.strokeStyle='#2fd39c';ctx.setLineDash([6,4]);
+function drawPreview(){ctx.save();ctx.lineWidth=1.8;ctx.strokeStyle=TH.sel;ctx.setLineDash([6,4]);
   if(DRAW.kind==='polygon'){if(DRAW.pts.length){ctx.beginPath();DRAW.pts.forEach((pt,i)=>{const q=w2s(pt[0],pt[1]);i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]);});if(DRAW.cur){const q=w2s(DRAW.cur[0],DRAW.cur[1]);ctx.lineTo(q[0],q[1]);}ctx.stroke();
-    ctx.setLineDash([]);ctx.fillStyle='#2fd39c';DRAW.pts.forEach(pt=>{const q=w2s(pt[0],pt[1]);ctx.beginPath();ctx.arc(q[0],q[1],3,0,7);ctx.fill();});}}
+    ctx.setLineDash([]);ctx.fillStyle=TH.sel;DRAW.pts.forEach(pt=>{const q=w2s(pt[0],pt[1]);ctx.beginPath();ctx.arc(q[0],q[1],3,0,7);ctx.fill();});}}
   else if(DRAW.start&&DRAW.cur){shapePath({kind:DRAW.kind,params:paramsFromDrag(DRAW.kind,DRAW.start,DRAW.cur)});ctx.stroke();}
   ctx.restore();}
 function rnd(o){const r={};for(const k in o)r[k]=Array.isArray(o[k])?o[k].map(p=>[+p[0].toFixed(1),+p[1].toFixed(1)]):+o[k].toFixed(2);return r;}
@@ -1128,9 +1149,9 @@ function applyHandle(o,h,x,y){const p=o.params,DEG=Math.PI/180;
   else if(h.k[0]==='v')p.points[+h.k.slice(1)]=[+x.toFixed(1),+y.toFixed(1)];}
 function setTranslate(o,base,dx,dy){const p=o.params;if(o.kind==='polygon')p.points=base.points.map(pt=>[+(pt[0]+dx).toFixed(1),+(pt[1]+dy).toFixed(1)]);else{p.cx=+(base.cx+dx).toFixed(1);p.cy=+(base.cy+dy).toFixed(1);}}
 function drawHandles(){if(!editable()||SEL<0||!OBJECTS[SEL])return;handlesOf(OBJECTS[SEL]).forEach(h=>{const q=w2s(h.x,h.y);
-  if(h.k==='rot'){ctx.fillStyle='#0d1420';ctx.strokeStyle='#e0a53a';ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(q[0],q[1],5,0,7);ctx.fill();ctx.stroke();}
-  else if(h.k.indexOf('add')===0){ctx.fillStyle='#0d1420';ctx.strokeStyle='#5dcaa5';ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(q[0],q[1],4,0,7);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(q[0]-2,q[1]);ctx.lineTo(q[0]+2,q[1]);ctx.moveTo(q[0],q[1]-2);ctx.lineTo(q[0],q[1]+2);ctx.stroke();}
-  else{ctx.fillStyle='#0d1420';ctx.strokeStyle='#2fd39c';ctx.lineWidth=1.6;ctx.beginPath();ctx.rect(q[0]-4,q[1]-4,8,8);ctx.fill();ctx.stroke();}});}
+  if(h.k==='rot'){ctx.fillStyle=TH.knob;ctx.strokeStyle=TH.rot;ctx.lineWidth=1.8;ctx.beginPath();ctx.arc(q[0],q[1],5,0,7);ctx.fill();ctx.stroke();}
+  else if(h.k.indexOf('add')===0){ctx.fillStyle=TH.knob;ctx.strokeStyle=TH.add;ctx.lineWidth=1.3;ctx.beginPath();ctx.arc(q[0],q[1],4,0,7);ctx.fill();ctx.stroke();ctx.beginPath();ctx.moveTo(q[0]-2,q[1]);ctx.lineTo(q[0]+2,q[1]);ctx.moveTo(q[0],q[1]-2);ctx.lineTo(q[0],q[1]+2);ctx.stroke();}
+  else{ctx.fillStyle=TH.knob;ctx.strokeStyle=TH.sel;ctx.lineWidth=1.6;ctx.beginPath();ctx.rect(q[0]-4,q[1]-4,8,8);ctx.fill();ctx.stroke();}});}
 function matName(mid){if(mid==='air')return'Воздух';const st=STEELS.find(s=>s.id===mid);if(st)return st.name;const m=MAGNETS.find(x=>x.id===mid);return m?m.name:mid;}
 function objBBox(o){const p=o.params,DEG=Math.PI/180;let pts=[];
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(a),s=Math.sin(a);[[-1,-1],[1,-1],[1,1],[-1,1]].forEach(q=>{const lx=q[0]*p.w/2,ly=q[1]*p.h/2;pts.push([p.cx+lx*c-ly*s,p.cy+lx*s+ly*c]);});}
@@ -1184,10 +1205,11 @@ function bars(){const cbar=$('cbar'),wasHidden=cbar.classList.contains('hide');
 
 function poly(pts,c){return'<polyline fill="none" stroke="'+c+'" stroke-width="1.8" points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>';}
 function chart(series,x0,x1){const w=256,h=160,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>30+t*(w-38),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
-  let s='';for(let i=0;i<=4;i++){const y=10+i*(h-26)/4;s+='<line x1="30" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="#25314a"/>';}
-  s+='<line x1="30" y1="'+(10+(h-26)/2)+'" x2="'+(w-6)+'" y2="'+(10+(h-26)/2)+'" stroke="#31405d" stroke-dasharray="3 3"/>';
+  let s='';for(let i=0;i<=4;i++){const y=10+i*(h-26)/4;s+='<line x1="30" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="'+TH.chGrid+'"/>';}
+  s+='<line x1="30" y1="'+(10+(h-26)/2)+'" x2="'+(w-6)+'" y2="'+(10+(h-26)/2)+'" stroke="'+TH.chAxis+'" stroke-dasharray="3 3"/>';
   series.forEach(se=>s+=poly(se.pts.map(p=>[X(p[0]),Y(p[1])]),se.color));
-  s+='<text x="30" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x0+'</text><text x="'+(w-28)+'" y="'+(h-1)+'" fill="#5d6d8a" font-size="9" font-family="monospace">'+x1+'</text><text x="3" y="14" fill="#5d6d8a" font-size="9" font-family="monospace">'+mx.toFixed(2)+'</text>';
+  const tx=(x,y,t)=>'<text x="'+x+'" y="'+y+'" fill="'+TH.chText+'" font-size="9" font-family="'+TH.font+'">'+t+'</text>';
+  s+=tx(30,h-1,x0)+tx(w-28,h-1,x1)+tx(3,14,mx.toFixed(2));
   return'<svg class="chartsvg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'+s+'</svg>';}
 function leg(se){return'<div class="legend">'+se.map(s=>'<span><i style="background:'+s.color+'"></i>'+s.label+'</span>').join('')+'</div>';}
 
@@ -1198,11 +1220,11 @@ function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';ret
     R.innerHTML='<div class="reshead">Точка ('+P.point.x+', '+P.point.y+') · '+f.reg+'</div><table class="ptable">'+row('Bx',f.bx)+row('By',f.by)+row('Br',f.br)+row('Bθ',f.bt)+'<tr><td class="k"><b>B</b></td><td class="v" style="color:var(--accent)">'+f.mag.toFixed(3)+'</td><td class="u">Тл</td></tr></table>';}
   else if(TOOL==='line'){const L=P.line,N=Math.max(2,L.n|0),d={mag:[],bx:[],by:[]};
     for(let i=0;i<=N;i++){const t=i/N,f=fieldAtPoint(lerp(L.x1,L.x2,t),lerp(L.y1,L.y2,t))||{mag:0,bx:0,by:0};d.mag.push([t,f.mag]);d.bx.push([t,f.bx]);d.by.push([t,f.by]);}
-    const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'B'});if($('lc-bx').checked)se.push({pts:d.bx,color:'#e0a53a',label:'Bx'});if($('lc-by').checked)se.push({pts:d.by,color:'#4d8bff',label:'By'});
+    const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:TH.s1,label:'B'});if($('lc-bx').checked)se.push({pts:d.bx,color:TH.s2,label:'Bx'});if($('lc-by').checked)se.push({pts:d.by,color:TH.s3,label:'By'});
     R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек</div>'+(se.length?chart(se,'т.1','т.2')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else if(TOOL==='circle'){const c=P.circle,N=Math.max(3,c.n|0),d={br:[],bt:[],mag:[]};
     for(let i=0;i<=N;i++){const a=i/N*2*Math.PI,f=fieldAtPoint(c.cx+c.r*Math.cos(a),c.cy+c.r*Math.sin(a))||{br:0,bt:0,mag:0};d.br.push([i/N,f.br]);d.bt.push([i/N,f.bt]);d.mag.push([i/N,f.mag]);}
-    const se=[];if($('cc-br').checked)se.push({pts:d.br,color:'#e0a53a',label:'Br'});if($('cc-bt').checked)se.push({pts:d.bt,color:'#4d8bff',label:'Bθ'});if($('cc-mag').checked)se.push({pts:d.mag,color:'#42c25a',label:'B'});
+    const se=[];if($('cc-br').checked)se.push({pts:d.br,color:TH.s2,label:'Br'});if($('cc-bt').checked)se.push({pts:d.bt,color:TH.s3,label:'Bθ'});if($('cc-mag').checked)se.push({pts:d.mag,color:TH.s1,label:'B'});
     R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
   else R.innerHTML='';}
 
@@ -1443,8 +1465,8 @@ function renderScenario(d){const o=$('s3-out');
     ['Момент на кг магнита',d.healthy.tpm+' Н·м/кг'],
     ['Масса магнитов',d.magnet_mass_g+' г']]);
   html+='<div class="reshead">Траектория нагрева</div>'
-    +'<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Температура магнита</div>'+spark(d.trajectory.t,d.trajectory.T_magnet,'#e0a53a',' °C',v=>v.toFixed(0))
-    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая остаточная индукция Br</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),'#2fd39c',' %',v=>v.toFixed(1));
+    +'<div style="font-size:11px;color:var(--muted);margin-bottom:2px">Температура магнита</div>'+spark(d.trajectory.t,d.trajectory.T_magnet,TH.s2,' °C',v=>v.toFixed(0))
+    +'<div style="font-size:11px;color:var(--muted);margin:6px 0 2px">Сохранённая остаточная индукция Br</div>'+spark(d.trajectory.t,d.trajectory.retention_mean.map(v=>v*100),TH.cB,' %',v=>v.toFixed(1));
   if(d.losses){const L=d.losses;html+='<div class="reshead">Потери и КПД (n='+L.speed_rpm+' об/мин, f='+L.freq+' Гц)</div>'
     +'<table class="s3tab"><tr><th></th><th>до</th><th>после</th></tr>'
     +'<tr><td>Момент средний, Н·м</td><td>'+L.before.torque_mean+'</td><td>'+L.after.torque_mean+'</td></tr>'
@@ -1640,7 +1662,7 @@ function updateResults(){if(MODE==='objects3d'){$('res-stage').style.display='no
   updateSteps();}
 // Момент от угла ротора (тяжёлая прогонка — фон-джоб через менеджер задач).
 function renderTorque(d){const out=$('tq-out');const n=d.torque.length;
-  const pts=d.torque.map((y,i)=>[n>1?i/(n-1):0,y]);const se=[{pts,color:'#4d8bff',label:'M(θ)'}];
+  const pts=d.torque.map((y,i)=>[n>1?i/(n-1):0,y]);const se=[{pts,color:TH.s3,label:'M(θ)'}];
   const ripple=(d.torque_ripple==null)?('размах '+d.torque_span.toFixed(3)+' Н·м'):((d.torque_ripple*100).toFixed(1)+' %');
   const rows=[['Средний момент',d.torque_mean.toFixed(3)+' Н·м'],
     ['Пульсации',ripple,(d.torque_ripple!=null&&d.torque_ripple>0.3)?'warn':''],
@@ -1668,9 +1690,9 @@ $('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=
 function renderLoss(d){const out=$('loss-out');const pin=d.p_in||1;
   const seg=(w,c,lbl)=>'<div style="width:'+(100*Math.max(w,0)/pin).toFixed(1)+'%;background:'+c+'" title="'+lbl+'"></div>';
   const bar='<div style="display:flex;height:16px;border-radius:5px;overflow:hidden;margin:8px 0;border:1px solid var(--line)">'
-    +seg(d.p_out,'#42c25a','Выход')+seg(d.p_copper,'#e0a53a','Медь')+seg(d.p_iron,'#4d8bff','Железо')+'</div>';
+    +seg(d.p_out,TH.s1,'Выход')+seg(d.p_copper,TH.s2,'Медь')+seg(d.p_iron,TH.s3,'Железо')+'</div>';
   const leg='<div style="display:flex;gap:12px;font:600 10px/1 var(--mono);color:var(--muted);margin-bottom:2px">'
-    +'<span style="color:#42c25a">■ выход</span><span style="color:#e0a53a">■ медь</span><span style="color:#4d8bff">■ железо</span></div>';
+    +'<span style="color:'+TH.s1+'">■ выход</span><span style="color:'+TH.s2+'">■ медь</span><span style="color:'+TH.s3+'">■ железо</span></div>';
   const ec=d.efficiency>0.85?'ok':(d.efficiency>0.6?'warn':'crit');
   const rows=[['КПД η',(d.efficiency*100).toFixed(1)+' %',ec],
     ['Полезная мощность',d.p_out.toFixed(1)+' Вт'],
@@ -1753,7 +1775,7 @@ const OBJDEF={rect:{cx:0,cy:0,w:10,h:10,angle:0},circle:{cx:0,cy:0,r:5},ring:{cx
 const KINDRU={rect:'Прямоугольник',circle:'Круг',ring:'Кольцо',sector:'Сектор',polygon:'Полигон'};
 const PARAMRU={cx:'Центр x',cy:'Центр y',w:'Ширина',h:'Высота',angle:'Угол',r:'Радиус',r_in:'R внутр.',r_out:'R внешн.',a1:'Угол от',a2:'Угол до'};
 function isMagnet(mid){return mid!=='air'&&!STEELS.some(s=>s.id===mid);}
-function matSwatch(mid){return mid==='air'?'#202a3b':STEELS.some(s=>s.id===mid)?'#48586e':'#7e64a6';}
+function matSwatch(mid){return mid==='air'?TH.air:STEELS.some(s=>s.id===mid)?TH.steel:TH.magnet;}
 // Короткая метка материала для дерева/списков: берётся из РЕАЛЬНОГО имени материала.
 // ⚠ Раньше здесь было захардкожено 'N42SH'/'SmCo' — с каталогом на сотни марок это врало.
 function shortMat(mid){if(mid==='air')return'возд.';
@@ -2066,11 +2088,11 @@ function curveChart(d){const w=360,h=250,L=30,R=54,Tp=34,Bp=44,MU0=4e-7*Math.PI;
   const path=(pts,st,wd,da)=>pts.length?'<polyline fill="none" stroke="'+st+'" stroke-width="'+wd+'"'
     +(da?' stroke-dasharray="'+da+'"':'')+' points="'+pts.map(p=>X(p[0]).toFixed(1)+','+Y(p[1]).toFixed(1)).join(' ')+'"/>':'';
   let s='<rect x="'+L+'" y="'+Tp+'" width="'+Math.max(0,kx-L).toFixed(1)+'" height="'+(h-Tp-Bp)+'" fill="#e1442f" opacity="0.10"/>';
-  s+='<line x1="'+L+'" y1="'+Y(0)+'" x2="'+(w-R)+'" y2="'+Y(0)+'" stroke="#31405d"/>';
-  s+='<line x1="'+(w-R)+'" y1="'+Tp+'" x2="'+(w-R)+'" y2="'+(h-Bp)+'" stroke="#31405d"/>';
-  s+=path(pJ,'#7f9dc4',1.6,'5 3')+path(pB,'#2fd39c',2.6);
-  s+='<line x1="'+kx.toFixed(1)+'" y1="'+Tp+'" x2="'+kx.toFixed(1)+'" y2="'+(h-Bp)+'" stroke="#e0a53a" stroke-dasharray="4 3"/>';
-  s+='<circle cx="'+kx.toFixed(1)+'" cy="'+ky.toFixed(1)+'" r="4" fill="#e0a53a" stroke="#0d1420" stroke-width="1.5"/>';
+  s+='<line x1="'+L+'" y1="'+Y(0)+'" x2="'+(w-R)+'" y2="'+Y(0)+'" stroke="'+TH.chAxis+'"/>';
+  s+='<line x1="'+(w-R)+'" y1="'+Tp+'" x2="'+(w-R)+'" y2="'+(h-Bp)+'" stroke="'+TH.chAxis+'"/>';
+  s+=path(pJ,TH.cJ,1.6,'5 3')+path(pB,TH.cB,2.6);
+  s+='<line x1="'+kx.toFixed(1)+'" y1="'+Tp+'" x2="'+kx.toFixed(1)+'" y2="'+(h-Bp)+'" stroke="'+TH.cKnee+'" stroke-dasharray="4 3"/>';
+  s+='<circle cx="'+kx.toFixed(1)+'" cy="'+ky.toFixed(1)+'" r="4" fill="'+TH.cKnee+'" stroke="'+TH.chBox+'" stroke-width="1.5"/>';
   // подписи не должны вылезать за поле графика: если у левого края мало места — уводим вправо
   const lab=(x,y,txt,col,fs,bold)=>{const wpx=txt.length*(fs*0.56)+6;
     let an='end',tx=x-7;
@@ -2078,13 +2100,13 @@ function curveChart(d){const w=360,h=250,L=30,R=54,Tp=34,Bp=44,MU0=4e-7*Math.PI;
     if(tx+wpx>w-R&&an==='start'){an='end';tx=Math.max(x-7,L+wpx);}
     const bx=(an==='end')?tx-wpx:tx-3;
     return '<rect x="'+bx.toFixed(1)+'" y="'+(y-fs+1).toFixed(1)+'" width="'+wpx.toFixed(1)
-      +'" height="'+(fs+4)+'" fill="#0d1420" opacity="0.82" rx="2"/>'
+      +'" height="'+(fs+4)+'" fill="'+TH.chBox+'" opacity="0.82" rx="2"/>'
       +'<text x="'+tx.toFixed(1)+'" y="'+y+'" fill="'+col+'" font-size="'+fs+'"'
       +(bold?' font-weight="700"':'')+' text-anchor="'+an+'">'+txt+'</text>';};
-  s+=lab(kx,Tp+11,'колено','#e0a53a',10.5,1);
-  s+=lab(kx,Tp+24,'Hk '+Math.round(d.Hk/1000)+' кА/м','#e0a53a',10,1);
-  s+='<circle cx="'+X(0).toFixed(1)+'" cy="'+Y(d.Br).toFixed(1)+'" r="3.4" fill="#2fd39c"/>';
-  s+='<text x="'+(X(0)-6).toFixed(1)+'" y="'+(Y(d.Br)-7).toFixed(1)+'" fill="#2fd39c" font-size="10.5" font-weight="700" text-anchor="end">Br '+d.Br.toFixed(2)+'</text>';
+  s+=lab(kx,Tp+11,'колено',TH.cKnee,10.5,1);
+  s+=lab(kx,Tp+24,'Hk '+Math.round(d.Hk/1000)+' кА/м',TH.cKnee,10,1);
+  s+='<circle cx="'+X(0).toFixed(1)+'" cy="'+Y(d.Br).toFixed(1)+'" r="3.4" fill="'+TH.cB+'"/>';
+  s+='<text x="'+(X(0)-6).toFixed(1)+'" y="'+(Y(d.Br)-7).toFixed(1)+'" fill="'+TH.cB+'" font-size="10.5" font-weight="700" text-anchor="end">Br '+d.Br.toFixed(2)+'</text>';
   // характерные поля прямо на оси: H_cB (нуль B), H_cJ (нуль J), H_k (колено)
   const mark=(v,col,txt,dy)=>{if(v==null)return'';const x=X(v),fs=9.5,wpx=txt.length*(fs*0.56)+6;
     let an='middle',tx=x;
@@ -2093,19 +2115,19 @@ function curveChart(d){const w=360,h=250,L=30,R=54,Tp=34,Bp=44,MU0=4e-7*Math.PI;
     const bx=an==='middle'?tx-wpx/2:(an==='start'?tx-3:tx-wpx+3);
     const y=Y(0)-9-(dy||0);
     return '<line x1="'+x.toFixed(1)+'" y1="'+(Y(0)-5)+'" x2="'+x.toFixed(1)+'" y2="'+(Y(0)+5)+'" stroke="'+col+'" stroke-width="2"/>'
-      +'<rect x="'+bx.toFixed(1)+'" y="'+(y-fs+1).toFixed(1)+'" width="'+wpx.toFixed(1)+'" height="'+(fs+4)+'" fill="#0d1420" opacity="0.82" rx="2"/>'
+      +'<rect x="'+bx.toFixed(1)+'" y="'+(y-fs+1).toFixed(1)+'" width="'+wpx.toFixed(1)+'" height="'+(fs+4)+'" fill="'+TH.chBox+'" opacity="0.82" rx="2"/>'
       +'<text x="'+tx.toFixed(1)+'" y="'+y+'" fill="'+col+'" font-size="'+fs+'" font-weight="700" text-anchor="'+an+'">'+txt+'</text>';};
-  s+=mark(HcB,'#2fd39c','HcB '+Math.round(-HcB));
-  s+=mark(HcJ,'#7f9dc4','HcJ '+Math.round(-HcJ),14);
+  s+=mark(HcB,TH.cB,'HcB '+Math.round(-HcB));
+  s+=mark(HcJ,TH.cJ,'HcJ '+Math.round(-HcJ),14);
   const dec=Math.pow(10,Math.floor(Math.log10(-xmin)));
   const step=dec*((-xmin/dec)>5?2:1)/2;
-  for(let v=0;v>=xmin;v-=step){s+='<line x1="'+X(v).toFixed(1)+'" y1="'+(h-Bp)+'" x2="'+X(v).toFixed(1)+'" y2="'+(h-Bp+4)+'" stroke="#31405d"/>'
-    +'<text x="'+X(v).toFixed(1)+'" y="'+(h-Bp+15)+'" fill="#6b7c99" font-size="9.5" text-anchor="middle">'+Math.round(v)+'</text>';}
-  for(let v=0;v<=ymax;v+=0.5){s+='<line x1="'+(w-R)+'" y1="'+Y(v).toFixed(1)+'" x2="'+(w-R+4)+'" y2="'+Y(v).toFixed(1)+'" stroke="#31405d"/>'
-    +'<text x="'+(w-R+7)+'" y="'+(Y(v)+3.4).toFixed(1)+'" fill="#6b7c99" font-size="9.5">'+v.toFixed(1)+'</text>';}
-  s+='<text x="'+((L+w-R)/2).toFixed(0)+'" y="'+(h-6)+'" fill="#8fa2bf" font-size="10.5" text-anchor="middle">Напряжённость магнитного поля  H, кА/м</text>';
-  s+='<text transform="translate('+(w-4)+','+((Tp+h-Bp)/2).toFixed(0)+') rotate(-90)" fill="#8fa2bf" font-size="10.5" text-anchor="middle">Индукция B и намагниченность J, Тл</text>';
-  s+='<text x="'+L+'" y="'+(Tp-10)+'" fill="#7f9dc4" font-size="9.5">— — J(H) по намагниченности · ── B(H) по индукции</text>';
+  for(let v=0;v>=xmin;v-=step){s+='<line x1="'+X(v).toFixed(1)+'" y1="'+(h-Bp)+'" x2="'+X(v).toFixed(1)+'" y2="'+(h-Bp+4)+'" stroke="'+TH.chAxis+'"/>'
+    +'<text x="'+X(v).toFixed(1)+'" y="'+(h-Bp+15)+'" fill="'+TH.chTick+'" font-size="9.5" text-anchor="middle">'+Math.round(v)+'</text>';}
+  for(let v=0;v<=ymax;v+=0.5){s+='<line x1="'+(w-R)+'" y1="'+Y(v).toFixed(1)+'" x2="'+(w-R+4)+'" y2="'+Y(v).toFixed(1)+'" stroke="'+TH.chAxis+'"/>'
+    +'<text x="'+(w-R+7)+'" y="'+(Y(v)+3.4).toFixed(1)+'" fill="'+TH.chTick+'" font-size="9.5">'+v.toFixed(1)+'</text>';}
+  s+='<text x="'+((L+w-R)/2).toFixed(0)+'" y="'+(h-6)+'" fill="'+TH.chTitle+'" font-size="10.5" text-anchor="middle">Напряжённость магнитного поля  H, кА/м</text>';
+  s+='<text transform="translate('+(w-4)+','+((Tp+h-Bp)/2).toFixed(0)+') rotate(-90)" fill="'+TH.chTitle+'" font-size="10.5" text-anchor="middle">Индукция B и намагниченность J, Тл</text>';
+  s+='<text x="'+L+'" y="'+(Tp-10)+'" fill="'+TH.cJ+'" font-size="9.5">— — J(H) по намагниченности · ── B(H) по индукции</text>';
   return '<svg viewBox="0 0 '+w+' '+h+'" style="width:100%;height:auto;display:block">'+s+'</svg>';}
 function curveChartOld(d){const w=256,h=182,L=36,R=8,Tp=10,Bp=22;
   const Hk=d.H.map(x=>x/1000),xmin=Math.min.apply(0,Hk),ymin=Math.min(0,Math.min.apply(0,d.B)),ymax=Math.max(d.Br,Math.max.apply(0,d.B));
@@ -2280,14 +2302,15 @@ document.addEventListener('click',e=>{if(!$('vt3-pop').hidden&&!$('vt3').contain
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('vt3-pop').hidden)vt3Pop(false);});
 // Боковые панели: кнопки в шапке. На узком окне панель проекта убирается сама — вид важнее; решение пользователя
 // держится, пока окно не пересечёт порог ширины снова.
-const NARROW_PX=1000;                                    // ширина раскладки страницы, px (с учётом её масштаба)
-let WAS_NARROW=null;
+const NARROW_PX=1000,NARROWER_PX=760;                    // ширина раскладки страницы, px (с учётом её масштаба)
+let WAS_NARROW=null,WAS_NARROWER=null;
 function setPanel(side,on){document.querySelector('.body').classList.toggle(side==='left'?'noleft':'noright',!on);
   $('tog-'+side).setAttribute('aria-pressed',on?'true':'false');}
 $('tog-left').onclick=()=>setPanel('left',document.querySelector('.body').classList.contains('noleft'));
 $('tog-right').onclick=()=>setPanel('right',document.querySelector('.body').classList.contains('noright'));
-function autoPanels(){const n=innerWidth/(parseFloat(getComputedStyle(document.body).zoom)||1)<NARROW_PX;
-  if(n!==WAS_NARROW){WAS_NARROW=n;setPanel('left',!n);}}
+function autoPanels(){const w=innerWidth/(parseFloat(getComputedStyle(document.body).zoom)||1),n=w<NARROW_PX,nn=w<NARROWER_PX;
+  if(n!==WAS_NARROW){WAS_NARROW=n;setPanel('left',!n);}
+  if(nn!==WAS_NARROWER){WAS_NARROWER=nn;setPanel('right',!nn);}}     // совсем узко — и правая (этап в ней всё равно откроется)
 window.addEventListener('resize',autoPanels);autoPanels();
 
 // ---- Экран «Дом»: новый проект / открыть решённый ----
