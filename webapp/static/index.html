@@ -882,7 +882,9 @@ function worldSnap(p){const w=s2w(p[0],p[1]);return[snapV(w[0]),snapV(w[1])];}
 let PX=1;
 function resize(){const vp=cv.parentElement,w=vp.clientWidth|0,h=vp.clientHeight|0;
   if(w>20&&h>20){PX=(window.devicePixelRatio||1)*(parseFloat(getComputedStyle(document.body).zoom)||1);
-    cv.width=Math.round(w*PX);cv.height=Math.round(h*PX);W=w;H=h;}}
+    const cw=Math.round(w*PX),ch=Math.round(h*PX);
+    if(cv.width!==cw||cv.height!==ch){cv.width=cw;cv.height=ch;}   // задание размера стирает холст — только если он правда изменился
+    W=w;H=h;}}
 function fit(){if(!SCENE)return;const b=SCENE.bounds,span=Math.max(b.xmax-b.xmin,b.ymax-b.ymin);scale=(Math.min(W,H)*0.9)/span;base=scale;ox=W/2-(b.xmin+b.xmax)/2*scale;oy=H/2+(b.ymin+b.ymax)/2*scale;draw();}
 function defaultView(){const span=60;scale=(Math.min(W,H)*0.9)/span;base=scale;ox=W/2;oy=H/2;draw();}   // пустой холст: координатная плоскость по центру
 
@@ -1001,6 +1003,9 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
   const risk=showF&&COMP==='demag'&&DEMAG;                 // режим карты риска размагничивания
   const temp=SHOWTEMP&&TFIELD;                             // режим карты температуры
+  // Каждый треугольник ещё и обводится своим цветом: иначе по стыкам соседних треугольников просвечивает фон
+  // (сглаживание краёв) — на светлом фоне это видно как сетка поверх поля.
+  ctx.lineWidth=0.8;ctx.lineJoin='bevel';
   for(let i=0;i<C.length;i++){const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     let fill;
@@ -1010,7 +1015,7 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect
       else fill=dimHex(regColor(''+REG[i]),0.42);}                                                // фон приглушён
     else if(showF){const v=cellVal(i),col=sgn?diverging(v/VMAX):ramp(v/VMAX);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
     else fill=regColor(''+REG[i]);
-    ctx.fillStyle=fill;ctx.fill();}
+    ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=fill;ctx.stroke();}
   if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
     const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
