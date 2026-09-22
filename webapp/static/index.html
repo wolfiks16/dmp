@@ -1,11 +1,13 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MagField — поле и размагничивание магнитов</title>
+<!-- тема оформления (выбор в ⚙, хранится в браузере) — до первой отрисовки, чтобы не мигало -->
+<script>try{var t=localStorage.getItem('magfield-theme');document.documentElement.dataset.theme=(t==='eskd'||t==='stand'||t==='refresh')?t:'eskd';}catch(e){document.documentElement.dataset.theme='eskd';}</script>
 <style>
 :root{--bg:#0e1420;--bg2:#0a0f18;--panel:#131b28;--panel2:#18212f;--panel3:#1e2838;--line:#25314a;--line2:#31405d;
   --text:#dce4f2;--muted:#8494ae;--dim:#7a89a3;--accent:#2fd39c;--accent2:#1f9f76;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;--blue:#4d8bff;
   --radius:8px;--mono:'SF Mono','JetBrains Mono',ui-monospace,Consolas,monospace;--ui:-apple-system,'Segoe UI',Roboto,Arial,sans-serif}
 *{box-sizing:border-box}html,body{margin:0;height:100%}
-body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;line-height:1.45;zoom:1.12}
+body{display:flex;flex-direction:column;overflow:hidden;background:var(--bg);color:var(--text);font-family:var(--ui);font-size:13px;line-height:1.45}
 body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-radius:3px}
 .topbar{display:flex;align-items:center;gap:18px;height:46px;flex:0 0 46px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:center;gap:9px;font-weight:700}
@@ -142,6 +144,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .pop-row label{font:500 12px/1 var(--ui);color:var(--muted);flex:1}
 .pop-hint{font:500 11px/1.45 var(--ui);color:var(--dim);margin-bottom:11px}
 .pop-foot{display:flex;justify-content:flex-end}
+.pop{width:300px}
+.theme-list{display:flex;flex-direction:column;gap:6px}
+.theme-opt{display:flex;gap:9px;align-items:flex-start;padding:7px 9px;border:1px solid var(--line);border-radius:6px;cursor:pointer}
+.theme-opt:hover{border-color:var(--line2)}.theme-opt:has(input:checked){border-color:var(--sel,var(--accent))}   /* --sel — цвет выбора, если тема его задаёт */
+.theme-opt input{margin:3px 0 0;accent-color:var(--sel,var(--accent))}
+.theme-opt b{display:block;font-weight:600;color:var(--text)}
+.theme-opt small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px}
 .heat-anim{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:9px;background:rgba(14,20,32,.92);border:1px solid var(--line);border-radius:9px;padding:6px 11px;z-index:6}
 .heat-anim input[type=range]{width:180px;accent-color:var(--accent)}
 .heat-anim #heat-time{font:600 11px/1 var(--mono);color:var(--muted);min-width:46px;text-align:right}
@@ -370,8 +379,10 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
 .verdict-bad{background:rgba(52,20,22,.9);border:1px solid var(--crit);border-radius:8px;padding:9px 11px;margin:0 0 12px;font-size:12px;line-height:1.45;color:var(--text)}
 .verdict-bad b{color:#ff8a84}
 </style>
+<link rel="stylesheet" href="./themes.css"><!-- темы оформления: цвета, шрифт, шкала кеглей -->
 <script type="importmap">{"imports":{"three":"./vendor/three/three.module.js"}}</script>
 <script type="module" src="./ws3d.js"></script>
+<script type="module" src="./themes.js"></script><!-- смена темы, штамп листа -->
 </head>
 <body>
 <div class="topbar">
@@ -718,8 +729,15 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
   <span class="r"><span id="st-mode">Вид: Геометрия</span><span id="st-zoom">масштаб 100 %</span><span id="st-ver">2D · v0.8</span></span>
 </div>
 
-<!-- Настройки: лимит параллельных расчётов -->
+<!-- Настройки: оформление, лимит параллельных расчётов, рабочая папка -->
 <div class="pop" id="settings-pop">
+  <div class="pop-h">Оформление</div>
+  <div class="theme-list" role="radiogroup" aria-label="Оформление">
+    <label class="theme-opt"><input type="radio" name="theme" value="eskd"><span><b>Лист ЕСКД</b><small>Светлый лист с рамкой и штампом — рисунки сразу для диссертации и слайдов</small></span></label>
+    <label class="theme-opt"><input type="radio" name="theme" value="stand"><span><b>Испытательный стенд</b><small>Тёмный корпус прибора, вердикт — крупным показанием</small></span></label>
+    <label class="theme-opt"><input type="radio" name="theme" value="refresh"><span><b>Привычная тёмная</b><small>Прежние цвета, читаемее; мятный — только «Рассчитать»</small></span></label>
+  </div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:11px 0">
   <div class="pop-h">Параллельные расчёты</div>
   <div class="pop-row"><label>Одновременно</label><input class="num" id="set-par" value="1" style="width:54px;text-align:center"><button class="btn" id="set-auto">Авто</button></div>
   <div class="pop-hint" id="set-rec">—</div>

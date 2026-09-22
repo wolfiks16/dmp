@@ -8,16 +8,21 @@ import { LineMaterial } from './vendor/three/lines/LineMaterial.js';
 import { LineSegments2 } from './vendor/three/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from './vendor/three/lines/LineSegmentsGeometry.js';
 
-// Нейтральные цвета вида — из переменных стиля страницы (облик задаёт свои), без них — прежние тёмные.
+// Нейтральные цвета вида — из переменных стиля страницы (тема оформления), без них — прежние тёмные.
+// Перечитываются при смене темы (Viewer3D.applyTheme).
 const CSSV = (k, d) => getComputedStyle(document.documentElement).getPropertyValue(k).trim() || d;
 const hex = s => new THREE.Color(s).getHex();
-const BG = hex(CSSV('--cv-bg', '#0a0f18'));
-const EDGE = hex(CSSV('--v3-edge', '#0b111b')), EDGE_SEL = hex(CSSV('--cv-sel', '#2fd39c'));
 const AXIS_COL = ['#e5544e', '#42c25a', '#4d8bff'];                // X, Y, Z — как у тройки осей в углу
-const BODY_AXIS = hex(CSSV('--v3-body-axis', '#8a9cc0')), BODY_AXIS_SEL = EDGE_SEL;
 const GHOST = 0.28;                          // яркость участков осей, скрытых телами (как невидимые линии в CAD)
-const ARROW = hex(CSSV('--cv-arrow', '#f2f5fa'));   // стрелки намагничивания — один цвет: полюса цветом не подсвечиваются
-const LABEL = CSSV('--cv-label', '#c8d4ea'), LABEL_HALO = CSSV('--v3-halo', 'rgba(10,15,24,0.92)');
+let BG, EDGE, EDGE_SEL, BODY_AXIS, BODY_AXIS_SEL, ARROW, LABEL, LABEL_HALO;
+function readTheme() {
+  BG = hex(CSSV('--cv-bg', '#0a0f18'));
+  EDGE = hex(CSSV('--v3-edge', '#0b111b')); EDGE_SEL = hex(CSSV('--cv-sel', '#2fd39c'));
+  BODY_AXIS = hex(CSSV('--v3-body-axis', '#8a9cc0')); BODY_AXIS_SEL = EDGE_SEL;
+  ARROW = hex(CSSV('--cv-arrow', '#f2f5fa'));   // стрелки намагничивания — один цвет: полюса цветом не подсвечиваются
+  LABEL = CSSV('--cv-label', '#c8d4ea'); LABEL_HALO = CSSV('--v3-halo', 'rgba(10,15,24,0.92)');
+}
+readTheme();
 const ARROW_BODY_ALPHA = 0.35;               // непрозрачность магнита, пока показаны его стрелки (иначе их не видно)
 // Шаг делений: 1, 2 или 5 × 10ⁿ мм, не мельче raw.
 function niceStep(raw) { const p = Math.pow(10, Math.floor(Math.log10(raw))); return [1, 2, 5, 10].map(m => m * p).find(s => s >= raw * (1 - 1e-9)); }
@@ -147,6 +152,7 @@ export class Viewer3D {
   // с делениями и подписями в мм через шаг 1, 2 или 5 × 10ⁿ. Разрез их не режет — это опорные линии.
   // null — убрать.
   setCoordAxes(box) {
+    this._axesBox = box;                                                      // для перерисовки при смене темы
     this._clear(this.axes);
     if (box) {
       const lo = [0, 1, 2].map(k => Math.min(box[0][k], 0)), hi = [0, 1, 2].map(k => Math.max(box[1][k], 0));
@@ -419,6 +425,18 @@ export class Viewer3D {
   }
 
   screenshot() { this.render(); return this.renderer.domElement.toDataURL('image/png'); }
+
+  // Смена темы оформления: фон, рёбра тел, оси тел и координат с подписями, стрелки — новыми цветами.
+  applyTheme() {
+    readTheme();
+    this.renderer.setClearColor(BG, 1);
+    this._state();                                                            // рёбра тел
+    this._buildBodyAxes();
+    this._buildArrows();
+    for (const o of this.lines.children) if (o.isInstancedMesh) o.material.color.setHex(ARROW);   // стрелки силовых линий
+    if (this._axesBox !== undefined) this.setCoordAxes(this._axesBox);      // подписи делений — заново
+    this.render();
+  }
 
   _gizmo() {
     this.gScene = new THREE.Scene();

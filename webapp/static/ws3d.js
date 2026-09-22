@@ -951,6 +951,9 @@ function bindUI() {
 window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, nextView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
   hasModel: () => !!S.model, hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
+  temperature: () => S.T, cells: () => (S.model ? S.model.n_cells : null), screenshot: () => (S.viewer ? S.viewer.screenshot() : null),
+  // смена темы оформления: вид перекрашивается, оси с подписями и стрелки намагничивания строятся заново
+  applyTheme: () => { if (!S.viewer) return; S.viewer.applyTheme(); if (S.active) { updateAxes(); updateArrows(); } },
   zoom: f => { if (S.viewer) S.viewer.zoom(f); }, fit: () => { if (S.viewer) S.viewer.fit(); } };
 bindUI();
 if (MODE === 'objects3d') activate();

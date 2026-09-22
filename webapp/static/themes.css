@@ -1,0 +1,293 @@
+/* ТЕМЫ ОФОРМЛЕНИЯ MagField. Тема — атрибут data-theme у <html> (переключатель в ⚙, выбор запоминается
+   в браузере; скрипт в <head> ставит его до первой отрисовки):
+   eskd    — «Лист ЕСКД»: светлый лист, рамка и штамп на виде и на снимке PNG (штамп строит themes.js);
+   stand   — «Испытательный стенд»: тёмный корпус прибора, вердикт — крупным показанием с индикатором;
+   refresh — «Привычная тёмная»: прежние цвета, читаемее, мятный — только главное действие.
+   Холст 2D, графики и вид 3D берут нейтральные цвета из переменных --cv-*, --ch-*, --v3-*; цвета данных
+   (палитры поля, риска, нагрева) темой не меняются. */
+
+/* ---- общее для всех тем: шрифт без растяжения, шкала кеглей от 14 px, табличные цифры ---- */
+body{zoom:1;font-variant-numeric:tabular-nums}
+.topbar{height:50px;flex-basis:50px}
+.body{--lw:268px;--rw:320px}.body.docked{--rw:372px}
+.sheet-frame{display:none}
+
+body{font-size:14px}
+.brand .logo{font-size:15px}
+.brand .ver{font:600 11px/1 var(--ui)}
+.nav button{font:600 13px/1 var(--ui);letter-spacing:0}
+.tbtn{font-size:14px}
+.seg button{font:600 12px/1 var(--ui)}
+.step{font:600 13.5px/1 var(--ui)}
+.step .sti{font:800 9.5px/1 var(--ui)}
+.step-sep{font-size:15px}
+.pane-h{font:600 12px/1 var(--ui);letter-spacing:0;text-transform:none}
+.node{font-size:13.5px}
+#proj-edit{font:500 12px/1 var(--ui)}
+.node .ic{font-size:13px}
+.node .tag{font:600 9.5px/1 var(--ui)}
+.saved{font:500 12px/1 var(--ui)}
+.btn{font:600 13px/1 var(--ui)}
+.tabs button{font:600 13px/1 var(--ui)}
+.rtools .lbl{font:600 11px/1 var(--ui);letter-spacing:0;text-transform:none}
+.rseg button{font:600 13px/1 var(--ui)}
+.vp-overlay{font:600 13px/1.4 var(--ui)}
+.vp-coord{font:600 12px/1 var(--ui)}
+.zbtn{font-size:15px}
+.vp-busy,.vp-err{font:600 13.5px/1.4 var(--ui)}
+.vp-err button{font-size:14px}
+.vt3-l{font:600 13px/1 var(--ui)}
+.vt3-b{font:600 13px/1 var(--ui)}
+.vt3-u{font-size:12px}
+.vt3-row{font-size:13px}
+.vp-cbar .lab{font:600 11px/1 var(--ui)}
+.rp h4{font:600 12px/1 var(--ui);letter-spacing:0;text-transform:none}
+.field label{font-size:12px}
+.select,.num{font:500 13px/1 var(--ui)}
+.num{font-family:var(--ui)}
+.mrow label{font-size:13px}
+.mrow .u{font:600 11px/1 var(--ui)}
+.mrow input{font:600 13px/1 var(--ui)}
+.hint{font-size:12px}
+.meshinfo{font:600 12px/1.6 var(--ui)}
+.err{font-size:13px}
+.needsolve{font-size:12.5px}
+.pc-sec>summary{font:700 13px/1 var(--ui)}
+.pc-sec>summary::before{font-size:11px}
+.pc-row{font:500 13px/1.4 var(--ui)}
+.pc-row .pc-v{font-family:var(--ui)}
+.pc-name-inp{font:600 13px/1 var(--ui)}
+.pop-h{font:700 13px/1 var(--ui)}
+.pop-row label{font:500 13px/1 var(--ui)}
+.pop-hint{font:500 12px/1.45 var(--ui)}
+.heat-anim #heat-time{font:600 12px/1 var(--ui)}
+/* R3: менеджер расчётов (выпадающий из шапки) */
+ .cm-badge{font:700 11px/1 var(--ui)}
+.cm-sec{font:700 11px/1 var(--ui);text-transform:none;letter-spacing:0}
+.cm-ic{font-size:15px}
+.cm-name{font:600 13.5px/1.25 var(--ui)}
+.cm-sub{font:500 11.5px/1 var(--ui)}
+.cm-del{font-size:13px}
+.cm-empty{font-size:12.5px}
+.si-ic{font-size:18.5px}
+.si-main b{font:600 14px/1.2 var(--ui)}
+.si-sub{font:500 12px/1 var(--ui)}
+.si-del{font-size:14px}
+.res li{font-size:13px}
+.res .v{font:700 13px/1 var(--ui)}
+.rp-scale{font:600 11px/1.2 var(--ui)}
+/* действия внутри панелей — второстепенные (контур); главная кнопка на экране одна — «Рассчитать» в шапке */
+ .applybtn{font:700 13px/1 var(--ui)}
+.chk{font-size:13px}
+.ptable{font-size:13px}
+.ptable td.v{font:700 14px/1 var(--ui)}
+.ptable td.u{font-family:var(--ui)}
+.legend{font:600 11px/1 var(--ui)}
+.reshead{font:600 12px/1 var(--ui);letter-spacing:0;text-transform:none}
+.s3tab{font-size:13px}
+.s3tab th{font:600 11px/1 var(--ui);text-transform:none}
+.s3tab td{font:600 13px/1 var(--ui)}
+.home-card h1{font-size:26px}
+.home-card h2{font-size:19.5px}
+.home-logo{font-size:28px}
+.home-b{font:600 14px/1 var(--ui)}
+.type-card .type-ic{font-size:36.5px}
+.type-card b{font-size:16px}
+.type-card span{font-size:13px}
+.home-back{font-size:13px}
+.toast{font:600 14px/1.4 var(--ui)}
+.cta-hint h3{font-size:18.5px}
+.cta-hint p{font-size:14px}
+.cta-btns .btn{font-size:13.5px}
+.ui-modal-msg{font:600 15px/1.55 var(--ui)}
+.stp-tab{font:13px/1.4 var(--ui)}
+.stp-tab .select{font-size:13px}
+.stp-axis{font:13px/1.4 var(--ui)}
+.home-empty{font-size:14px}
+.hname{font:500 15px/1 var(--ui)}
+.home-dir{font-size:13.5px}
+.home-dir-b{font:600 13.5px/1.2 var(--ui)}
+.objrow{font-size:13px}
+.objrow .opri{font:600 9.5px/1 var(--ui)}
+.objrow .del{font-size:14px}
+.modal-head{font-size:15px}
+.modal-x{font-size:17px}
+.modal-tabs button{font:600 13.5px/1 var(--ui)}
+.mt{font:500 12.5px/1.35 var(--ui)}
+.mt-empty{font-size:13px}
+.mprops{font:500 12.5px/1.5 var(--ui)}
+.mprops h5{font:700 12px/1 var(--ui);text-transform:none;letter-spacing:0}
+/* значок «!» рядом со значением: при наведении — откуда это значение взялось */
+ .pnote{font:700 9.5px/1 var(--ui)}
+.pnote::after{font:500 12px/1.45 var(--ui)}
+.mprow{font:600 13px/1.3 var(--ui)}
+.mprow .sub{font-size:12px}
+.mt-act{font-size:13px}
+.matbtn{font:600 13px/1.2 var(--ui)}
+.matbtn .sub{font-size:12px}
+.draw-hint{font:600 12.5px/1.3 var(--ui)}
+.status{font:600 12px/1 var(--ui)}
+.o3btn{font-size:13px}
+.g3text,.g3area{font:500 13px/1.4 var(--ui)}
+.g3area{font-family:var(--ui)}
+.g3kind{font:600 13px/1 var(--ui)}
+.r3out{font:600 13px/1.6 var(--ui)}
+details.why>summary{font-size:12.5px}
+.verdict-bad{font-size:13px}
+
+
+/* ======================== «Лист ЕСКД» ======================== */
+:root[data-theme="eskd"]{--bg:#eef1f3;--bg2:#ffffff;--panel:#ffffff;--panel2:#f3f5f6;--panel3:#e6ebef;--line:#c7cfd6;--line2:#aeb8c1;
+  --text:#1e262d;--muted:#4f5b66;--dim:#5f6b75;--accent:#1f5b7a;--accent2:#174a63;--good:#2e7d4f;--warn:#b86e0a;--crit:#b42e24;--blue:#1f5b7a;
+  --radius:2px;
+  --ui:'Bahnschrift','DIN Alternate','Roboto Condensed','Arial Narrow',sans-serif;--mono:var(--ui);
+  --cv-font:'Bahnschrift','Arial Narrow',sans-serif;
+  --cv-bg:#ffffff;--cv-grid:#eef1f3;--cv-snap:#f5f7f8;--cv-axis:#8a96a0;--cv-label:#4f5b66;--cv-halo:#ffffff;
+  --cv-ink:#1e262d;--cv-ink-halo:rgba(255,255,255,.85);--cv-arrow:#1e262d;--cv-probe:#1e262d;--cv-outline:#4f5b66;
+  --cv-sel:#1f5b7a;--cv-knob:#ffffff;--cv-rot:#b86e0a;--cv-add:#1f5b7a;--cv-sel-fill:rgba(31,91,122,.20);
+  --cv-magnet:#cfc3e3;--cv-copper:#e7cdb2;--cv-gap:#f7f9fa;--cv-steel:#c3ccd4;--cv-air:#ffffff;--cv-other:#dde2e6;
+  --ch-grid:#e6ebef;--ch-axis:#c7cfd6;--ch-text:#5f6b75;--ch-title:#4f5b66;--ch-tick:#5f6b75;--ch-box:#ffffff;
+  --ch-b:#1e262d;--ch-j:#1f5b7a;--ch-knee:#b86e0a;--ch-s1:#2e7d4f;--ch-s2:#b86e0a;--ch-s3:#1f5b7a;
+  --v3-edge:#1e262d;--v3-body-axis:#4f5b66;--v3-halo:rgba(255,255,255,.92)}
+/* ---- подписи — узким начертанием, заголовки разделов обычным регистром ---- */
+:root[data-theme="eskd"] .pane-h,:root[data-theme="eskd"] .rtools .lbl,:root[data-theme="eskd"] .vt3-l,:root[data-theme="eskd"] .field label,:root[data-theme="eskd"] .res li span:first-child,:root[data-theme="eskd"] .pc-row,:root[data-theme="eskd"] .mrow label,:root[data-theme="eskd"] .node .tag,:root[data-theme="eskd"] .step{font-stretch:semi-condensed}
+:root[data-theme="eskd"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="eskd"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
+:root[data-theme="eskd"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="eskd"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="eskd"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="eskd"] .status{font:500 12px/1 var(--ui)}
+
+/* ---- без теней и карточек: тонкие линии, прямые углы ---- */
+:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .vp-err,:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .toast,:root[data-theme="eskd"] .pop,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .cta-hint .cta-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .draw-hint,:root[data-theme="eskd"] .pnote::after,:root[data-theme="eskd"] .heat-anim{box-shadow:none}
+:root[data-theme="eskd"] .btn,:root[data-theme="eskd"] .select,:root[data-theme="eskd"] .num,:root[data-theme="eskd"] .rseg,:root[data-theme="eskd"] .rseg button,:root[data-theme="eskd"] .seg,:root[data-theme="eskd"] .zbtn,:root[data-theme="eskd"] .applybtn,:root[data-theme="eskd"] .matbtn,:root[data-theme="eskd"] .hname,:root[data-theme="eskd"] .home-b,:root[data-theme="eskd"] .type-card,:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vt3-b,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .vp-err,:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .toast,:root[data-theme="eskd"] .pop,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .cta-hint .cta-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .draw-hint,:root[data-theme="eskd"] .pc-sec,:root[data-theme="eskd"] .mt-wrap,:root[data-theme="eskd"] .verdict-bad,:root[data-theme="eskd"] .heat-anim,:root[data-theme="eskd"] .tbtn,:root[data-theme="eskd"] .step,:root[data-theme="eskd"] .solved-item,:root[data-theme="eskd"] .cm-item,:root[data-theme="eskd"] .mrow input,:root[data-theme="eskd"] .pc-name-inp,:root[data-theme="eskd"] .g3text,:root[data-theme="eskd"] .g3area{border-radius:2px}
+:root[data-theme="eskd"] .modal-ov,:root[data-theme="eskd"] .home-ov,:root[data-theme="eskd"] .ui-modal-ov{background:rgba(30,38,45,.34)}
+:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .pop{border:1px solid var(--text)}
+:root[data-theme="eskd"] .viewport{border-radius:0;border-color:var(--line)}
+:root[data-theme="eskd"] .vp-cbar{border-radius:0}
+
+/* ---- плавающие надписи и панели над видом — белые, линия графитом ---- */
+:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .zbtn,:root[data-theme="eskd"] .heat-anim,:root[data-theme="eskd"] .cta-hint .cta-card{background:#fff;border:1px solid var(--line2)}
+:root[data-theme="eskd"] .zbtn{color:var(--text)}:root[data-theme="eskd"] .zbtn:hover{background:var(--panel2)}
+:root[data-theme="eskd"] .vp-err{background:#fbeceb;border:1px solid var(--crit);color:var(--text)}
+:root[data-theme="eskd"] .verdict-bad{background:#fbeceb;border-color:var(--crit)}:root[data-theme="eskd"] .verdict-bad b{color:var(--crit)}
+:root[data-theme="eskd"] .draw-hint{background:#fff;border-color:var(--accent);color:var(--text)}:root[data-theme="eskd"] .draw-hint b{color:var(--accent)}
+:root[data-theme="eskd"] .toast{background:#fff}
+:root[data-theme="eskd"] .mt tbody tr:hover,:root[data-theme="eskd"] .mprow:hover{background:rgba(31,91,122,.06)}
+
+/* ---- синька: главная кнопка и выбор; на ней — белый текст ---- */
+:root[data-theme="eskd"] .btn.pri,:root[data-theme="eskd"] .home-b.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="eskd"] .btn.pri:hover{background:var(--accent2)}
+:root[data-theme="eskd"] .seg button.on,:root[data-theme="eskd"] .rseg button.on,:root[data-theme="eskd"] .mt tbody tr.on td,:root[data-theme="eskd"] .mprow.on,:root[data-theme="eskd"] .mprow.on .sub,:root[data-theme="eskd"] .mt tbody tr.on .mt-act{color:#fff}
+:root[data-theme="eskd"] .brand .logo,:root[data-theme="eskd"] .home-logo{background:var(--accent);color:#fff}
+:root[data-theme="eskd"] .step .sti{color:#fff}:root[data-theme="eskd"] .step.done .sti{background:var(--good);border-color:var(--good)}
+:root[data-theme="eskd"] .toggle.on::after{background:#fff}
+:root[data-theme="eskd"] .applybtn{border-color:var(--accent);color:var(--accent);background:#fff}
+:root[data-theme="eskd"] .applybtn:hover{background:rgba(31,91,122,.07)}
+:root[data-theme="eskd"] .chk input,:root[data-theme="eskd"] input[type=range]{accent-color:var(--accent)!important}
+:root[data-theme="eskd"] .node.sel,:root[data-theme="eskd"] .objrow.sel{background:rgba(31,91,122,.10);box-shadow:inset 2px 0 0 var(--accent);color:var(--accent)}
+:root[data-theme="eskd"] .meshinfo .tot{color:var(--accent)}
+
+/* ---- лист: рамка и штамп поверх вида (строит look.js) ---- */
+:root[data-theme="eskd"] .sheet-frame{position:absolute;inset:8px;border:1.5px solid var(--text);pointer-events:none;z-index:5}
+:root[data-theme="eskd"] .stamp{position:absolute;right:-1.5px;bottom:-1.5px;display:grid;grid-template-columns:auto minmax(150px,auto);
+  background:#fff;border:1.5px solid var(--text);font:500 12px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="eskd"] .stamp>*{padding:3px 8px;border-top:1px solid var(--text)}
+:root[data-theme="eskd"] .stamp>:nth-child(-n+2){border-top:0}
+:root[data-theme="eskd"] .stamp[hidden]{display:none}
+:root[data-theme="eskd"] .stamp>span{border-right:1px solid var(--text);color:var(--muted);font-stretch:semi-condensed}
+:root[data-theme="eskd"] .stamp>b{font-weight:600;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+/* надписи и кнопки вида — внутри рамки, кнопки масштаба — над штампом */
+:root[data-theme="eskd"] .vp-overlay{left:18px;top:16px}:root[data-theme="eskd"] .vp-coord{right:18px;top:16px}:root[data-theme="eskd"] .vt3{right:18px;top:16px}
+:root[data-theme="eskd"] .vp-zoom{right:18px;bottom:var(--stamp-h,104px)}:root[data-theme="eskd"] .vp-confirm{left:18px;bottom:18px}
+:root[data-theme="eskd"] .heat-anim{bottom:18px}
+@media (max-width:1100px){:root[data-theme="eskd"] .stamp{display:none}:root[data-theme="eskd"] .vp-zoom{bottom:18px}}
+
+/* ---- вердикт: первая строка — крупное число, цвет по состоянию ---- */
+:root[data-theme="eskd"] #r3-demag ul.res>li:first-child,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child{display:block;padding:6px 0 10px}
+:root[data-theme="eskd"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child>span:first-child{display:block;color:var(--muted);font-size:12.5px;font-stretch:semi-condensed}
+:root[data-theme="eskd"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:5px;font:600 30px/1 var(--ui);color:var(--text)}
+:root[data-theme="eskd"] #r3-demag ul.res>li.warn:first-child>.v{color:var(--warn)}
+:root[data-theme="eskd"] #r3-demag ul.res>li.crit:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li.crit:first-child>.v{color:var(--crit)}
+:root[data-theme="eskd"] #r3-demag ul.res>li.ok:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li.ok:first-child>.v{color:var(--good)}
+:root[data-theme="eskd"] .sheet-frame{display:block}
+
+
+/* ======================== «Испытательный стенд» ======================== */
+:root[data-theme="stand"]{--bg:#20262b;--bg2:#171c20;--panel:#2a3137;--panel2:#323a41;--panel3:#3a434b;--line:#3a434b;--line2:#4a545d;
+  --text:#e6ebef;--muted:#a3aeb7;--dim:#939ea7;--accent:#d5dbe0;--accent2:#8f9aa3;--good:#4fa36b;--warn:#f0b429;--crit:#e2503f;--blue:#6aa7d8;
+  --reading:#f0b429;
+  --ui:'Bahnschrift','DIN Alternate','Roboto Condensed','Arial Narrow',sans-serif;--mono:var(--ui);
+  --cv-font:'Bahnschrift','Arial Narrow',sans-serif;
+  --cv-bg:#171c20;--cv-grid:#232a30;--cv-snap:#1d2328;--cv-axis:#6b7680;--cv-label:#a3aeb7;--cv-halo:#171c20;
+  --cv-ink:#e6ebef;--cv-arrow:#e6ebef;--cv-probe:#e6ebef;--cv-outline:#a3aeb7;--cv-sel:#f0b429;--cv-knob:#171c20;--cv-rot:#f0b429;--cv-add:#d5dbe0;
+  --cv-sel-fill:rgba(240,180,41,.22);
+  --cv-magnet:#7a6a96;--cv-copper:#94704e;--cv-gap:#1e2429;--cv-steel:#515b64;--cv-air:#262d33;--cv-other:#5b646c;
+  --ch-grid:#323a41;--ch-axis:#4a545d;--ch-text:#939ea7;--ch-title:#a3aeb7;--ch-tick:#939ea7;--ch-box:#171c20;
+  --ch-b:#f0b429;--ch-j:#a3aeb7;--ch-knee:#e2503f;--ch-s1:#4fa36b;--ch-s2:#f0b429;--ch-s3:#6aa7d8;
+  --v3-edge:#0f1316;--v3-body-axis:#8f9aa3;--v3-halo:rgba(23,28,32,.92)}
+/* ---- гравировка: подписи и заголовки разделов — узкие, приглушённые, обычным регистром ---- */
+:root[data-theme="stand"] .pane-h,:root[data-theme="stand"] .rtools .lbl,:root[data-theme="stand"] .vt3-l,:root[data-theme="stand"] .field label,:root[data-theme="stand"] .res li span:first-child,:root[data-theme="stand"] .pc-row,:root[data-theme="stand"] .mrow label{font-stretch:semi-condensed}
+:root[data-theme="stand"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="stand"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--muted);font-stretch:semi-condensed;margin:2px 0 10px}
+:root[data-theme="stand"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="stand"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="stand"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="stand"] .status{font:500 12px/1 var(--ui)}
+
+/* ---- клавиши: главная — светлая, нажатые переключатели — светлые, как утопленная кнопка ---- */
+:root[data-theme="stand"] .btn.pri,:root[data-theme="stand"] .home-b.pri{background:#d5dbe0;border-color:#d5dbe0;color:#1b2126}
+:root[data-theme="stand"] .btn.pri:hover{background:#e6ebef}
+:root[data-theme="stand"] .seg button.on,:root[data-theme="stand"] .rseg button.on{background:#d5dbe0;color:#1b2126}
+:root[data-theme="stand"] .brand .logo,:root[data-theme="stand"] .home-logo{background:#d5dbe0;color:#1b2126}
+:root[data-theme="stand"] .applybtn{border-color:var(--line2);color:var(--text)}
+:root[data-theme="stand"] .applybtn:hover{background:var(--panel3)}
+:root[data-theme="stand"] .node.sel,:root[data-theme="stand"] .objrow.sel{background:#353e46;box-shadow:inset 2px 0 0 #d5dbe0}
+:root[data-theme="stand"] .chk input,:root[data-theme="stand"] input[type=range]{accent-color:#d5dbe0!important}
+:root[data-theme="stand"] .meshinfo .tot{color:var(--reading)}
+:root[data-theme="stand"] .draw-hint{border-color:var(--line2);color:var(--text)}
+
+/* ---- показание: первая строка вердикта — прибор с индикатором и крупным числом ---- */
+:root[data-theme="stand"] #r3-demag ul.res>li:first-child,:root[data-theme="stand"] #res-verdict ul.res>li:first-child{display:block;border:1px solid var(--line);border-radius:4px;
+  padding:8px 11px 10px;margin:6px 0 10px;background:#1d2227}
+:root[data-theme="stand"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>span:first-child{display:flex;align-items:center;gap:8px;
+  font-stretch:semi-condensed;color:var(--muted);font-size:12.5px}
+:root[data-theme="stand"] #r3-demag ul.res>li:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>span:first-child::before{content:'';
+  flex:0 0 9px;height:9px;border-radius:50%;background:var(--warn);box-shadow:0 0 6px rgba(240,180,41,.55)}
+:root[data-theme="stand"] #r3-demag ul.res>li.ok:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li.ok:first-child>span:first-child::before{background:var(--good);box-shadow:0 0 6px rgba(79,163,107,.55)}
+:root[data-theme="stand"] #r3-demag ul.res>li.crit:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li.crit:first-child>span:first-child::before{background:var(--crit);box-shadow:0 0 6px rgba(226,80,63,.6)}
+:root[data-theme="stand"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:6px;
+  font:600 30px/1 var(--ui);color:var(--reading)!important}
+:root[data-theme="stand"] .verdict-bad{background:#3a1f1c;border-color:var(--crit)}
+
+
+/* ======================== «Привычная тёмная» ======================== */
+:root[data-theme="refresh"]{--muted:#93a3bb;--dim:#8a9ab3;--sel:#4d8bff;--sel-bg:rgba(77,139,255,.16);
+  --mono:var(--ui);--ui:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;
+  --cv-font:'Segoe UI',system-ui,sans-serif;--cv-sel:#4d8bff;--cv-sel-fill:rgba(77,139,255,.30);--cv-add:#7fb0ff}
+/* ---- уточнения шкалы: заголовки разделов — обычным регистром, чуть крупнее подписей ---- */
+:root[data-theme="refresh"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="refresh"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
+:root[data-theme="refresh"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="refresh"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="refresh"] .field label{font-size:12.5px}
+:root[data-theme="refresh"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="refresh"] .status{font:500 12px/1 var(--ui)}
+
+/* ---- мятный — только главное действие; выбор — синий ---- */
+:root[data-theme="refresh"] body :focus-visible{outline-color:var(--sel)}
+:root[data-theme="refresh"] .chk input,:root[data-theme="refresh"] input[type=range]{accent-color:var(--sel)!important}
+:root[data-theme="refresh"] .node.sel,:root[data-theme="refresh"] .objrow.sel{background:var(--sel-bg);box-shadow:inset 2px 0 0 var(--sel)}
+:root[data-theme="refresh"] .seg button.on{background:#2b3c5c;color:#fff}
+:root[data-theme="refresh"] .rseg button.on{background:#2b3c5c;color:#fff;box-shadow:inset 0 0 0 1px var(--sel)}
+:root[data-theme="refresh"] .toggle.on{background:#2f5fb8}
+:root[data-theme="refresh"] .step.cur{box-shadow:inset 0 -2px 0 var(--sel)}
+:root[data-theme="refresh"] .mt tbody tr.on,:root[data-theme="refresh"] .mprow.on{background:#2b3c5c}:root[data-theme="refresh"] .mt tbody tr.on td,:root[data-theme="refresh"] .mprow.on,:root[data-theme="refresh"] .mprow.on .sub,:root[data-theme="refresh"] .mt tbody tr.on .mt-act{color:#fff}
+:root[data-theme="refresh"] .applybtn{border-color:var(--line2);color:var(--text)}
+:root[data-theme="refresh"] .applybtn:hover{background:var(--panel3);border-color:var(--muted)}
+:root[data-theme="refresh"] .meshinfo .tot{color:var(--text)}
+:root[data-theme="refresh"] .draw-hint{border-color:var(--sel);color:var(--text)}
+:root[data-theme="refresh"] .cm-badge{color:var(--sel)}
+:root[data-theme="refresh"] .pc-name-inp:focus{border-color:var(--sel)}
+:root[data-theme="refresh"] .hname:focus{outline-color:var(--sel)}
+:root[data-theme="refresh"] .btn:hover{border-color:var(--muted)}
