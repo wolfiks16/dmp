@@ -213,6 +213,9 @@ webapp/materials.json
 # Локальная база СВОИХ материалов (преемник materials.json) и импортированный старый файл — данные пользователя
 webapp/materials.db
 webapp/materials.json.imported
+# Настройки интерфейса, переживающие перезапуск сервера (тема по умолчанию) — данные пользователя
+webapp/settings.json
+webapp/settings.json.tmp
 
 # Осиротевшее локальное хранилище старого server-персиста (снято в рефакторе R1–R5) — не трекать
 webapp/projects/

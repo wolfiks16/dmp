@@ -886,17 +886,50 @@ def api_loss_sweep(body: dict = Body(default={})) -> dict:
     return {"job_id": jid}
 
 
+# Настройки интерфейса, которые переживают перезапуск сервера и одни для всех браузеров (сейчас — тема
+# оформления по умолчанию). Файл пользовательский, как materials.db, в git не входит; нет файла или он
+# испорчен — встроенные значения.
+_UI_SETTINGS_PATH = Path(__file__).parent / "settings.json"
+UI_THEMES = ("white", "grey", "color")          # «Белая», «Серая», «Цветная» — см. static/themes.css
+DEFAULT_THEME = "color"
+
+
+def _ui_settings() -> dict:
+    try:
+        data = json.loads(_UI_SETTINGS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        data = {}
+    theme = data.get("default_theme") if isinstance(data, dict) else None
+    return {"default_theme": theme if theme in UI_THEMES else DEFAULT_THEME}
+
+
+def _save_ui_settings(settings: dict) -> None:
+    tmp = _UI_SETTINGS_PATH.with_name(_UI_SETTINGS_PATH.name + ".tmp")
+    tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(_UI_SETTINGS_PATH)                 # замена целиком: оборванная запись не портит файл
+
+
+def _settings_view() -> dict:
+    return {"max_parallel": _JM.max_parallel, "cores": _CORES, "recommended": max(1, _CORES // 2),
+            **_ui_settings(), "themes": list(UI_THEMES)}
+
+
 @app.get("/api/settings")
 def api_settings() -> dict:
-    """Настройки менеджера: лимит параллельных расчётов, ядра, рекомендация (по 2 ядра на расчёт)."""
-    return {"max_parallel": _JM.max_parallel, "cores": _CORES, "recommended": max(1, _CORES // 2)}
+    """Настройки: лимит параллельных расчётов, ядра, рекомендация (по 2 ядра на расчёт), тема по умолчанию."""
+    return _settings_view()
 
 
 @app.post("/api/settings")
 def api_set_settings(body: dict = Body(default={})) -> dict:
+    if "default_theme" in body:
+        theme = body["default_theme"]
+        if theme not in UI_THEMES:
+            return {**_settings_view(), "error": f"неизвестная тема {theme!r}: допустимы {', '.join(UI_THEMES)}."}
+        _save_ui_settings({**_ui_settings(), "default_theme": theme})
     if "max_parallel" in body:
         _JM.set_max_parallel(body["max_parallel"])
-    return {"max_parallel": _JM.max_parallel, "cores": _CORES, "recommended": max(1, _CORES // 2)}
+    return _settings_view()
 
 
 @app.get("/api/jobs")

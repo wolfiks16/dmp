@@ -1,7 +1,7 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MagField — поле и размагничивание магнитов</title>
-<!-- тема оформления (выбор в ⚙, хранится в браузере) — до первой отрисовки, чтобы не мигало -->
-<script>try{var t=localStorage.getItem('magfield-theme');document.documentElement.dataset.theme=(t==='eskd'||t==='stand'||t==='refresh')?t:'eskd';}catch(e){document.documentElement.dataset.theme='eskd';}</script>
+<!-- тема оформления по умолчанию (хранится на сервере; здесь — её копия в браузере) — до первой отрисовки, чтобы не мигало -->
+<script>try{var t=localStorage.getItem('magfield-theme-default');document.documentElement.dataset.theme=(t==='white'||t==='grey'||t==='color')?t:'color';}catch(e){document.documentElement.dataset.theme='color';}</script>
 <style>
 :root{--bg:#0e1420;--bg2:#0a0f18;--panel:#131b28;--panel2:#18212f;--panel3:#1e2838;--line:#25314a;--line2:#31405d;
   --text:#dce4f2;--muted:#8494ae;--dim:#7a89a3;--accent:#2fd39c;--accent2:#1f9f76;--good:#42c25a;--warn:#e0a53a;--crit:#e5544e;--blue:#4d8bff;
@@ -151,6 +151,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .theme-opt input{margin:3px 0 0;accent-color:var(--sel,var(--accent))}
 .theme-opt b{display:block;font-weight:600;color:var(--text)}
 .theme-opt small{display:block;color:var(--muted);font-size:11.5px;line-height:1.35;margin-top:2px}
+.theme-opt .def-tag{display:none;margin-left:6px;padding:1px 6px;border:1px solid var(--line2);border-radius:4px;font:600 10.5px/1.4 var(--ui);font-style:normal;color:var(--muted);vertical-align:1px}
+.theme-opt.is-default .def-tag{display:inline-block}
+#theme-default:disabled{opacity:.5;cursor:default}
 .heat-anim{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:9px;background:rgba(14,20,32,.92);border:1px solid var(--line);border-radius:9px;padding:6px 11px;z-index:6}
 .heat-anim input[type=range]{width:180px;accent-color:var(--accent)}
 .heat-anim #heat-time{font:600 11px/1 var(--mono);color:var(--muted);min-width:46px;text-align:right}
@@ -733,10 +736,12 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
 <div class="pop" id="settings-pop">
   <div class="pop-h">Оформление</div>
   <div class="theme-list" role="radiogroup" aria-label="Оформление">
-    <label class="theme-opt"><input type="radio" name="theme" value="eskd"><span><b>Лист ЕСКД</b><small>Светлый лист с рамкой и штампом — рисунки сразу для диссертации и слайдов</small></span></label>
-    <label class="theme-opt"><input type="radio" name="theme" value="stand"><span><b>Испытательный стенд</b><small>Тёмный корпус прибора, вердикт — крупным показанием</small></span></label>
-    <label class="theme-opt"><input type="radio" name="theme" value="refresh"><span><b>Привычная тёмная</b><small>Прежние цвета, читаемее; мятный — только «Рассчитать»</small></span></label>
+    <label class="theme-opt"><input type="radio" name="theme" value="white"><span><b>Белая <i class="def-tag">по умолчанию</i></b><small>Светлый лист с рамкой и штампом — рисунки сразу для диссертации и слайдов</small></span></label>
+    <label class="theme-opt"><input type="radio" name="theme" value="grey"><span><b>Серая <i class="def-tag">по умолчанию</i></b><small>Тёмный корпус прибора, вердикт — крупным показанием</small></span></label>
+    <label class="theme-opt"><input type="radio" name="theme" value="color"><span><b>Цветная <i class="def-tag">по умолчанию</i></b><small>Прежние цвета интерфейса, читаемее; мятный — только «Рассчитать»</small></span></label>
   </div>
+  <div class="pop-hint" style="margin:8px 0 7px">Выбор применяется сразу. При запуске открывается тема по умолчанию — она хранится на сервере, одна для всех браузеров.</div>
+  <div class="pop-foot"><button class="btn" id="theme-default">Сделать по умолчанию</button></div>
   <hr style="border:0;border-top:1px solid var(--line);margin:11px 0">
   <div class="pop-h">Параллельные расчёты</div>
   <div class="pop-row"><label>Одновременно</label><input class="num" id="set-par" value="1" style="width:54px;text-align:center"><button class="btn" id="set-auto">Авто</button></div>

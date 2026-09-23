@@ -1,10 +1,13 @@
-// ТЕМЫ ОФОРМЛЕНИЯ (см. themes.css): «Лист ЕСКД», «Испытательный стенд», «Привычная тёмная». Переключаются в ⚙
-// и запоминаются в этом браузере; тему ставит ещё скрипт в <head>, до первой отрисовки. Холст 2D, графики и вид
-// 3D читают цвета при рисовании — после смены темы они перерисовываются, перезагружать страницу не нужно.
-// У «Листа ЕСКД» поверх вида — рамка листа и штамп с живыми данными проекта (название, сценарий с температурой,
+// ТЕМЫ ОФОРМЛЕНИЯ (см. themes.css): «Белая», «Серая», «Цветная». Выбор в ⚙ «Оформление» применяется сразу;
+// при запуске открывается ТЕМА ПО УМОЛЧАНИЮ — она хранится на сервере (одна для всех браузеров, переживает
+// перезапуск) и меняется кнопкой «Сделать по умолчанию». Копия её в браузере — только чтобы скрипт в <head>
+// поставил тему до первой отрисовки, без мигания. Холст 2D, графики и вид 3D читают цвета при рисовании —
+// после смены темы они перерисовываются, перезагружать страницу не нужно.
+// У «Белой» поверх вида — рамка листа и штамп с живыми данными проекта (название, сценарий с температурой,
 // сетка, дата); «Снимок вида (PNG)» в этой теме выходит с той же рамкой и штампом.
 const $ = id => document.getElementById(id);
-const THEMES = ['eskd', 'stand', 'refresh'], DEFAULT_THEME = 'eskd', KEY = 'magfield-theme';
+const THEMES = ['white', 'grey', 'color'], FALLBACK = 'color', CACHE = 'magfield-theme-default';
+const NAMES = { white: 'Белая', grey: 'Серая', color: 'Цветная' };
 const theme = () => document.documentElement.dataset.theme;
 
 // ---------------------------------------------------------------- лист: рамка и штамп
@@ -36,7 +39,7 @@ function stampRows() {
   return [['Проект', proj], ['Сценарий', scn], ['Сетка', mesh], ['Дата', new Date().toLocaleDateString('ru-RU')]];
 }
 function updateStamp() {
-  if (!STEPS_ON || theme() !== 'eskd') return;
+  if (!STEPS_ON || theme() !== 'white') return;
   stamp.hidden = noProject();
   const rows = stampRows();
   ['proj', 'scn', 'mesh', 'date'].forEach((k, i) => { const el = $('stp-' + k); el.textContent = rows[i][1]; el.title = rows[i][1]; });
@@ -93,15 +96,16 @@ async function stampedPng(url) {
 $('r3-png').onclick = async () => {
   const url = window.WS3D && WS3D.screenshot();
   if (!url) return;
-  save(theme() === 'eskd' ? await stampedPng(url) : url, pngName());
+  save(theme() === 'white' ? await stampedPng(url) : url, pngName());
 };
 
 // ---------------------------------------------------------------- переключение темы
+let DEFAULT_T = FALLBACK;
+try { const c = localStorage.getItem(CACHE); if (THEMES.includes(c)) DEFAULT_T = c; } catch (e) { /* без хранилища */ }
+let PICKED = false;                                       // тему уже выбрали в этом сеансе — умолчание её не перебивает
 function applyTheme(name) {
-  if (!THEMES.includes(name)) name = DEFAULT_THEME;
+  if (!THEMES.includes(name)) name = FALLBACK;
   document.documentElement.dataset.theme = name;
-  try { localStorage.setItem(KEY, name); } catch (e) { /* без хранилища — тема до перезагрузки */ }
-  document.querySelectorAll('input[name="theme"]').forEach(r => { r.checked = r.value === name; });
   readTheme();                                            // цвета холста 2D и графиков — из новой темы
   if (MODE === 'objects3d') { if (window.WS3D) WS3D.applyTheme(); }
   else { resize(); bars(); draw(); }
@@ -109,7 +113,50 @@ function applyTheme(name) {
   if (STAGE === 'mat') drawCurve();                        // кривая материала
   restorePost();                                           // момент, потери, сценарий нагрева
   updateStamp();
+  syncThemeUI();
 }
-document.querySelectorAll('input[name="theme"]').forEach(r => { r.onchange = () => { if (r.checked) applyTheme(r.value); }; });
-document.querySelectorAll('input[name="theme"]').forEach(r => { r.checked = r.value === theme(); });
+// Выбор в настройках: отмечен текущий; «по умолчанию» — у темы, с которой открывается приложение.
+function syncThemeUI() {
+  document.querySelectorAll('input[name="theme"]').forEach(r => {
+    r.checked = r.value === theme();
+    r.closest('.theme-opt').classList.toggle('is-default', r.value === DEFAULT_T);
+  });
+  const b = $('theme-default');
+  if (b) {
+    b.disabled = theme() === DEFAULT_T;
+    b.title = b.disabled ? 'Эта тема уже по умолчанию' : 'Открывать приложение в теме «' + NAMES[theme()] + '»';
+  }
+}
+function rememberDefault(name) {
+  DEFAULT_T = name;
+  try { localStorage.setItem(CACHE, name); } catch (e) { /* без хранилища — только до перезагрузки */ }
+}
+document.querySelectorAll('input[name="theme"]').forEach(r => {
+  r.onchange = () => { if (r.checked) { PICKED = true; applyTheme(r.value); } };
+});
+$('theme-default').onclick = async () => {
+  const name = theme();
+  let d;
+  try {
+    d = await (await fetch('/api/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ default_theme: name }) })).json();
+  } catch (e) { toast('Сервер недоступен — тема по умолчанию не сохранена.', 'warn'); return; }
+  if (d.error) { toast(d.error, 'warn'); return; }
+  rememberDefault(d.default_theme);
+  syncThemeUI();
+  toast('Тема по умолчанию — «' + NAMES[d.default_theme] + '»');
+};
+// Тема по умолчанию — с сервера: если в этом браузере другая копия и тему ещё не выбирали — перейти на неё.
+(async () => {
+  try {
+    const d = await (await fetch('/api/settings')).json();
+    if (THEMES.includes(d.default_theme)) {
+      rememberDefault(d.default_theme);
+      if (!PICKED && theme() !== d.default_theme) applyTheme(d.default_theme);
+    }
+  } catch (e) { /* сервер недоступен — остаётся копия из браузера */ }
+  syncThemeUI();
+})();
+try { localStorage.removeItem('magfield-theme'); } catch (e) { /* прежний ключ (тема сохранялась в браузере) */ }
+syncThemeUI();
 updateStamp();

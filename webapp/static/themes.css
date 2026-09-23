@@ -1,8 +1,9 @@
-/* ТЕМЫ ОФОРМЛЕНИЯ MagField. Тема — атрибут data-theme у <html> (переключатель в ⚙, выбор запоминается
-   в браузере; скрипт в <head> ставит его до первой отрисовки):
-   eskd    — «Лист ЕСКД»: светлый лист, рамка и штамп на виде и на снимке PNG (штамп строит themes.js);
-   stand   — «Испытательный стенд»: тёмный корпус прибора, вердикт — крупным показанием с индикатором;
-   refresh — «Привычная тёмная»: прежние цвета, читаемее, мятный — только главное действие.
+/* ТЕМЫ ОФОРМЛЕНИЯ MagField. Тема — атрибут data-theme у <html>: выбор в ⚙ «Оформление» применяется сразу,
+   при запуске открывается тема по умолчанию (хранится на сервере, меняется там же кнопкой «Сделать по умолчанию»;
+   скрипт в <head> ставит её до первой отрисовки):
+   white — «Белая»: светлый лист, рамка и штамп на виде и на снимке PNG (штамп строит themes.js);
+   grey  — «Серая»: тёмный корпус прибора, вердикт — крупным показанием с индикатором;
+   color — «Цветная»: прежние цвета интерфейса, читаемее, мятный — только главное действие.
    Холст 2D, графики и вид 3D берут нейтральные цвета из переменных --cv-*, --ch-*, --v3-*; цвета данных
    (палитры поля, риска, нагрева) темой не меняются. */
 
@@ -136,8 +137,8 @@ details.why>summary{font-size:12.5px}
 .verdict-bad{font-size:13px}
 
 
-/* ======================== «Лист ЕСКД» ======================== */
-:root[data-theme="eskd"]{--bg:#eef1f3;--bg2:#ffffff;--panel:#ffffff;--panel2:#f3f5f6;--panel3:#e6ebef;--line:#c7cfd6;--line2:#aeb8c1;
+/* ======================== «Белая» ======================== */
+:root[data-theme="white"]{--bg:#eef1f3;--bg2:#ffffff;--panel:#ffffff;--panel2:#f3f5f6;--panel3:#e6ebef;--line:#c7cfd6;--line2:#aeb8c1;
   --text:#1e262d;--muted:#4f5b66;--dim:#5f6b75;--accent:#1f5b7a;--accent2:#174a63;--good:#2e7d4f;--warn:#b86e0a;--crit:#b42e24;--blue:#1f5b7a;
   --radius:2px;
   --ui:'Bahnschrift','DIN Alternate','Roboto Condensed','Arial Narrow',sans-serif;--mono:var(--ui);
@@ -150,71 +151,71 @@ details.why>summary{font-size:12.5px}
   --ch-b:#1e262d;--ch-j:#1f5b7a;--ch-knee:#b86e0a;--ch-s1:#2e7d4f;--ch-s2:#b86e0a;--ch-s3:#1f5b7a;
   --v3-edge:#1e262d;--v3-body-axis:#4f5b66;--v3-halo:rgba(255,255,255,.92)}
 /* ---- подписи — узким начертанием, заголовки разделов обычным регистром ---- */
-:root[data-theme="eskd"] .pane-h,:root[data-theme="eskd"] .rtools .lbl,:root[data-theme="eskd"] .vt3-l,:root[data-theme="eskd"] .field label,:root[data-theme="eskd"] .res li span:first-child,:root[data-theme="eskd"] .pc-row,:root[data-theme="eskd"] .mrow label,:root[data-theme="eskd"] .node .tag,:root[data-theme="eskd"] .step{font-stretch:semi-condensed}
-:root[data-theme="eskd"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
-:root[data-theme="eskd"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
-:root[data-theme="eskd"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
-:root[data-theme="eskd"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
-:root[data-theme="eskd"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
-:root[data-theme="eskd"] .status{font:500 12px/1 var(--ui)}
+:root[data-theme="white"] .pane-h,:root[data-theme="white"] .rtools .lbl,:root[data-theme="white"] .vt3-l,:root[data-theme="white"] .field label,:root[data-theme="white"] .res li span:first-child,:root[data-theme="white"] .pc-row,:root[data-theme="white"] .mrow label,:root[data-theme="white"] .node .tag,:root[data-theme="white"] .step{font-stretch:semi-condensed}
+:root[data-theme="white"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="white"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
+:root[data-theme="white"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="white"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="white"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="white"] .status{font:500 12px/1 var(--ui)}
 
 /* ---- без теней и карточек: тонкие линии, прямые углы ---- */
-:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .vp-err,:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .toast,:root[data-theme="eskd"] .pop,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .cta-hint .cta-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .draw-hint,:root[data-theme="eskd"] .pnote::after,:root[data-theme="eskd"] .heat-anim{box-shadow:none}
-:root[data-theme="eskd"] .btn,:root[data-theme="eskd"] .select,:root[data-theme="eskd"] .num,:root[data-theme="eskd"] .rseg,:root[data-theme="eskd"] .rseg button,:root[data-theme="eskd"] .seg,:root[data-theme="eskd"] .zbtn,:root[data-theme="eskd"] .applybtn,:root[data-theme="eskd"] .matbtn,:root[data-theme="eskd"] .hname,:root[data-theme="eskd"] .home-b,:root[data-theme="eskd"] .type-card,:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vt3-b,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .vp-err,:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .toast,:root[data-theme="eskd"] .pop,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .cta-hint .cta-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .draw-hint,:root[data-theme="eskd"] .pc-sec,:root[data-theme="eskd"] .mt-wrap,:root[data-theme="eskd"] .verdict-bad,:root[data-theme="eskd"] .heat-anim,:root[data-theme="eskd"] .tbtn,:root[data-theme="eskd"] .step,:root[data-theme="eskd"] .solved-item,:root[data-theme="eskd"] .cm-item,:root[data-theme="eskd"] .mrow input,:root[data-theme="eskd"] .pc-name-inp,:root[data-theme="eskd"] .g3text,:root[data-theme="eskd"] .g3area{border-radius:2px}
-:root[data-theme="eskd"] .modal-ov,:root[data-theme="eskd"] .home-ov,:root[data-theme="eskd"] .ui-modal-ov{background:rgba(30,38,45,.34)}
-:root[data-theme="eskd"] .modal,:root[data-theme="eskd"] .home-card,:root[data-theme="eskd"] .ui-modal,:root[data-theme="eskd"] .calc-menu,:root[data-theme="eskd"] .pop{border:1px solid var(--text)}
-:root[data-theme="eskd"] .viewport{border-radius:0;border-color:var(--line)}
-:root[data-theme="eskd"] .vp-cbar{border-radius:0}
+:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pnote::after,:root[data-theme="white"] .heat-anim{box-shadow:none}
+:root[data-theme="white"] .btn,:root[data-theme="white"] .select,:root[data-theme="white"] .num,:root[data-theme="white"] .rseg,:root[data-theme="white"] .rseg button,:root[data-theme="white"] .seg,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .applybtn,:root[data-theme="white"] .matbtn,:root[data-theme="white"] .hname,:root[data-theme="white"] .home-b,:root[data-theme="white"] .type-card,:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vt3-b,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pc-sec,:root[data-theme="white"] .mt-wrap,:root[data-theme="white"] .verdict-bad,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .tbtn,:root[data-theme="white"] .step,:root[data-theme="white"] .solved-item,:root[data-theme="white"] .cm-item,:root[data-theme="white"] .mrow input,:root[data-theme="white"] .pc-name-inp,:root[data-theme="white"] .g3text,:root[data-theme="white"] .g3area{border-radius:2px}
+:root[data-theme="white"] .modal-ov,:root[data-theme="white"] .home-ov,:root[data-theme="white"] .ui-modal-ov{background:rgba(30,38,45,.34)}
+:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .pop{border:1px solid var(--text)}
+:root[data-theme="white"] .viewport{border-radius:0;border-color:var(--line)}
+:root[data-theme="white"] .vp-cbar{border-radius:0}
 
 /* ---- плавающие надписи и панели над видом — белые, линия графитом ---- */
-:root[data-theme="eskd"] .vt3-bar,:root[data-theme="eskd"] .vt3-sec,:root[data-theme="eskd"] .vt3-pop,:root[data-theme="eskd"] .vp-busy,:root[data-theme="eskd"] .zbtn,:root[data-theme="eskd"] .heat-anim,:root[data-theme="eskd"] .cta-hint .cta-card{background:#fff;border:1px solid var(--line2)}
-:root[data-theme="eskd"] .zbtn{color:var(--text)}:root[data-theme="eskd"] .zbtn:hover{background:var(--panel2)}
-:root[data-theme="eskd"] .vp-err{background:#fbeceb;border:1px solid var(--crit);color:var(--text)}
-:root[data-theme="eskd"] .verdict-bad{background:#fbeceb;border-color:var(--crit)}:root[data-theme="eskd"] .verdict-bad b{color:var(--crit)}
-:root[data-theme="eskd"] .draw-hint{background:#fff;border-color:var(--accent);color:var(--text)}:root[data-theme="eskd"] .draw-hint b{color:var(--accent)}
-:root[data-theme="eskd"] .toast{background:#fff}
-:root[data-theme="eskd"] .mt tbody tr:hover,:root[data-theme="eskd"] .mprow:hover{background:rgba(31,91,122,.06)}
+:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .cta-hint .cta-card{background:#fff;border:1px solid var(--line2)}
+:root[data-theme="white"] .zbtn{color:var(--text)}:root[data-theme="white"] .zbtn:hover{background:var(--panel2)}
+:root[data-theme="white"] .vp-err{background:#fbeceb;border:1px solid var(--crit);color:var(--text)}
+:root[data-theme="white"] .verdict-bad{background:#fbeceb;border-color:var(--crit)}:root[data-theme="white"] .verdict-bad b{color:var(--crit)}
+:root[data-theme="white"] .draw-hint{background:#fff;border-color:var(--accent);color:var(--text)}:root[data-theme="white"] .draw-hint b{color:var(--accent)}
+:root[data-theme="white"] .toast{background:#fff}
+:root[data-theme="white"] .mt tbody tr:hover,:root[data-theme="white"] .mprow:hover{background:rgba(31,91,122,.06)}
 
 /* ---- синька: главная кнопка и выбор; на ней — белый текст ---- */
-:root[data-theme="eskd"] .btn.pri,:root[data-theme="eskd"] .home-b.pri{background:var(--accent);border-color:var(--accent);color:#fff}
-:root[data-theme="eskd"] .btn.pri:hover{background:var(--accent2)}
-:root[data-theme="eskd"] .seg button.on,:root[data-theme="eskd"] .rseg button.on,:root[data-theme="eskd"] .mt tbody tr.on td,:root[data-theme="eskd"] .mprow.on,:root[data-theme="eskd"] .mprow.on .sub,:root[data-theme="eskd"] .mt tbody tr.on .mt-act{color:#fff}
-:root[data-theme="eskd"] .brand .logo,:root[data-theme="eskd"] .home-logo{background:var(--accent);color:#fff}
-:root[data-theme="eskd"] .step .sti{color:#fff}:root[data-theme="eskd"] .step.done .sti{background:var(--good);border-color:var(--good)}
-:root[data-theme="eskd"] .toggle.on::after{background:#fff}
-:root[data-theme="eskd"] .applybtn{border-color:var(--accent);color:var(--accent);background:#fff}
-:root[data-theme="eskd"] .applybtn:hover{background:rgba(31,91,122,.07)}
-:root[data-theme="eskd"] .chk input,:root[data-theme="eskd"] input[type=range]{accent-color:var(--accent)!important}
-:root[data-theme="eskd"] .node.sel,:root[data-theme="eskd"] .objrow.sel{background:rgba(31,91,122,.10);box-shadow:inset 2px 0 0 var(--accent);color:var(--accent)}
-:root[data-theme="eskd"] .meshinfo .tot{color:var(--accent)}
+:root[data-theme="white"] .btn.pri,:root[data-theme="white"] .home-b.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="white"] .btn.pri:hover{background:var(--accent2)}
+:root[data-theme="white"] .seg button.on,:root[data-theme="white"] .rseg button.on,:root[data-theme="white"] .mt tbody tr.on td,:root[data-theme="white"] .mprow.on,:root[data-theme="white"] .mprow.on .sub,:root[data-theme="white"] .mt tbody tr.on .mt-act{color:#fff}
+:root[data-theme="white"] .brand .logo,:root[data-theme="white"] .home-logo{background:var(--accent);color:#fff}
+:root[data-theme="white"] .step .sti{color:#fff}:root[data-theme="white"] .step.done .sti{background:var(--good);border-color:var(--good)}
+:root[data-theme="white"] .toggle.on::after{background:#fff}
+:root[data-theme="white"] .applybtn{border-color:var(--accent);color:var(--accent);background:#fff}
+:root[data-theme="white"] .applybtn:hover{background:rgba(31,91,122,.07)}
+:root[data-theme="white"] .chk input,:root[data-theme="white"] input[type=range]{accent-color:var(--accent)!important}
+:root[data-theme="white"] .node.sel,:root[data-theme="white"] .objrow.sel{background:rgba(31,91,122,.10);box-shadow:inset 2px 0 0 var(--accent);color:var(--accent)}
+:root[data-theme="white"] .meshinfo .tot{color:var(--accent)}
 
 /* ---- лист: рамка и штамп поверх вида (строит look.js) ---- */
-:root[data-theme="eskd"] .sheet-frame{position:absolute;inset:8px;border:1.5px solid var(--text);pointer-events:none;z-index:5}
-:root[data-theme="eskd"] .stamp{position:absolute;right:-1.5px;bottom:-1.5px;display:grid;grid-template-columns:auto minmax(150px,auto);
+:root[data-theme="white"] .sheet-frame{position:absolute;inset:8px;border:1.5px solid var(--text);pointer-events:none;z-index:5}
+:root[data-theme="white"] .stamp{position:absolute;right:-1.5px;bottom:-1.5px;display:grid;grid-template-columns:auto minmax(150px,auto);
   background:#fff;border:1.5px solid var(--text);font:500 12px/1.25 var(--ui);color:var(--text)}
-:root[data-theme="eskd"] .stamp>*{padding:3px 8px;border-top:1px solid var(--text)}
-:root[data-theme="eskd"] .stamp>:nth-child(-n+2){border-top:0}
-:root[data-theme="eskd"] .stamp[hidden]{display:none}
-:root[data-theme="eskd"] .stamp>span{border-right:1px solid var(--text);color:var(--muted);font-stretch:semi-condensed}
-:root[data-theme="eskd"] .stamp>b{font-weight:600;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
+:root[data-theme="white"] .stamp>*{padding:3px 8px;border-top:1px solid var(--text)}
+:root[data-theme="white"] .stamp>:nth-child(-n+2){border-top:0}
+:root[data-theme="white"] .stamp[hidden]{display:none}
+:root[data-theme="white"] .stamp>span{border-right:1px solid var(--text);color:var(--muted);font-stretch:semi-condensed}
+:root[data-theme="white"] .stamp>b{font-weight:600;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 /* надписи и кнопки вида — внутри рамки, кнопки масштаба — над штампом */
-:root[data-theme="eskd"] .vp-overlay{left:18px;top:16px}:root[data-theme="eskd"] .vp-coord{right:18px;top:16px}:root[data-theme="eskd"] .vt3{right:18px;top:16px}
-:root[data-theme="eskd"] .vp-zoom{right:18px;bottom:var(--stamp-h,104px)}:root[data-theme="eskd"] .vp-confirm{left:18px;bottom:18px}
-:root[data-theme="eskd"] .heat-anim{bottom:18px}
-@media (max-width:1100px){:root[data-theme="eskd"] .stamp{display:none}:root[data-theme="eskd"] .vp-zoom{bottom:18px}}
+:root[data-theme="white"] .vp-overlay{left:18px;top:16px}:root[data-theme="white"] .vp-coord{right:18px;top:16px}:root[data-theme="white"] .vt3{right:18px;top:16px}
+:root[data-theme="white"] .vp-zoom{right:18px;bottom:var(--stamp-h,104px)}:root[data-theme="white"] .vp-confirm{left:18px;bottom:18px}
+:root[data-theme="white"] .heat-anim{bottom:18px}
+@media (max-width:1100px){:root[data-theme="white"] .stamp{display:none}:root[data-theme="white"] .vp-zoom{bottom:18px}}
 
 /* ---- вердикт: первая строка — крупное число, цвет по состоянию ---- */
-:root[data-theme="eskd"] #r3-demag ul.res>li:first-child,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child{display:block;padding:6px 0 10px}
-:root[data-theme="eskd"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child>span:first-child{display:block;color:var(--muted);font-size:12.5px;font-stretch:semi-condensed}
-:root[data-theme="eskd"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:5px;font:600 30px/1 var(--ui);color:var(--text)}
-:root[data-theme="eskd"] #r3-demag ul.res>li.warn:first-child>.v{color:var(--warn)}
-:root[data-theme="eskd"] #r3-demag ul.res>li.crit:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li.crit:first-child>.v{color:var(--crit)}
-:root[data-theme="eskd"] #r3-demag ul.res>li.ok:first-child>.v,:root[data-theme="eskd"] #res-verdict ul.res>li.ok:first-child>.v{color:var(--good)}
-:root[data-theme="eskd"] .sheet-frame{display:block}
+:root[data-theme="white"] #r3-demag ul.res>li:first-child,:root[data-theme="white"] #res-verdict ul.res>li:first-child{display:block;padding:6px 0 10px}
+:root[data-theme="white"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="white"] #res-verdict ul.res>li:first-child>span:first-child{display:block;color:var(--muted);font-size:12.5px;font-stretch:semi-condensed}
+:root[data-theme="white"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="white"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:5px;font:600 30px/1 var(--ui);color:var(--text)}
+:root[data-theme="white"] #r3-demag ul.res>li.warn:first-child>.v{color:var(--warn)}
+:root[data-theme="white"] #r3-demag ul.res>li.crit:first-child>.v,:root[data-theme="white"] #res-verdict ul.res>li.crit:first-child>.v{color:var(--crit)}
+:root[data-theme="white"] #r3-demag ul.res>li.ok:first-child>.v,:root[data-theme="white"] #res-verdict ul.res>li.ok:first-child>.v{color:var(--good)}
+:root[data-theme="white"] .sheet-frame{display:block}
 
 
-/* ======================== «Испытательный стенд» ======================== */
-:root[data-theme="stand"]{--bg:#20262b;--bg2:#171c20;--panel:#2a3137;--panel2:#323a41;--panel3:#3a434b;--line:#3a434b;--line2:#4a545d;
+/* ======================== «Серая» ======================== */
+:root[data-theme="grey"]{--bg:#20262b;--bg2:#171c20;--panel:#2a3137;--panel2:#323a41;--panel3:#3a434b;--line:#3a434b;--line2:#4a545d;
   --text:#e6ebef;--muted:#a3aeb7;--dim:#939ea7;--accent:#d5dbe0;--accent2:#8f9aa3;--good:#4fa36b;--warn:#f0b429;--crit:#e2503f;--blue:#6aa7d8;
   --reading:#f0b429;
   --ui:'Bahnschrift','DIN Alternate','Roboto Condensed','Arial Narrow',sans-serif;--mono:var(--ui);
@@ -227,67 +228,67 @@ details.why>summary{font-size:12.5px}
   --ch-b:#f0b429;--ch-j:#a3aeb7;--ch-knee:#e2503f;--ch-s1:#4fa36b;--ch-s2:#f0b429;--ch-s3:#6aa7d8;
   --v3-edge:#0f1316;--v3-body-axis:#8f9aa3;--v3-halo:rgba(23,28,32,.92)}
 /* ---- гравировка: подписи и заголовки разделов — узкие, приглушённые, обычным регистром ---- */
-:root[data-theme="stand"] .pane-h,:root[data-theme="stand"] .rtools .lbl,:root[data-theme="stand"] .vt3-l,:root[data-theme="stand"] .field label,:root[data-theme="stand"] .res li span:first-child,:root[data-theme="stand"] .pc-row,:root[data-theme="stand"] .mrow label{font-stretch:semi-condensed}
-:root[data-theme="stand"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
-:root[data-theme="stand"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--muted);font-stretch:semi-condensed;margin:2px 0 10px}
-:root[data-theme="stand"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
-:root[data-theme="stand"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
-:root[data-theme="stand"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
-:root[data-theme="stand"] .status{font:500 12px/1 var(--ui)}
+:root[data-theme="grey"] .pane-h,:root[data-theme="grey"] .rtools .lbl,:root[data-theme="grey"] .vt3-l,:root[data-theme="grey"] .field label,:root[data-theme="grey"] .res li span:first-child,:root[data-theme="grey"] .pc-row,:root[data-theme="grey"] .mrow label{font-stretch:semi-condensed}
+:root[data-theme="grey"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="grey"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--muted);font-stretch:semi-condensed;margin:2px 0 10px}
+:root[data-theme="grey"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="grey"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="grey"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="grey"] .status{font:500 12px/1 var(--ui)}
 
 /* ---- клавиши: главная — светлая, нажатые переключатели — светлые, как утопленная кнопка ---- */
-:root[data-theme="stand"] .btn.pri,:root[data-theme="stand"] .home-b.pri{background:#d5dbe0;border-color:#d5dbe0;color:#1b2126}
-:root[data-theme="stand"] .btn.pri:hover{background:#e6ebef}
-:root[data-theme="stand"] .seg button.on,:root[data-theme="stand"] .rseg button.on{background:#d5dbe0;color:#1b2126}
-:root[data-theme="stand"] .brand .logo,:root[data-theme="stand"] .home-logo{background:#d5dbe0;color:#1b2126}
-:root[data-theme="stand"] .applybtn{border-color:var(--line2);color:var(--text)}
-:root[data-theme="stand"] .applybtn:hover{background:var(--panel3)}
-:root[data-theme="stand"] .node.sel,:root[data-theme="stand"] .objrow.sel{background:#353e46;box-shadow:inset 2px 0 0 #d5dbe0}
-:root[data-theme="stand"] .chk input,:root[data-theme="stand"] input[type=range]{accent-color:#d5dbe0!important}
-:root[data-theme="stand"] .meshinfo .tot{color:var(--reading)}
-:root[data-theme="stand"] .draw-hint{border-color:var(--line2);color:var(--text)}
+:root[data-theme="grey"] .btn.pri,:root[data-theme="grey"] .home-b.pri{background:#d5dbe0;border-color:#d5dbe0;color:#1b2126}
+:root[data-theme="grey"] .btn.pri:hover{background:#e6ebef}
+:root[data-theme="grey"] .seg button.on,:root[data-theme="grey"] .rseg button.on{background:#d5dbe0;color:#1b2126}
+:root[data-theme="grey"] .brand .logo,:root[data-theme="grey"] .home-logo{background:#d5dbe0;color:#1b2126}
+:root[data-theme="grey"] .applybtn{border-color:var(--line2);color:var(--text)}
+:root[data-theme="grey"] .applybtn:hover{background:var(--panel3)}
+:root[data-theme="grey"] .node.sel,:root[data-theme="grey"] .objrow.sel{background:#353e46;box-shadow:inset 2px 0 0 #d5dbe0}
+:root[data-theme="grey"] .chk input,:root[data-theme="grey"] input[type=range]{accent-color:#d5dbe0!important}
+:root[data-theme="grey"] .meshinfo .tot{color:var(--reading)}
+:root[data-theme="grey"] .draw-hint{border-color:var(--line2);color:var(--text)}
 
 /* ---- показание: первая строка вердикта — прибор с индикатором и крупным числом ---- */
-:root[data-theme="stand"] #r3-demag ul.res>li:first-child,:root[data-theme="stand"] #res-verdict ul.res>li:first-child{display:block;border:1px solid var(--line);border-radius:4px;
+:root[data-theme="grey"] #r3-demag ul.res>li:first-child,:root[data-theme="grey"] #res-verdict ul.res>li:first-child{display:block;border:1px solid var(--line);border-radius:4px;
   padding:8px 11px 10px;margin:6px 0 10px;background:#1d2227}
-:root[data-theme="stand"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>span:first-child{display:flex;align-items:center;gap:8px;
+:root[data-theme="grey"] #r3-demag ul.res>li:first-child>span:first-child,:root[data-theme="grey"] #res-verdict ul.res>li:first-child>span:first-child{display:flex;align-items:center;gap:8px;
   font-stretch:semi-condensed;color:var(--muted);font-size:12.5px}
-:root[data-theme="stand"] #r3-demag ul.res>li:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>span:first-child::before{content:'';
+:root[data-theme="grey"] #r3-demag ul.res>li:first-child>span:first-child::before,:root[data-theme="grey"] #res-verdict ul.res>li:first-child>span:first-child::before{content:'';
   flex:0 0 9px;height:9px;border-radius:50%;background:var(--warn);box-shadow:0 0 6px rgba(240,180,41,.55)}
-:root[data-theme="stand"] #r3-demag ul.res>li.ok:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li.ok:first-child>span:first-child::before{background:var(--good);box-shadow:0 0 6px rgba(79,163,107,.55)}
-:root[data-theme="stand"] #r3-demag ul.res>li.crit:first-child>span:first-child::before,:root[data-theme="stand"] #res-verdict ul.res>li.crit:first-child>span:first-child::before{background:var(--crit);box-shadow:0 0 6px rgba(226,80,63,.6)}
-:root[data-theme="stand"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="stand"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:6px;
+:root[data-theme="grey"] #r3-demag ul.res>li.ok:first-child>span:first-child::before,:root[data-theme="grey"] #res-verdict ul.res>li.ok:first-child>span:first-child::before{background:var(--good);box-shadow:0 0 6px rgba(79,163,107,.55)}
+:root[data-theme="grey"] #r3-demag ul.res>li.crit:first-child>span:first-child::before,:root[data-theme="grey"] #res-verdict ul.res>li.crit:first-child>span:first-child::before{background:var(--crit);box-shadow:0 0 6px rgba(226,80,63,.6)}
+:root[data-theme="grey"] #r3-demag ul.res>li:first-child>.v,:root[data-theme="grey"] #res-verdict ul.res>li:first-child>.v{display:block;text-align:left;margin-top:6px;
   font:600 30px/1 var(--ui);color:var(--reading)!important}
-:root[data-theme="stand"] .verdict-bad{background:#3a1f1c;border-color:var(--crit)}
+:root[data-theme="grey"] .verdict-bad{background:#3a1f1c;border-color:var(--crit)}
 
 
-/* ======================== «Привычная тёмная» ======================== */
-:root[data-theme="refresh"]{--muted:#93a3bb;--dim:#8a9ab3;--sel:#4d8bff;--sel-bg:rgba(77,139,255,.16);
+/* ======================== «Цветная» ======================== */
+:root[data-theme="color"]{--muted:#93a3bb;--dim:#8a9ab3;--sel:#4d8bff;--sel-bg:rgba(77,139,255,.16);
   --mono:var(--ui);--ui:'Segoe UI',system-ui,-apple-system,Roboto,Arial,sans-serif;
   --cv-font:'Segoe UI',system-ui,sans-serif;--cv-sel:#4d8bff;--cv-sel-fill:rgba(77,139,255,.30);--cv-add:#7fb0ff}
 /* ---- уточнения шкалы: заголовки разделов — обычным регистром, чуть крупнее подписей ---- */
-:root[data-theme="refresh"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
-:root[data-theme="refresh"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
-:root[data-theme="refresh"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
-:root[data-theme="refresh"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
-:root[data-theme="refresh"] .field label{font-size:12.5px}
-:root[data-theme="refresh"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
-:root[data-theme="refresh"] .status{font:500 12px/1 var(--ui)}
+:root[data-theme="color"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
+:root[data-theme="color"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
+:root[data-theme="color"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
+:root[data-theme="color"] .rtools .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+:root[data-theme="color"] .field label{font-size:12.5px}
+:root[data-theme="color"] .vp-cbar .lab{font:600 12px/1 var(--ui)}
+:root[data-theme="color"] .status{font:500 12px/1 var(--ui)}
 
 /* ---- мятный — только главное действие; выбор — синий ---- */
-:root[data-theme="refresh"] body :focus-visible{outline-color:var(--sel)}
-:root[data-theme="refresh"] .chk input,:root[data-theme="refresh"] input[type=range]{accent-color:var(--sel)!important}
-:root[data-theme="refresh"] .node.sel,:root[data-theme="refresh"] .objrow.sel{background:var(--sel-bg);box-shadow:inset 2px 0 0 var(--sel)}
-:root[data-theme="refresh"] .seg button.on{background:#2b3c5c;color:#fff}
-:root[data-theme="refresh"] .rseg button.on{background:#2b3c5c;color:#fff;box-shadow:inset 0 0 0 1px var(--sel)}
-:root[data-theme="refresh"] .toggle.on{background:#2f5fb8}
-:root[data-theme="refresh"] .step.cur{box-shadow:inset 0 -2px 0 var(--sel)}
-:root[data-theme="refresh"] .mt tbody tr.on,:root[data-theme="refresh"] .mprow.on{background:#2b3c5c}:root[data-theme="refresh"] .mt tbody tr.on td,:root[data-theme="refresh"] .mprow.on,:root[data-theme="refresh"] .mprow.on .sub,:root[data-theme="refresh"] .mt tbody tr.on .mt-act{color:#fff}
-:root[data-theme="refresh"] .applybtn{border-color:var(--line2);color:var(--text)}
-:root[data-theme="refresh"] .applybtn:hover{background:var(--panel3);border-color:var(--muted)}
-:root[data-theme="refresh"] .meshinfo .tot{color:var(--text)}
-:root[data-theme="refresh"] .draw-hint{border-color:var(--sel);color:var(--text)}
-:root[data-theme="refresh"] .cm-badge{color:var(--sel)}
-:root[data-theme="refresh"] .pc-name-inp:focus{border-color:var(--sel)}
-:root[data-theme="refresh"] .hname:focus{outline-color:var(--sel)}
-:root[data-theme="refresh"] .btn:hover{border-color:var(--muted)}
+:root[data-theme="color"] body :focus-visible{outline-color:var(--sel)}
+:root[data-theme="color"] .chk input,:root[data-theme="color"] input[type=range]{accent-color:var(--sel)!important}
+:root[data-theme="color"] .node.sel,:root[data-theme="color"] .objrow.sel{background:var(--sel-bg);box-shadow:inset 2px 0 0 var(--sel)}
+:root[data-theme="color"] .seg button.on{background:#2b3c5c;color:#fff}
+:root[data-theme="color"] .rseg button.on{background:#2b3c5c;color:#fff;box-shadow:inset 0 0 0 1px var(--sel)}
+:root[data-theme="color"] .toggle.on{background:#2f5fb8}
+:root[data-theme="color"] .step.cur{box-shadow:inset 0 -2px 0 var(--sel)}
+:root[data-theme="color"] .mt tbody tr.on,:root[data-theme="color"] .mprow.on{background:#2b3c5c}:root[data-theme="color"] .mt tbody tr.on td,:root[data-theme="color"] .mprow.on,:root[data-theme="color"] .mprow.on .sub,:root[data-theme="color"] .mt tbody tr.on .mt-act{color:#fff}
+:root[data-theme="color"] .applybtn{border-color:var(--line2);color:var(--text)}
+:root[data-theme="color"] .applybtn:hover{background:var(--panel3);border-color:var(--muted)}
+:root[data-theme="color"] .meshinfo .tot{color:var(--text)}
+:root[data-theme="color"] .draw-hint{border-color:var(--sel);color:var(--text)}
+:root[data-theme="color"] .cm-badge{color:var(--sel)}
+:root[data-theme="color"] .pc-name-inp:focus{border-color:var(--sel)}
+:root[data-theme="color"] .hname:focus{outline-color:var(--sel)}
+:root[data-theme="color"] .btn:hover{border-color:var(--muted)}
