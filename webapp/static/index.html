@@ -98,18 +98,34 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .vp-err button{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1.4}.vp-err button:hover{color:var(--text)}
 .vp-busy[hidden],.vp-err[hidden]{display:none}
 /* вид 3D поверх модели: строка «Разрез | Показать», под ней — положение разреза (когда он включён) и список «Показать» */
-.vt3{position:absolute;right:12px;top:10px;z-index:7;display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:calc(100% - 24px)}
-.vt3[hidden],.vt3 [hidden]{display:none}
-.vt3-bar,.vt3-sec,.vt3-pop{background:rgba(19,27,40,.95);border:1px solid var(--line2);border-radius:8px;box-shadow:0 8px 22px rgba(0,0,0,.35)}
-.vt3-bar{display:flex;align-items:center;gap:8px;padding:4px 4px 4px 10px}
-.vt3-l{font:600 12px/1 var(--ui);color:var(--muted)}
-.vt3 .rseg{padding:2px}.vt3 .rseg button{padding:5px 10px}
-.vt3-b{background:none;border:1px solid transparent;color:var(--text);font:600 12px/1 var(--ui);padding:7px 9px;border-radius:6px;cursor:pointer}
-.vt3-b:hover,.vt3-b[aria-expanded="true"]{background:var(--panel3);border-color:var(--line2)}
-.vt3-sec{display:flex;align-items:center;gap:9px;padding:6px 10px;flex-wrap:wrap;justify-content:flex-end}
-.vt3-u{font-size:11px;color:var(--muted);margin-left:-5px}
-.vt3-pop{display:flex;flex-direction:column;gap:10px;padding:11px 12px;min-width:230px}
-.vt3-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--text)}
+/* Вид 3D: поверх сцены — ничего, кроме подписи величины и хода расчёта. Что показывать после расчёта —
+   полоса над видом (как в 2D), как смотреть (разрез, оси, стрелки, виды, снимок) — строка под видом рядом
+   со шкалой, на всех шагах. Переключатели — флажки внутри кнопок: нажата — включено. */
+.vdock{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;padding:7px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel)}
+.vdock:has(>#cbar.hide):has(>#vbar3[hidden]){display:none}
+.vdock>.vp-cbar{flex:1 1 260px;min-width:200px;padding:2px 0;border:0;border-radius:0;background:none}
+.vbar3{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-left:auto}
+.vbar3[hidden],.vgrp[hidden]{display:none}
+.vgrp{display:flex;align-items:center;gap:5px}
+.vbar3 .lbl{font:600 12px/1 var(--ui);color:var(--muted)}
+.vbar3 .rseg{padding:2px}.vbar3 .rseg button{padding:6px 10px}
+.vbar3 .num{width:64px;padding:5px 6px}.vbar3 .u{font-size:12px;color:var(--muted);margin-left:-2px}
+.vbar3 input[type=range]{accent-color:var(--accent)}
+#sec3d-pos{width:120px}
+.vop{display:flex;align-items:center;gap:5px;color:var(--muted);cursor:pointer}.vop svg{width:18px;height:18px;flex:0 0 18px}.vop input{width:72px}
+.tg,.ib{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 10px;flex:0 0 auto;
+  border:1px solid var(--line2);border-radius:6px;background:var(--panel2);color:var(--muted);font:600 12px/1 var(--ui);white-space:nowrap;cursor:pointer;user-select:none}
+.tg.ic,.ib{width:30px;padding:0}
+.tg:hover,.ib:hover{color:var(--text);border-color:var(--accent2)}
+.tg svg,.ib svg{width:18px;height:18px;flex:0 0 18px;display:block;pointer-events:none}
+.tg input{position:absolute;opacity:0;width:1px;height:1px;margin:0;pointer-events:none}
+.tg.ic>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.tg:has(input:checked){background:var(--accent);border-color:var(--accent);color:#04140e}
+.tg:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+#rtools-3dres{flex-wrap:wrap;gap:6px 18px}
+.rtools #r3-q{width:210px;text-overflow:ellipsis}
+.rtools #ln3d-n{width:58px;padding:5px 6px}
+@media (max-width:1280px){#rtools-3dres .tg{width:30px;padding:0}#rtools-3dres .tg>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}}
 .vp-cbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel)}
 .vp-cbar.hide{display:none}.vp-cbar .scale{flex:1;height:12px;border-radius:3px}.vp-cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
 .rp{padding:12px}
@@ -467,6 +483,15 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <input type="file" id="step3d-file" accept=".stp,.step" hidden>
         </div>
       </div>
+      <!-- 3D после расчёта: вместо кнопок тел — что показывать (к геометрии — шаг «Геометрия» в шапке) -->
+      <div class="rtgroup" id="rtools-3dres" style="display:none">
+        <span class="vgrp"><span class="lbl">Величина</span>
+        <select class="select" id="r3-q" title="Какую величину показывать цветом на телах и на разрезе"></select>
+        <label class="tg" title="Цвет величины на поверхностях тел; выключено — тела своими цветами, поле видно на разрезе"><input type="checkbox" id="r3-onsurf" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><path d="M10 10l7-3.5v7L10 17z" fill="currentColor" fill-opacity=".45" stroke="none"/><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/></svg><span>на поверхностях</span></label></span>
+        <span class="vgrp"><label class="tg" title="Силовые линии индукции B по расчёту: каждая несёт одинаковый поток, цвет — по |B|, стрелки — направление поля"><input type="checkbox" id="ln3d-show"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 10c2.5-6 12.5-6 15 0M5.5 10c1.5-3 7.5-3 9 0M2.5 10c2.5 6 12.5 6 15 0M5.5 10c1.5 3 7.5 3 9 0"/></svg><span>силовые линии</span></label>
+        <input class="num" id="ln3d-n" value="200" title="Сколько силовых линий строить (объёмные — каждая несёт одинаковый поток; на разрезе — шаг расстановки)" aria-label="Число силовых линий">
+        <label class="tg" title="Линии в плоскости разреза: настоящие линии поля там, где поле лежит в плоскости (доля выхода из плоскости пишется в строке состояния), иначе — проекция"><input type="checkbox" id="ln3d-sec"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 14.5 6.5 5.5h11l-4 9z"/><path d="M6 12c1.8-3.6 5.4-3.6 7.2-.8"/></svg><span>на разрезе</span></label></span>
+      </div>
     </div>
     <div class="center-body">
       <div class="viewport">
@@ -478,36 +503,44 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div class="cta-btns"><button class="btn pri" id="cta-new">Новый проект</button><button class="btn" id="cta-open">Открыть расчёт…</button></div></div></div>
         <div class="draw-hint" id="reg-info" style="display:none;top:auto;bottom:14px"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
-        <!-- вид 3D: разрез и что показывать — поверх модели, отдельно от кнопок добавления тел -->
-        <div class="vt3" id="vt3" hidden>
-          <div class="vt3-bar">
-            <span class="vt3-l">Разрез</span>
-            <div class="rseg" id="sec3d-axis"><button data-ax="off" class="on">нет</button><button data-ax="x">X</button><button data-ax="y">Y</button><button data-ax="z">Z</button></div>
-            <button class="vt3-b" id="vt3-show" aria-expanded="false" aria-controls="vt3-pop">Показать ▾</button>
-          </div>
-          <div class="vt3-sec" id="vt3-sec" hidden>
-            <input type="range" id="sec3d-pos" min="0" max="1000" value="500" style="width:120px;accent-color:var(--accent)" title="Положение разреза">
-            <input class="num" id="sec3d-val" value="0" style="width:62px;padding:5px 6px" title="Положение разреза, мм"><span class="vt3-u">мм</span>
-            <label class="chk" style="white-space:nowrap"><input type="checkbox" id="sec3d-flip">другая сторона</label>
-            <label class="chk" style="white-space:nowrap"><input type="checkbox" id="sec3d-air" checked>с воздухом</label>
-          </div>
-          <div class="vt3-pop" id="vt3-pop" hidden>
-            <label class="vt3-row">Непрозрачность тел<input type="range" id="op3d" min="15" max="100" value="100" style="width:96px;accent-color:var(--accent)"></label>
-            <label class="chk" title="Оси X, Y, Z через начало координат с подписями в мм"><input type="checkbox" id="ax3d-coord" checked>оси координат</label>
-            <label class="chk" title="Ось каждого тела — от неё считается осевое и радиальное намагничивание; у тела из STEP это ось двигателя"><input type="checkbox" id="ax3d-body" checked>оси тел</label>
-            <label class="chk" title="Стрелки намагниченности M внутри магнитов (от S к N); после построения сетки — по ячейкам, ровно как уйдёт в расчёт"><input type="checkbox" id="mag3d-arrows">намагничивание</label>
-            <div class="vt3-row"><label class="chk" title="Силовые линии индукции B по расчёту: каждая несёт одинаковый поток, цвет — по |B|, стрелки — направление поля"><input type="checkbox" id="ln3d-show">силовые линии</label>
-              <span><input class="num" id="ln3d-n" value="200" style="width:56px;padding:5px 6px" title="Сколько линий строить (объёмные — каждая несёт одинаковый поток; на разрезе — шаг расстановки)"> шт.</span></div>
-            <label class="chk" title="Линии в плоскости разреза: настоящие линии поля там, где поле лежит в плоскости (доля выхода из плоскости пишется в строке состояния), иначе — проекция"><input type="checkbox" id="ln3d-sec">линии на разрезе</label>
-          </div>
-        </div>
         <div class="vp-msgs"><div class="vp-busy" id="vp-busy" hidden><span class="spin"></span><span id="vp-busy-txt"></span><span id="vp-busy-t"></span></div>
           <div class="vp-err" id="vp-err" role="alert" hidden><span id="vp-err-txt"></span><button id="vp-err-x" title="Скрыть">✕</button></div></div>
         <div class="heat-anim" id="heat-anim" style="display:none"><button class="zbtn" id="heat-play" title="Пуск/пауза нагрева">▶</button><input type="range" id="heat-slider" min="0" max="0" value="0" step="1"><span id="heat-time">0 с</span></div>
-        <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button><button class="zbtn" id="zview" title="Следующий стандартный вид: изометрия, сверху, спереди, справа" style="display:none">◇</button></div>
+        <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
         <div class="vp-confirm" id="vp-confirm" style="display:none"><button class="zbtn ok" id="edit-ok" title="Применить изменения (Enter)">✓</button><button class="zbtn no" id="edit-cancel" title="Отменить — вернуть как было">✕</button></div>
       </div>
-      <div class="vp-cbar hide" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" id="cunit" style="color:var(--dim)">Тл</span></div>
+      <div class="vdock" id="vdock">
+        <div class="vp-cbar hide" id="cbar"><span class="lab" id="cmin">0</span><div class="scale" id="cscale"></div><span class="lab" id="cmax">2.0</span><span class="lab" id="cunit" style="color:var(--dim)">Тл</span></div>
+        <!-- 3D: как смотреть — на всех шагах; поверх сцены ничего не кладём -->
+        <div class="vbar3" id="vbar3" role="toolbar" aria-label="Вид 3D" hidden>
+          <div class="vgrp">
+            <span class="lbl">Разрез</span>
+            <div class="rseg" id="sec3d-axis"><button data-ax="off" class="on" title="Без разреза">нет</button><button data-ax="x" title="Разрез плоскостью поперёк оси X">X</button><button data-ax="y" title="Разрез плоскостью поперёк оси Y">Y</button><button data-ax="z" title="Разрез плоскостью поперёк оси Z">Z</button></div>
+            <div class="vgrp" id="vt3-sec" hidden>
+              <input type="range" id="sec3d-pos" min="0" max="1000" value="500" title="Положение разреза" aria-label="Положение разреза">
+              <input class="num" id="sec3d-val" value="0" title="Положение разреза, мм" aria-label="Положение разреза, мм"><span class="u">мм</span>
+              <label class="tg ic" title="Показать другую сторону от плоскости разреза"><input type="checkbox" id="sec3d-flip"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5v15" stroke-dasharray="2 2"/><path d="M3 7.5h4.5M5.5 5 8 7.5 5.5 10M17 12.5h-4.5M14.5 10 12 12.5l2.5 2.5"/></svg><span>другая сторона</span></label>
+              <label class="tg ic" title="Поле на разрезе и в воздухе вокруг тел; выключено — только внутри тел"><input type="checkbox" id="sec3d-air" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="2.5" width="15" height="15" rx="1.5" stroke-dasharray="2.2 2.2"/><rect x="7" y="7" width="6" height="6" rx=".8" fill="currentColor" fill-opacity=".45"/></svg><span>с воздухом</span></label>
+            </div>
+          </div>
+          <div class="vgrp">
+            <label class="vop" title="Непрозрачность тел"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="6.8"/><path d="M10 3.2a6.8 6.8 0 0 1 0 13.6z" fill="currentColor" stroke="none"/></svg><input type="range" id="op3d" min="15" max="100" value="100" aria-label="Непрозрачность тел"></label>
+            <label class="tg ic" title="Оси X, Y, Z через начало координат с подписями в мм"><input type="checkbox" id="ax3d-coord" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 13V3.5M7 13h10M7 13l-4.5 4.5M5.3 5.2 7 3.5l1.7 1.7M15.3 11.3 17 13l-1.7 1.7"/></svg><span>оси координат</span></label>
+            <label class="tg ic" title="Ось каждого тела — от неё считается осевое и радиальное намагничивание; у тела из STEP это ось двигателя"><input type="checkbox" id="ax3d-body" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="10" cy="6" rx="5" ry="2"/><path d="M5 6v8c0 1.1 2.2 2 5 2s5-.9 5-2V6"/><path d="M10 1v18" stroke-dasharray="3.2 1.6 .8 1.6"/></svg><span>оси тел</span></label>
+            <label class="tg ic" title="Стрелки намагниченности M внутри магнитов (от S к N); после построения сетки — по ячейкам, ровно как уйдёт в расчёт"><input type="checkbox" id="mag3d-arrows"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="6" width="15" height="8" rx="1"/><path d="M5.5 10h8M11 7.6 13.5 10 11 12.4"/></svg><span>намагничивание</span></label>
+          </div>
+          <div class="vgrp">
+            <button class="ib" data-view3="0" title="Изометрия" aria-label="Изометрия"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5L10 10z" fill="currentColor" fill-opacity=".2" stroke="none"/><path d="M3 6.5 10 10v7l-7-3.5z" fill="currentColor" fill-opacity=".45" stroke="none"/><path d="M10 10l7-3.5v7L10 17z" fill="currentColor" fill-opacity=".7" stroke="none"/><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/></svg></button>
+            <button class="ib" data-view3="1" title="Вид сверху (+Z)" aria-label="Вид сверху (+Z)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 10 3l7 3.5L10 10z" fill="currentColor" fill-opacity=".55" stroke="none"/><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/></svg></button>
+            <button class="ib" data-view3="2" title="Вид спереди (−Y)" aria-label="Вид спереди (−Y)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6.5 10 10v7l-7-3.5z" fill="currentColor" fill-opacity=".55" stroke="none"/><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/></svg></button>
+            <button class="ib" data-view3="3" title="Вид справа (+X)" aria-label="Вид справа (+X)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 10l7-3.5v7L10 17z" fill="currentColor" fill-opacity=".55" stroke="none"/><path d="M3 6.5 10 3l7 3.5v7L10 17l-7-3.5z"/><path d="M3 6.5 10 10l7-3.5M10 10v7"/></svg></button>
+            <button class="ib" id="v3-fit" title="Вписать модель в вид" aria-label="Вписать модель в вид"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5V3h4.5M12.5 3H17v4.5M17 12.5V17h-4.5M7.5 17H3v-4.5"/><rect x="7" y="7" width="6" height="6" rx=".8"/></svg></button>
+            <button class="ib" id="v3-zin" title="Приблизить" aria-label="Приблизить"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.2"/><path d="M12.4 12.4 17 17M6.2 8.5h4.6M8.5 6.2v4.6"/></svg></button>
+            <button class="ib" id="v3-zout" title="Отдалить" aria-label="Отдалить"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.2"/><path d="M12.4 12.4 17 17M6.2 8.5h4.6"/></svg></button>
+            <button class="ib" id="r3-png" title="Снимок вида (PNG)" aria-label="Снимок вида (PNG)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6.5h3.2l1.5-2h5.6l1.5 2h3.2v9h-15z"/><circle cx="10" cy="11" r="2.9"/></svg></button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -696,11 +729,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
             <details class="why"><summary>Как считается вердикт</summary>
               <p class="hint">Потеря потока: магнит после расчёта и новый сравниваются при 20 °C без внешнего поля, как флюксметром до и после. Запас до колена в отдельной ячейке у краёв магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе всего к колену, показывает карта «Запас до колена».</p></details>
             <hr></div>
-          <h4>Отображение поля</h4>
-          <div class="field"><label>Величина</label><select class="select" id="r3-q"></select></div>
-          <label class="chk" style="margin:-2px 0 10px"><input type="checkbox" id="r3-onsurf" checked>на поверхностях тел</label>
-          <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button></div>
-          <hr>
+          <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button><hr></div>
           <h4>Сводка</h4><ul class="res" id="r3-sum"></ul>
           <h4 style="margin-top:14px">Тела</h4><table class="s3tab" id="r3-objs"></table>
           <hr>
@@ -712,13 +741,12 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div class="r3out" id="r3-force-out"></div>
           <hr>
           <h4>Поток через разрез</h4>
-          <p class="hint">Плоскость — текущий разрез (панель над видом); тела — отмеченные выше, если ни одно не отмечено — вся область.</p>
+          <p class="hint">Плоскость — текущий разрез (строка под видом); тела — отмеченные выше, если ни одно не отмечено — вся область.</p>
           <button class="applybtn" id="r3-flux">Поток через разрез</button>
           <div class="r3out" id="r3-flux-out"></div>
           <hr>
           <button class="btn" id="r3-vtu" style="width:100%">Выгрузить в ParaView (.vtu)</button>
         </div>
-        <button class="btn" id="r3-png" style="width:100%;margin-top:8px">Снимок вида (PNG)</button>
       </div>
     </div>
   </aside>
@@ -1130,9 +1158,12 @@ function markDirty(){DIRTY=true;scheduleAutosave();}
 // Защита от случайного обновления/закрытия при несохранённых изменениях (окно нативное — стилизовать нельзя).
 window.addEventListener('beforeunload',e=>{if(unsavedWork()){e.preventDefault();e.returnValue='';}});
 function updateRtools(){const solved=!!BX,d3=MODE==='objects3d';
+  // 3D: на шаге «Результат» с готовым расчётом над видом — что показывать, иначе — кнопки тел (как 2D после расчёта)
+  const res3=d3&&STAGE==='result'&&!!(window.WS3D&&WS3D.hasResult());
   $('rtools-geom').style.display=(solved||d3)?'none':'flex';
   $('rtools-res').style.display=(solved&&!d3)?'flex':'none';
-  $('rtools-3d').style.display=d3?'flex':'none';
+  $('rtools-3d').style.display=(d3&&!res3)?'flex':'none';
+  $('rtools-3dres').style.display=res3?'flex':'none';
   $('toppalette').style.display=MODE==='objects'?'flex':'none';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
 function invalidateField(){if(!BX)return;BX=null;BY=null;AZ=null;LINES2D=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';clearSummary();updateRtools();updateResults();}
@@ -1592,7 +1623,7 @@ window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&
     pendOn();draw();editHint();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('vp-err-x').onclick=()=>{$('vp-err').hidden=true;};
-$('zin').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(1.25);return;}scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(0.8);return;}scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.fit();return;}fit();};$('zview').onclick=()=>{if(window.WS3D)WS3D.nextView();};
+$('zin').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(1.25);return;}scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(0.8);return;}scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.fit();return;}fit();};
 $('edit-ok').onclick=applyGeomEdit;$('edit-cancel').onclick=cancelGeomEdit;
 
 // навигация: дерево + вкладки + верхняя панель → этап; дерево «Результаты» → инструмент
@@ -1649,7 +1680,7 @@ document.querySelectorAll('#steps .step').forEach(b=>b.onclick=()=>goStage(b.dat
 // Строка шагов: где мы и что уже сделано. Состояние берётся из тех же признаков, по которым идёт расчёт:
 // сетка «устарела», если геометрия менялась после её построения (см. meshStale).
 var STEPS_ON=false;   // включается после загрузки: раньше состояние ещё не собрано
-function updateSteps(){if(!STEPS_ON||!$('steps'))return;
+function updateSteps(){updateRtools();if(!STEPS_ON||!$('steps'))return;
   const d3=MODE==='objects3d',np=noProject(),W3=window.WS3D;
   const nObj=d3?(W3&&W3.hasObjects()?1:0):MODE==='objects'?OBJECTS.length:1;
   const geom=!np&&nObj>0,meshOld=!np&&!d3&&meshStale();
@@ -1914,7 +1945,7 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects',d3=MODE==='object
   if(d3)$('t-row').style.display='none';
   if(d3){$('mat-model-pmsm').style.display='none';$('mat-model-objs').style.display='none';}
   $('cv').style.display=d3?'none':'';$('v3d').style.display=d3?'block':'none';$('coord').style.display=d3?'none':'';
-  $('zview').style.display=d3?'':'none';$('res3d').style.display=d3?'block':'none';$('vt3').hidden=!d3;
+  document.querySelector('.vp-zoom').style.display=d3?'none':'';$('res3d').style.display=d3?'block':'none';$('vbar3').hidden=!d3;   // 3D: масштаб и виды — в строке под видом
   ['res-hdr','res-tools','exc-hdr','exc-body'].forEach(id=>{const el=$(id);if(el)el.style.display=d3?'none':'';});
   document.querySelectorAll('#dimseg button').forEach(b=>b.classList.toggle('on',(b.dataset.dim==='3')===d3));
   $('st-ver').textContent=(d3?'3D':'2D')+' · v0.8';
@@ -2319,11 +2350,6 @@ window.addEventListener('resize',()=>{resize();fit();});
 // Ширина вида меняется и без изменения окна (этап открылся в правой панели): холст — по новому размеру, центр вида
 // остаётся на месте.
 new ResizeObserver(()=>{const w0=W,h0=H;resize();if(w0>20&&h0>20&&(W!==w0||H!==h0)){ox+=(W-w0)/2;oy+=(H-h0)/2;draw();}}).observe(cv.parentElement);
-// «Показать ▾» над видом 3D: открыть или закрыть список; щелчок мимо или Esc — закрыть.
-function vt3Pop(on){$('vt3-pop').hidden=!on;$('vt3-show').setAttribute('aria-expanded',on?'true':'false');}
-$('vt3-show').onclick=e=>{e.stopPropagation();vt3Pop($('vt3-pop').hidden);};
-document.addEventListener('click',e=>{if(!$('vt3-pop').hidden&&!$('vt3').contains(e.target))vt3Pop(false);});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('vt3-pop').hidden)vt3Pop(false);});
 // Боковые панели: кнопки в шапке. На узком окне панель проекта убирается сама — вид важнее; решение пользователя
 // держится, пока окно не пересечёт порог ширины снова.
 const NARROW_PX=1000,NARROWER_PX=760;                    // ширина раскладки страницы, px (с учётом её масштаба)

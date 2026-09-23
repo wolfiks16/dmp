@@ -37,10 +37,9 @@ body{font-size:14px}
 .zbtn{font-size:15px}
 .vp-busy,.vp-err{font:600 13.5px/1.4 var(--ui)}
 .vp-err button{font-size:14px}
-.vt3-l{font:600 13px/1 var(--ui)}
-.vt3-b{font:600 13px/1 var(--ui)}
-.vt3-u{font-size:12px}
-.vt3-row{font-size:13px}
+.vbar3 .lbl{font:600 13px/1 var(--ui)}
+.tg{font:600 13px/1 var(--ui)}
+.vbar3 .u{font-size:12px}
 .vp-cbar .lab{font:600 11px/1 var(--ui)}
 .rp h4{font:600 12px/1 var(--ui);letter-spacing:0;text-transform:none}
 .field label{font-size:12px}
@@ -151,7 +150,7 @@ details.why>summary{font-size:12.5px}
   --ch-b:#1e262d;--ch-j:#1f5b7a;--ch-knee:#b86e0a;--ch-s1:#2e7d4f;--ch-s2:#b86e0a;--ch-s3:#1f5b7a;
   --v3-edge:#1e262d;--v3-body-axis:#4f5b66;--v3-halo:rgba(255,255,255,.92)}
 /* ---- подписи — узким начертанием, заголовки разделов обычным регистром ---- */
-:root[data-theme="white"] .pane-h,:root[data-theme="white"] .rtools .lbl,:root[data-theme="white"] .vt3-l,:root[data-theme="white"] .field label,:root[data-theme="white"] .res li span:first-child,:root[data-theme="white"] .pc-row,:root[data-theme="white"] .mrow label,:root[data-theme="white"] .node .tag,:root[data-theme="white"] .step{font-stretch:semi-condensed}
+:root[data-theme="white"] .pane-h,:root[data-theme="white"] .rtools .lbl,:root[data-theme="white"] .vbar3 .lbl,:root[data-theme="white"] .field label,:root[data-theme="white"] .res li span:first-child,:root[data-theme="white"] .pc-row,:root[data-theme="white"] .mrow label,:root[data-theme="white"] .node .tag,:root[data-theme="white"] .step{font-stretch:semi-condensed}
 :root[data-theme="white"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
 :root[data-theme="white"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--text);margin:2px 0 10px}
 :root[data-theme="white"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
@@ -160,15 +159,15 @@ details.why>summary{font-size:12.5px}
 :root[data-theme="white"] .status{font:500 12px/1 var(--ui)}
 
 /* ---- без теней и карточек: тонкие линии, прямые углы ---- */
-:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pnote::after,:root[data-theme="white"] .heat-anim{box-shadow:none}
-:root[data-theme="white"] .btn,:root[data-theme="white"] .select,:root[data-theme="white"] .num,:root[data-theme="white"] .rseg,:root[data-theme="white"] .rseg button,:root[data-theme="white"] .seg,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .applybtn,:root[data-theme="white"] .matbtn,:root[data-theme="white"] .hname,:root[data-theme="white"] .home-b,:root[data-theme="white"] .type-card,:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vt3-b,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pc-sec,:root[data-theme="white"] .mt-wrap,:root[data-theme="white"] .verdict-bad,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .tbtn,:root[data-theme="white"] .step,:root[data-theme="white"] .solved-item,:root[data-theme="white"] .cm-item,:root[data-theme="white"] .mrow input,:root[data-theme="white"] .pc-name-inp,:root[data-theme="white"] .g3text,:root[data-theme="white"] .g3area{border-radius:2px}
+:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pnote::after,:root[data-theme="white"] .heat-anim{box-shadow:none}
+:root[data-theme="white"] .btn,:root[data-theme="white"] .select,:root[data-theme="white"] .num,:root[data-theme="white"] .rseg,:root[data-theme="white"] .rseg button,:root[data-theme="white"] .seg,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .applybtn,:root[data-theme="white"] .matbtn,:root[data-theme="white"] .hname,:root[data-theme="white"] .home-b,:root[data-theme="white"] .type-card,:root[data-theme="white"] .tg,:root[data-theme="white"] .ib,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .vp-err,:root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .toast,:root[data-theme="white"] .pop,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .cta-hint .cta-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .draw-hint,:root[data-theme="white"] .pc-sec,:root[data-theme="white"] .mt-wrap,:root[data-theme="white"] .verdict-bad,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .tbtn,:root[data-theme="white"] .step,:root[data-theme="white"] .solved-item,:root[data-theme="white"] .cm-item,:root[data-theme="white"] .mrow input,:root[data-theme="white"] .pc-name-inp,:root[data-theme="white"] .g3text,:root[data-theme="white"] .g3area{border-radius:2px}
 :root[data-theme="white"] .modal-ov,:root[data-theme="white"] .home-ov,:root[data-theme="white"] .ui-modal-ov{background:rgba(30,38,45,.34)}
 :root[data-theme="white"] .modal,:root[data-theme="white"] .home-card,:root[data-theme="white"] .ui-modal,:root[data-theme="white"] .calc-menu,:root[data-theme="white"] .pop{border:1px solid var(--text)}
 :root[data-theme="white"] .viewport{border-radius:0;border-color:var(--line)}
-:root[data-theme="white"] .vp-cbar{border-radius:0}
+:root[data-theme="white"] .vp-cbar,:root[data-theme="white"] .vdock{border-radius:0}
 
 /* ---- плавающие надписи и панели над видом — белые, линия графитом ---- */
-:root[data-theme="white"] .vt3-bar,:root[data-theme="white"] .vt3-sec,:root[data-theme="white"] .vt3-pop,:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .cta-hint .cta-card{background:#fff;border:1px solid var(--line2)}
+:root[data-theme="white"] .vp-busy,:root[data-theme="white"] .zbtn,:root[data-theme="white"] .heat-anim,:root[data-theme="white"] .cta-hint .cta-card{background:#fff;border:1px solid var(--line2)}
 :root[data-theme="white"] .zbtn{color:var(--text)}:root[data-theme="white"] .zbtn:hover{background:var(--panel2)}
 :root[data-theme="white"] .vp-err{background:#fbeceb;border:1px solid var(--crit);color:var(--text)}
 :root[data-theme="white"] .verdict-bad{background:#fbeceb;border-color:var(--crit)}:root[data-theme="white"] .verdict-bad b{color:var(--crit)}
@@ -179,7 +178,7 @@ details.why>summary{font-size:12.5px}
 /* ---- синька: главная кнопка и выбор; на ней — белый текст ---- */
 :root[data-theme="white"] .btn.pri,:root[data-theme="white"] .home-b.pri{background:var(--accent);border-color:var(--accent);color:#fff}
 :root[data-theme="white"] .btn.pri:hover{background:var(--accent2)}
-:root[data-theme="white"] .seg button.on,:root[data-theme="white"] .rseg button.on,:root[data-theme="white"] .mt tbody tr.on td,:root[data-theme="white"] .mprow.on,:root[data-theme="white"] .mprow.on .sub,:root[data-theme="white"] .mt tbody tr.on .mt-act{color:#fff}
+:root[data-theme="white"] .seg button.on,:root[data-theme="white"] .rseg button.on,:root[data-theme="white"] .tg:has(input:checked),:root[data-theme="white"] .mt tbody tr.on td,:root[data-theme="white"] .mprow.on,:root[data-theme="white"] .mprow.on .sub,:root[data-theme="white"] .mt tbody tr.on .mt-act{color:#fff}
 :root[data-theme="white"] .brand .logo,:root[data-theme="white"] .home-logo{background:var(--accent);color:#fff}
 :root[data-theme="white"] .step .sti{color:#fff}:root[data-theme="white"] .step.done .sti{background:var(--good);border-color:var(--good)}
 :root[data-theme="white"] .toggle.on::after{background:#fff}
@@ -199,7 +198,7 @@ details.why>summary{font-size:12.5px}
 :root[data-theme="white"] .stamp>span{border-right:1px solid var(--text);color:var(--muted);font-stretch:semi-condensed}
 :root[data-theme="white"] .stamp>b{font-weight:600;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis}
 /* надписи и кнопки вида — внутри рамки, кнопки масштаба — над штампом */
-:root[data-theme="white"] .vp-overlay{left:18px;top:16px}:root[data-theme="white"] .vp-coord{right:18px;top:16px}:root[data-theme="white"] .vt3{right:18px;top:16px}
+:root[data-theme="white"] .vp-overlay{left:18px;top:16px}:root[data-theme="white"] .vp-coord{right:18px;top:16px}
 :root[data-theme="white"] .vp-zoom{right:18px;bottom:var(--stamp-h,104px)}:root[data-theme="white"] .vp-confirm{left:18px;bottom:18px}
 :root[data-theme="white"] .heat-anim{bottom:18px}
 @media (max-width:1100px){:root[data-theme="white"] .stamp{display:none}:root[data-theme="white"] .vp-zoom{bottom:18px}}
@@ -228,7 +227,7 @@ details.why>summary{font-size:12.5px}
   --ch-b:#f0b429;--ch-j:#a3aeb7;--ch-knee:#e2503f;--ch-s1:#4fa36b;--ch-s2:#f0b429;--ch-s3:#6aa7d8;
   --v3-edge:#0f1316;--v3-body-axis:#8f9aa3;--v3-halo:rgba(23,28,32,.92)}
 /* ---- гравировка: подписи и заголовки разделов — узкие, приглушённые, обычным регистром ---- */
-:root[data-theme="grey"] .pane-h,:root[data-theme="grey"] .rtools .lbl,:root[data-theme="grey"] .vt3-l,:root[data-theme="grey"] .field label,:root[data-theme="grey"] .res li span:first-child,:root[data-theme="grey"] .pc-row,:root[data-theme="grey"] .mrow label{font-stretch:semi-condensed}
+:root[data-theme="grey"] .pane-h,:root[data-theme="grey"] .rtools .lbl,:root[data-theme="grey"] .vbar3 .lbl,:root[data-theme="grey"] .field label,:root[data-theme="grey"] .res li span:first-child,:root[data-theme="grey"] .pc-row,:root[data-theme="grey"] .mrow label{font-stretch:semi-condensed}
 :root[data-theme="grey"] .pane-h{font:600 12.5px/1 var(--ui);color:var(--muted)}
 :root[data-theme="grey"] .rp h4{font:600 13.5px/1.25 var(--ui);color:var(--muted);font-stretch:semi-condensed;margin:2px 0 10px}
 :root[data-theme="grey"] .reshead{font:600 13px/1.25 var(--ui);color:var(--text)}
@@ -239,7 +238,7 @@ details.why>summary{font-size:12.5px}
 /* ---- клавиши: главная — светлая, нажатые переключатели — светлые, как утопленная кнопка ---- */
 :root[data-theme="grey"] .btn.pri,:root[data-theme="grey"] .home-b.pri{background:#d5dbe0;border-color:#d5dbe0;color:#1b2126}
 :root[data-theme="grey"] .btn.pri:hover{background:#e6ebef}
-:root[data-theme="grey"] .seg button.on,:root[data-theme="grey"] .rseg button.on{background:#d5dbe0;color:#1b2126}
+:root[data-theme="grey"] .seg button.on,:root[data-theme="grey"] .rseg button.on,:root[data-theme="grey"] .tg:has(input:checked){background:#d5dbe0;color:#1b2126}
 :root[data-theme="grey"] .brand .logo,:root[data-theme="grey"] .home-logo{background:#d5dbe0;color:#1b2126}
 :root[data-theme="grey"] .applybtn{border-color:var(--line2);color:var(--text)}
 :root[data-theme="grey"] .applybtn:hover{background:var(--panel3)}
@@ -281,6 +280,8 @@ details.why>summary{font-size:12.5px}
 :root[data-theme="color"] .node.sel,:root[data-theme="color"] .objrow.sel{background:var(--sel-bg);box-shadow:inset 2px 0 0 var(--sel)}
 :root[data-theme="color"] .seg button.on{background:#2b3c5c;color:#fff}
 :root[data-theme="color"] .rseg button.on{background:#2b3c5c;color:#fff;box-shadow:inset 0 0 0 1px var(--sel)}
+:root[data-theme="color"] .tg:has(input:checked){background:#2b3c5c;border-color:var(--sel);color:#fff}
+:root[data-theme="color"] .tg:has(input:focus-visible){outline-color:var(--sel)}
 :root[data-theme="color"] .toggle.on{background:#2f5fb8}
 :root[data-theme="color"] .step.cur{box-shadow:inset 0 -2px 0 var(--sel)}
 :root[data-theme="color"] .mt tbody tr.on,:root[data-theme="color"] .mprow.on{background:#2b3c5c}:root[data-theme="color"] .mt tbody tr.on td,:root[data-theme="color"] .mprow.on,:root[data-theme="color"] .mprow.on .sub,:root[data-theme="color"] .mt tbody tr.on .mt-act{color:#fff}

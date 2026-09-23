@@ -738,8 +738,8 @@ function magnetDirection(o) {                       // единичный век
 }
 function magnetDirText(o) {
   const v = magnetDirection(o), turned = (o.magnet_rotation || []).some(a => +a);
-  if (!v) return turned ? 'Радиально, затем поворот вокруг глобальных осей X → Y → Z: у каждой точки своё направление — смотрите стрелки «намагничивание» над видом.'
-    : 'Радиально: у каждой точки своё направление — смотрите стрелки «намагничивание» над видом.';
+  if (!v) return turned ? 'Радиально, затем поворот вокруг глобальных осей X → Y → Z: у каждой точки своё направление — включите стрелки намагничивания в строке под видом.'
+    : 'Радиально: у каждой точки своё направление — включите стрелки намагничивания в строке под видом.';
   const c = v.map(x => (Math.abs(x) < 5e-5 ? 0 : x).toFixed(2).replace('.', ','));
   return 'Направление M: (' + c.join('; ') + '). Поворот — вокруг глобальных осей по порядку: X, затем Y, затем Z, как у тела.';
 }
@@ -819,7 +819,7 @@ async function force() {
 async function flux() {
   const out = $('r3-flux-out');
   if (!S.model || !S.values) { out.textContent = 'Сначала пересчитайте поле (кнопка выше).'; return; }
-  if (S.sec.axis === 'off') { out.textContent = 'Включите разрез (X, Y или Z) над видом.'; return; }
+  if (S.sec.axis === 'off') { out.textContent = 'Включите разрез (X, Y или Z) в строке под видом.'; return; }
   const n = VEC[S.sec.axis], body = { model_id: S.model.model_id, point_mm: n.map(c => c * S.sec.pos), normal: n };
   if (S.bodies.size) body.objects = [...S.bodies];
   const d = await post('/api/3d/flux', body);
@@ -878,7 +878,7 @@ async function onBuild(stage) {
   if (stage === 'mesh') { if (await buildModel()) setStage('result'); return; }
   setStage('result');                              // правки тела применяются сразу — окно просто закрыть
 }
-function nextView() { if (S.viewer) $('st-mode').textContent = 'Вид: 3D · ' + S.viewer.nextView(); }
+function setView(i) { if (S.viewer) $('st-mode').textContent = 'Вид: 3D · ' + S.viewer.setView(i); }
 
 function bindUI() {
   $('palette3d').addEventListener('click', e => {
@@ -944,9 +944,14 @@ function bindUI() {
     download('/api/3d/export_vtu?model_id=' + encodeURIComponent(S.model.model_id) + '&name=' + encodeURIComponent(nm), nm + '.vtu');
   };
   $('r3-png').onclick = () => { if (S.viewer) download(S.viewer.screenshot(), ((PROJECT.name || 'model3d').trim() || 'model3d') + '.png'); };
+  // строка вида под сценой: стандартные виды, «вписать», масштаб
+  document.querySelectorAll('[data-view3]').forEach(b => { b.onclick = () => setView(+b.dataset.view3); });
+  $('v3-fit').onclick = () => { if (S.viewer) S.viewer.fit(); };
+  $('v3-zin').onclick = () => { if (S.viewer) S.viewer.zoom(1.25); };
+  $('v3-zout').onclick = () => { if (S.viewer) S.viewer.zoom(0.8); };
 }
 
-window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, nextView, importStepBytes,
+window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
   hasModel: () => !!S.model, hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
   temperature: () => S.T, cells: () => (S.model ? S.model.n_cells : null), screenshot: () => (S.viewer ? S.viewer.screenshot() : null),

@@ -387,9 +387,9 @@ export class Viewer3D {
     this.camera.position.copy(t).add(d); this.controls.update(); this.render();
   }
 
-  // Следующий стандартный вид (изометрия → сверху → спереди → справа); возвращает его название.
-  nextView() {
-    this.viewIdx = (this.viewIdx + 1) % VIEWS.length;
+  // Стандартный вид по номеру: 0 — изометрия, 1 — сверху, 2 — спереди, 3 — справа; возвращает его название.
+  setView(i) {
+    this.viewIdx = ((Math.trunc(i) % VIEWS.length) + VIEWS.length) % VIEWS.length;
     const [name, d] = VIEWS[this.viewIdx];
     const t = this.controls.target, dist = this.camera.position.distanceTo(t);
     this.camera.position.copy(t).addScaledVector(new THREE.Vector3(...d).normalize(), dist);
