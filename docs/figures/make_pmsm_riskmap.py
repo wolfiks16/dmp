@@ -13,6 +13,7 @@ from magcore.fem2d.machines import (
 )
 from magcore.domain.magnet_model import n42sh_magnet
 from magcore.domain.steel_curves import m270_35a_bh_curve
+from magcore.post.palette import field_rainbow_cmap   # палитра поля в проекте одна — радуга
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "pmsm_riskmap.png"
 T = 140.0
@@ -37,7 +38,7 @@ fig, axes = plt.subplots(1, 2, figsize=(13, 6.4))
 
 # --- (A) |B| по всей машине ---
 axA = axes[0]
-tpc = axA.tripcolor(tri, facecolors=Bmag, cmap="viridis", shading="flat")
+tpc = axA.tripcolor(tri, facecolors=Bmag, cmap=field_rainbow_cmap(), shading="flat")
 axA.set_aspect("equal"); axA.set_title(f"(A) |B|, Тл — worst-case нагрузка, T={T:.0f}°C")
 axA.set_xlabel("x, мм"); axA.set_ylabel("y, мм")
 fig.colorbar(tpc, ax=axA, fraction=0.046, pad=0.04, label="|B|, Тл")

@@ -1,7 +1,9 @@
 import numpy as np
 import pytest
 
+from magcore.constants import MU0
 from magcore.domain.magnet_model import n42sh_magnet, sm2co17_magnet
+from magcore.fem2d.assembly import p1_cell_geometry
 from magcore.fem2d.magneto_thermal import solve_magneto_thermal_demag
 from magcore.fem2d.mesh_generators import build_structured_rectangle_tri_mesh
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -44,7 +46,7 @@ def test_smco_far_more_temperature_stable_than_ndfeb():
 # (B) СВЯЗКА тепло→магнит→демаг (полевая, 2D-T3): тепловыделение (потери) греет магнит,
 # рост T ухудшает демаг-запас. Монотонная деградация — без knife-edge подгонки.
 # --------------------------------------------------------------------------------------
-def _pipeline(magnet, load, *, B0=(-0.25, 0.0)):
+def _pipeline(magnet, load, *, B0=(-0.25, 0.0), method="newton"):
     mesh = build_structured_rectangle_tri_mesh(16, 16, x0=-2, x1=2, y0=-2, y1=2)
     space = LagrangeP1Space2D(mesh)
     nc = mesh.n_cells
@@ -54,7 +56,7 @@ def _pipeline(magnet, load, *, B0=(-0.25, 0.0)):
     q = np.where(mask, float(load), 0.0)             # потери в магните
     return solve_magneto_thermal_demag(
         space, magnet, mask, heat_source_cells=q, k_cells=np.full(nc, 1.0),
-        h=2.0, T_amb=20.0, applied_B0=B0,
+        h=2.0, T_amb=20.0, applied_B0=B0, method=method,
     )
 
 
@@ -115,3 +117,69 @@ def test_overheat_raises_clear_error():
         )
     assert ei.value.T_magnet > ei.value.limit
     assert ei.value.T_field is not None             # температурное поле доступно для показа
+
+
+# --------------------------------------------------------------------------------------
+# (C) МАГНИТ ЗА КОЛЕНОМ в связке (этап 2 к Л-107): поле считает общий решатель 2D, магнит — законом
+# ветви в касательной Ньютона. Прежняя схема (источник с релаксацией 0,5) за коленом не сходилась:
+# в оракуле ниже — ни на одной сетке, ошибка поля стояла на 1 % и со сгущением не убывала.
+# Оракул: круглый магнит радиуса R (ось x) в круглой области радиуса L, на границе — однородное
+# приложенное поле B0 (A = B0x·y − B0y·x). Поле в магните однородно при любом законе вдоль оси; из
+# непрерывности A и H_θ на r = R и A(L) = A_прил следует нагрузочная прямая B = 2·B0/(1+ρ) − μ0·P·H,
+# ρ = R²/L², P = (1 − ρ)/(1 + ρ) (при B0 = 0 — прямая из test_problem2d_magnet_knee.py).
+# Без тепловыделения температура магнита равна окружающей точно.
+# --------------------------------------------------------------------------------------
+def _round_magnet_in_applied_field(magnet, h, *, R, L, T, B0x):
+    pytest.importorskip("gmsh")
+    from magcore.fem2d.model.materials import Air, MagnetMaterial
+    from magcore.fem2d.model.object_geometry import GeoObject, build_object_problem
+
+    prob = build_object_problem(
+        [GeoObject(name="магнит", kind="circle", params={"cx": 0.0, "cy": 0.0, "r": R},
+                   material=MagnetMaterial(magnet), magnet_dir=(1.0, 0.0), mesh_size=h, priority=10)],
+        GeoObject(name="domain", kind="circle", params={"cx": 0.0, "cy": 0.0, "r": L},
+                  material=Air(), mesh_size=4.0 * h),
+        default_mesh_size=h, T=T,
+    )
+    nc = prob.mesh.n_cells
+    res = solve_magneto_thermal_demag(
+        LagrangeP1Space2D(prob.mesh), magnet, prob.magnet_mask(), heat_source_cells=np.zeros(nc),
+        k_cells=np.ones(nc), h=10.0, T_amb=T, applied_B0=(B0x, 0.0),
+    )
+    return prob.mesh, res
+
+
+def test_past_the_knee_in_applied_field_matches_the_exact_load_line():
+    magnet = n42sh_magnet([1.0, 0.0, 0.0])
+    R, L, T, B0x = 5.0e-3, 25.0e-3, 120.0, -0.30
+    rho = R * R / (L * L)
+    P, B_app = (1.0 - rho) / (1.0 + rho), 2.0 * B0x / (1.0 + rho)
+    f = lambda H: float(magnet.B_major_parallel(H, T) - B_app + MU0 * P * H)  # noqa: E731
+    lo, hi = -magnet.Hcj(T), 0.0
+    assert f(lo) < 0.0 < f(hi)                                 # f монотонна ⇒ корень один
+    for _ in range(200):
+        mid = 0.5 * (lo + hi)
+        lo, hi = (mid, hi) if f(mid) < 0.0 else (lo, mid)
+    H_exact = 0.5 * (lo + hi)
+    assert H_exact < magnet.knee_field(T)                      # случай именно за коленом (−639 против −609 кА/м)
+
+    err = []
+    for h in (1.2e-3, 0.6e-3):
+        mesh, res = _round_magnet_in_applied_field(magnet, h, R=R, L=L, T=T, B0x=B0x)
+        assert res.T_magnet == pytest.approx(T, abs=1e-9)
+        assert res.em_converged
+        idx = res.risk.cell_indices
+        S = p1_cell_geometry(mesh)[2][idx]
+        err.append(abs(float(np.sum(S * res.risk.H_par) / S.sum()) / H_exact - 1.0))
+        assert res.risk.n_demagnetized == idx.size             # весь магнит за коленом
+    assert err[0] < 4e-3 and err[1] < err[0] / 2.0 and err[1] < 1e-3   # измерено 2,7e-3 → 7,4e-4
+
+
+def test_newton_equals_the_previous_scheme_where_that_one_converged():
+    # Случай теста (B): NdFeB при ~86 °C, часть магнита за коленом; прежняя схема здесь сходилась.
+    nd = n42sh_magnet([1.0, 0.0, 0.0])
+    new = _pipeline(nd, 120.0)
+    old = _pipeline(nd, 120.0, method="picard")
+    assert new.em_converged and old.em_converged
+    assert np.abs(new.B_cells - old.B_cells).max() < 5e-6      # измерено 3e-7 Тл: у прежней свой допуск 1e-6
+    assert new.risk.n_demagnetized == old.risk.n_demagnetized > 0

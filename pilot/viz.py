@@ -16,6 +16,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib.tri import Triangulation  # noqa: E402
 
+from magcore.post.palette import field_rainbow_cmap  # noqa: E402
+
+# Поле (|B|, рабочее поле магнита и т. п.) красится ОДНОЙ палитрой проекта — радугой, как на экране
+# интерфейса (решение Sergey 2026-09-23). Карта риска (синий–красный с нулём) и температура — свои шкалы.
+
 
 def _triang(mesh) -> Triangulation:
     v = np.asarray(mesh.vertices, dtype=float)
@@ -34,11 +39,11 @@ def _save(fig, save_path: str | Path | None):
     return save_path
 
 
-def plot_cell_scalar(mesh, values, *, title="", label="", cmap="viridis", save_path=None):
-    """Поячеечное скалярное поле (напр. |B|) — заливка tripcolor (shading='flat')."""
+def plot_cell_scalar(mesh, values, *, title="", label="", cmap=None, save_path=None):
+    """Поячеечное скалярное поле (напр. |B|) — заливка tripcolor (shading='flat'); палитра — поля."""
     fig, ax = plt.subplots(figsize=(6, 5))
     tpc = ax.tripcolor(_triang(mesh), facecolors=np.asarray(values, dtype=float),
-                       cmap=cmap, shading="flat")
+                       cmap=field_rainbow_cmap() if cmap is None else cmap, shading="flat")
     fig.colorbar(tpc, ax=ax, label=label)
     ax.set_aspect("equal"); ax.set_title(title); ax.set_xlabel("x"); ax.set_ylabel("y")
     return _save(fig, save_path)
@@ -58,7 +63,7 @@ def plot_B_field(mesh, B_cells, *, title="Поле B", save_path=None):
     B = np.asarray(B_cells, dtype=float)
     mag = np.linalg.norm(B, axis=1)
     fig, ax = plt.subplots(figsize=(6, 5))
-    tpc = ax.tripcolor(_triang(mesh), facecolors=mag, cmap="viridis", shading="flat")
+    tpc = ax.tripcolor(_triang(mesh), facecolors=mag, cmap=field_rainbow_cmap(), shading="flat")
     fig.colorbar(tpc, ax=ax, label="|B|, Тл")
     c = _centroids(mesh)
     ax.quiver(c[:, 0], c[:, 1], B[:, 0], B[:, 1], color="white", alpha=0.7,
@@ -94,7 +99,7 @@ def plot_demag_risk(mesh, magnet_mask, risk, *, title=None, save_path=None):
 
 
 def plot_magnet_cell_field(mesh, cell_indices, values, *, title="", label="",
-                           cmap="plasma", save_path=None):
+                           cmap=None, save_path=None):
     """
     Поле по ячейкам МАГНИТА (напр. рабочая точка H_op или коэфф. проницаемости P_c по всему
     объёму): окрашивает только ячейки магнита `cell_indices` значениями `values`, остальное —
@@ -105,7 +110,8 @@ def plot_magnet_cell_field(mesh, cell_indices, values, *, title="", label="",
     fig, ax = plt.subplots(figsize=(6, 5))
     ax.tripcolor(_triang(mesh), facecolors=np.ones(mesh.n_cells),
                  cmap="Greys", vmin=0, vmax=6, shading="flat")
-    tpc = ax.tripcolor(_triang(mesh), facecolors=facec, cmap=cmap, shading="flat")
+    tpc = ax.tripcolor(_triang(mesh), facecolors=facec,
+                       cmap=field_rainbow_cmap() if cmap is None else cmap, shading="flat")
     fig.colorbar(tpc, ax=ax, label=label)
     ax.set_aspect("equal"); ax.set_title(title); ax.set_xlabel("x"); ax.set_ylabel("y")
     return _save(fig, save_path)

@@ -7,26 +7,26 @@ import numpy as np
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.domain.steel_curves import SteelBHCurve
+from magcore.fem2d.machines.bridge import pmsm_to_problem
 from magcore.fem2d.machines.excitation import winding_current_density
 from magcore.fem2d.machines.pmsm_outrunner import MachineGeometry, Region
 from magcore.fem2d.machines.winding import WindingLayout
-from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
-from magcore.fem2d.spaces import LagrangeP1Space2D
-from magcore.hybrid.magnet_demag import (
-    DemagRiskMap,
-    MagnetDemagPolicy,
-    compute_demag_risk_map,
-)
+from magcore.fem2d.model.problem import solve_problem2d
+from magcore.hybrid.magnet_demag import DemagRiskMap
 
-# P4: полный СВЯЗАННЫЙ статический решатель в реальной геометрии машины — сводит воедино
-# (1) магнит с необратимым коленом (MagnetDemagPolicy, поячеечная радиальная ось),
-# (2) нелинейную сталь ярма/зубьев ν(|B|), (3) ток обмотки из P3, на общем Picard.
+# P4: полный СВЯЗАННЫЙ статический расчёт в реальной геометрии машины — сводит воедино
+# (1) магнит с необратимым коленом (поячеечная радиальная ось), (2) нелинейную сталь ярма/зубьев
+# ν(|B|), (3) ток обмотки из P3. Решает ОБЩАЯ задача 2D (`solve_problem2d` на `pmsm_to_problem`):
+# у физики одна реализация — магнит законом ветви в касательной Ньютона (Л-107). Своя сборка с внешним
+# циклом по источнику магнита здесь была второй копией и за коленом не сходилась (160 °C, 300 итераций).
 # Сценарии: S1 (T=20°, поле только от обмоток+магнит) и S2 (T задана).
 #
 # КОНВЕНЦИЯ ЕДИНИЦ (относительная, как во всём fem2d/demag): ν = 1/μ_r (воздух=1,
 # магнит=1/μ_rec, сталь=μ₀·ν_chord(|B|)); B [Тл]; H_solver = μ₀·H_физ; источник тока в
-# правой части = μ₀·J (умножаем здесь). Тогда −div(ν∇A_z)=μ₀J+curl(ν·B_r) физически верна,
-# а мост H_физ = H_solver/μ₀ (в demag-политике) самосогласован.
+# правой части = μ₀·J (умножает общий решатель). Тогда −div(ν∇A_z)=μ₀J+curl(ν·B_r) физически верна,
+# а мост H_физ = H_solver/μ₀ (в законе магнита и карте риска) самосогласован. `machine_reluctivity`
+# нужна расчётам с ЗАМОРОЖЕННЫМ источником магнита (loss, rotor_sweep, characteristics), где колена нет,
+# и ядру К6′ (thermal_scenario → coupled_transient), где магнит ведёт своё состояние.
 
 _STEEL_REGIONS = (int(Region.STATOR_YOKE), int(Region.TOOTH), int(Region.ROTOR_YOKE))
 
@@ -87,46 +87,40 @@ def solve_machine_static(
     relaxation: float = 0.1,
     max_iter: int = 150,
     tol: float = 1.0e-6,
+    method: str = "newton",
+    retention=None,
 ) -> MachineStaticResult:
     """
-    Статический связанный solve на сетке машины. Магнит(демаг)+сталь(|B|)+ток обмотки →
-    общий Picard. S1: T=20, ток по желанию; S2: T задана. Ток включается, когда заданы
-    layout+i_peak+turns_per_slot (иначе только магнит). ГУ по умолчанию: A_z=0 на границе
-    сетки (внутренняя расточка + внешняя поверхность ротора) — поток заперт в ярмах.
+    Статический связанный расчёт на сетке машины: магнит (демаг) + сталь (|B|) + ток обмотки.
+    S1: T=20, ток по желанию; S2: T задана. Ток включается, когда заданы layout+i_peak+turns_per_slot
+    (иначе только магнит). ГУ: A_z=0 на границе сетки (внутренняя расточка + внешняя поверхность
+    ротора) — поток заперт в ярмах.
 
-    ⚠ Сходимость: хордовый Picard по сильно насыщающейся стали (ν_rel скачет от ~2e-4 до 1)
-    склонен к предельному циклу при слабой релаксации; relaxation≈0.1 даёт монотонную
-    сходимость (≈85–90 итераций на грубой сетке; магнит+ток+нагрев). Тоньше сетка/сильнее
-    привод — меньше релаксация (или Ньютон через ν_d — задел на будущее).
+    Решает общий `solve_problem2d` на задаче из `pmsm_to_problem`:
+      * `method='newton'` (по умолчанию) — магнит законом ветви в касательной, сталь касательной
+        релуктивностью; единицы итераций при любой T, за коленом тоже;
+      * `method='picard'` — прежняя схема (хордовый Пикар + источник магнита с релаксацией
+        `relaxation`), оставлена эталоном; за коленом может не сойтись (Л-93, Л-107).
+    `retention` — сохранённая доля ремнантности по ячейкам после прежних нагружений (история);
+    `track_worst_point` — история в прежней схеме, только при method='picard'.
     """
-    space = LagrangeP1Space2D(geometry.mesh)
-    nc = geometry.mesh.n_cells
-    nu_of_B, nu_init, magnet_mask, _ = machine_reluctivity(geometry, magnet, steel)
-
-    j_cells = None
+    jz = None
     have_current = layout is not None and i_peak != 0.0 and turns_per_slot != 0.0
     if have_current:
         jz = winding_current_density(
             geometry, layout, i_peak=i_peak, gamma_elec=gamma_elec,
             turns_per_slot=turns_per_slot,
-        )
-        j_cells = MU0 * jz                         # относительная конвенция: RHS = μ₀·J
-
-    axes = geometry.magnet_easy_axis               # (nc,2) радиальная ось·полярность
-    policy = MagnetDemagPolicy(
-        magnet, magnet_mask, T=T, n_cells=nc, axis=axes,
-        relaxation=relaxation, track_worst_point=track_worst_point,
+        )                                          # физ. А/м²; μ₀ ставит общий решатель
+    sol = solve_problem2d(
+        pmsm_to_problem(geometry, magnet, steel, T=T, j_cells=jz),
+        method=method, relaxation=relaxation, max_iter=max_iter, tol=tol,
+        track_worst_point=track_worst_point, retention=retention,
     )
-
-    em = solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j_cells,
-        magnetization=policy, relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
-    risk = compute_demag_risk_map(magnet, em, magnet_mask, T=T, axis=axes)
+    em = sol.field
     return MachineStaticResult(
         a=em.a, B_cells=em.B_cells, H_cells=em.H_cells, nu_cells=em.nu_cells,
         converged=em.converged, n_iterations=em.n_iterations,
-        T=float(T), gamma_elec=(float(gamma_elec) if have_current else None), risk=risk,
+        T=float(T), gamma_elec=(float(gamma_elec) if have_current else None), risk=sol.risk,
     )
 
 

@@ -4,29 +4,28 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.domain.steel_curves import SteelBHCurve
-from magcore.fem2d.machines.excitation import winding_current_density
 from magcore.fem2d.machines.pmsm_outrunner import MachineGeometry
-from magcore.fem2d.machines.static_solver import MachineStaticResult, machine_reluctivity
+from magcore.fem2d.machines.static_solver import (
+    MachineStaticResult,
+    machine_reluctivity,
+    solve_machine_static,
+)
 from magcore.fem2d.machines.winding import WindingLayout
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
-from magcore.hybrid.magnet_demag import (
-    DemagRiskMap,
-    MagnetDemagPolicy,
-    compute_demag_risk_map,
-)
+from magcore.hybrid.magnet_demag import DemagRiskMap
 
 # P5: КОЛИЧЕСТВЕННАЯ необратимая потеря — не «за коленом/нет», а СКОЛЬКО теряет магнит и
 # машина. Два уровня: (1) агрегаты по магниту из risk-map (доля площади за коленом, средняя/
 # макс. относит. потеря Br, потерянный «магнитный поток источника»); (2) машинный итог —
 # падение потокосцепления холостого хода (= падение ЭДС/моментной постоянной) ПОСЛЕ демага.
 #
-# Механика (2): под worst-case нагрузкой защёлкиваем необратимое состояние (track_worst_point:
-# H_min латчится по ячейкам), затем считаем λ холостого хода с ТЕМ ЖЕ состоянием (ток снят,
-# Br_eff остаётся пониженной — необратимость) и сравниваем с номинальным λ при той же T.
+# Механика (2): решаем worst-case нагрузку (общий статический расчёт, магнит законом ветви в
+# касательной), по сошедшемуся полю замораживаем необратимое состояние (Br_eff по H∥ каждой ячейки),
+# затем считаем λ холостого хода с ТЕМ ЖЕ состоянием (ток снят, Br_eff остаётся пониженной —
+# необратимость) и сравниваем с номинальным λ при той же T.
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +125,7 @@ def evaluate_demag_impact(
     T: float = 20.0,
     relaxation: float = 0.1,
     max_iter: int = 300,
+    method: str = "newton",
 ) -> DemagImpact:
     """
     Полный машинный итог демага (3 решения на общей сборке):
@@ -137,6 +137,11 @@ def evaluate_demag_impact(
     Обе λ при ОДНОЙ T и на линии возврата ⇒ изолирует НЕОБРАТИМУЮ потерю (обратимое T-падение
     Br входит в обе одинаково и сокращается). H_par берётся из СОШЕДШЕГОСЯ поля, а не из
     latching по итерациям Picard (тот ловит численные переходные выбросы → переоценка демага).
+
+    Нагрузка (1) считается `solve_machine_static(method=method)`: по умолчанию Ньютон с законом
+    магнита в касательной — за коленом сходится (прежний цикл по источнику там не сходился, Л-107);
+    `method='picard'` — прежняя схема с `relaxation`, эталон. Холостой ход (3) — с ЗАМОРОЖЕННЫМ
+    источником: колена там нет, это хордовый Пикар по стали с `relaxation`.
     """
     space = LagrangeP1Space2D(geometry.mesh)
     nc = geometry.mesh.n_cells
@@ -153,16 +158,11 @@ def evaluate_demag_impact(
         )
 
     # 1) worst-case нагрузка (с коленом, БЕЗ latching — берём сошедшееся поле).
-    pol = MagnetDemagPolicy(magnet, magnet_mask, T=T, n_cells=nc, axis=axes,
-                            relaxation=relaxation)
-    jz = MU0 * winding_current_density(
-        geometry, layout, i_peak=i_peak, gamma_elec=gamma_elec, turns_per_slot=turns_per_slot
+    load = solve_machine_static(
+        geometry, magnet, steel, T=T, layout=layout, i_peak=i_peak, gamma_elec=gamma_elec,
+        turns_per_slot=turns_per_slot, relaxation=relaxation, max_iter=max_iter, method=method,
     )
-    em_load = solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=jz, magnetization=pol,
-        relaxation=relaxation, max_iter=max_iter,
-    )
-    risk = compute_demag_risk_map(magnet, em_load, magnet_mask, T=T, axis=axes)
+    risk = load.risk
 
     # 2) заморозить B_r_eff по сошедшемуся нагруженному H (линия возврата).
     br_eff_frozen = np.asarray(magnet.effective_Br(risk.H_par, T), dtype=float)
@@ -183,5 +183,5 @@ def evaluate_demag_impact(
         lam_nominal=lam_nom,
         lam_after=lam_after,
         flux_linkage_drop_frac=float(drop),
-        load_converged=em_load.converged,
+        load_converged=load.converged,
     )

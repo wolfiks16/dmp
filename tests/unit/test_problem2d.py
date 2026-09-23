@@ -65,41 +65,45 @@ def test_linear_air_current_solves():
 
 
 def test_problem2d_matches_machine_solver():
+    """
+    PMSM — лишь ПОСТАВЩИК общей задачи. (1) Машинная сборка ν (ею пользуются расчёты с замороженным
+    источником магнита и ядро К6′) совпадает со сборкой Problem2D через мост бит в бит — в том числе
+    в насыщении. (2) Машинный статический расчёт и есть общий расчёт на задаче из моста: у физики
+    одна реализация (Л-107). Совпадение с прежней схемой — в test_machine_magnet_knee.py.
+    """
     pytest.importorskip("gmsh")
     from magcore.domain.steel_curves import m270_35a_bh_curve
     from magcore.fem2d.machines import (
         OutrunnerPMSMParams,
         build_outrunner_spm_pmsm,
+        machine_reluctivity,
         pmsm_to_problem,
         solve_machine_static,
         star_of_slots_layout,
     )
     from magcore.fem2d.machines.excitation import winding_current_density
+    from magcore.fem2d.model.problem import _reluctivity
 
     g = build_outrunner_spm_pmsm(OutrunnerPMSMParams(mesh_size=0.004))
     magnet = n42sh_magnet((1, 0, 0))
     steel = m270_35a_bh_curve()
 
-    # S1 (магнит-only) — общий путь = машинный путь поячеечно (тот же решатель Picard: проверка
-    # эквивалентности СБОРКИ Problem2D↔машина, независимо от выбора метода).
-    rm = solve_machine_static(g, magnet, steel, T=20.0, relaxation=0.1, max_iter=300)
-    sp = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=20.0),
-                         method="picard", relaxation=0.1, max_iter=300)
-    assert sp.converged
-    assert np.allclose(sp.B_cells, rm.B_cells, atol=1e-8)
+    # (1) Сборка: ν(B) при произвольном поле до ~3 Тл (сталь глубоко в насыщении) — тождественно.
+    nu_m, nu0_m, mask_m, _ = machine_reluctivity(g, magnet, steel)
+    prob = pmsm_to_problem(g, magnet, steel, T=20.0)
+    nu_p, nu0_p = _reluctivity(prob)
+    B = np.random.default_rng(7).normal(scale=1.0, size=(g.mesh.n_cells, 2))
+    assert np.array_equal(nu_m(B), nu_p(B))
+    assert np.array_equal(nu0_m, nu0_p)
+    assert np.array_equal(mask_m, prob.magnet_mask())
 
-    # С током и нагревом (S2): тот же результат + та же карта демага.
+    # (2) С током и нагревом (S2, за коленом): машинный расчёт = общий на задаче из моста.
     lay = star_of_slots_layout(g.params.n_slots, g.params.n_poles)
     jz = winding_current_density(g, lay, i_peak=30.0, gamma_elec=np.pi, turns_per_slot=40.0)
-    rm2 = solve_machine_static(g, magnet, steel, T=140.0, layout=lay, i_peak=30.0,
-                               gamma_elec=np.pi, turns_per_slot=40.0, relaxation=0.1, max_iter=300)
-    sp2 = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=140.0, j_cells=jz),
-                          method="picard", relaxation=0.1, max_iter=300)
-    assert np.allclose(sp2.B_cells, rm2.B_cells, atol=1e-8)
-    assert sp2.risk.n_demagnetized == rm2.risk.n_demagnetized
-
-    # Ньютон (дефолт) сходится к ТОМУ ЖЕ физическому решению (эталон Picard) — робастно.
-    spn = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=140.0, j_cells=jz), max_iter=60)
-    assert spn.converged
-    assert np.allclose(spn.B_cells, rm2.B_cells, atol=2e-3)
-    assert spn.risk.n_demagnetized == rm2.risk.n_demagnetized
+    rm = solve_machine_static(g, magnet, steel, T=140.0, layout=lay, i_peak=30.0,
+                              gamma_elec=np.pi, turns_per_slot=40.0, max_iter=60)
+    sp = solve_problem2d(pmsm_to_problem(g, magnet, steel, T=140.0, j_cells=jz), max_iter=60)
+    assert rm.converged and sp.converged
+    assert np.array_equal(sp.B_cells, rm.B_cells)
+    assert np.array_equal(sp.risk.H_par, rm.risk.H_par)
+    assert rm.risk.n_demagnetized > 0
