@@ -60,11 +60,14 @@ class MachineScenario:
     def solve(
         self, *, T: float = 20.0, i_peak: float = 0.0, gamma_elec: float = 0.0,
         turns_per_slot: float = 0.0, relaxation: float = 0.1, max_iter: int = 200,
-        tol: float = 1.0e-6, track_worst_point: bool = False,
+        tol: float = 1.0e-6, track_worst_point: bool = False, retention=None,
     ) -> Solution2D:
+        """`retention` — сохранённая доля ремнантности по ячейкам после прежних нагружений (история);
+        `track_worst_point` — та же история в прежней схеме (method='picard')."""
         return solve_problem2d(
             self.to_problem(T=T, i_peak=i_peak, gamma_elec=gamma_elec, turns_per_slot=turns_per_slot),
             relaxation=relaxation, max_iter=max_iter, tol=tol, track_worst_point=track_worst_point,
+            retention=retention,
         )
 
     # --- машинные величины поверх общего пост-проца ---

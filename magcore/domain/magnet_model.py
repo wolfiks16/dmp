@@ -221,6 +221,59 @@ class AnisotropicBHTMagnet:
             raise ValueError("r_now на отрезке [−H_cJ, H_k] не возрастает строго — таблица кривой некорректна.")
         return np.interp(np.asarray(retention, dtype=float), g, Hv[: k + 1])
 
+    # --- рабочая ветвь закона: одна реализация на 2D и 3D (Л-92, Л-100) ---
+    def branch_parallel(self, H_par, T, retention=1.0):
+        """
+        Закон вдоль лёгкой оси при сохранённой доле ремнантности r: B∥(H∥) и наклон dB∥/dH∥.
+
+        Две ветви гистерезисного оператора: идёт НОВАЯ необратимая потеря (r_now(H∥, T) < r) —
+        главная кривая B^maj; иначе линия возврата r·B_r(T) + μ₀·μ_rec·H∥. Ветви сходятся там,
+        где r_now = r (поле переключения `switch_field`), поэтому закон непрерывен, а наклон
+        берётся у той же ветви, по которой считается B (согласованная линеаризация, Л-21/Л-93).
+        r = 1 — новый магнит (главная кривая ниже колена, линия возврата выше).
+        """
+        H = np.asarray(H_par, dtype=float)
+        r = np.asarray(retention, dtype=float)
+        mu_rec_abs = MU0 * self.mu_rec
+        new_loss = np.asarray(self.retention_now(H, T), dtype=float) < r
+        b = np.where(new_loss, self.B_major_parallel(H, T), r * self.Br(T) + mu_rec_abs * H)
+        s = np.where(new_loss, self.B_major_slope(H, T), mu_rec_abs)
+        return np.asarray(b, dtype=float), np.asarray(s, dtype=float)
+
+    def branch_parallel_inverse(self, B_par, T, retention=1.0):
+        """
+        Обращение `branch_parallel`: H∥(B∥) и тот же наклон dB∥/dH∥.
+
+        Нужно там, где неизвестное — ИНДУКЦИЯ (планарная постановка через A_z): закон строго
+        возрастает по H∥, поэтому обращение однозначно. Ниже точки переключения B* = B∥(H*)
+        работает главная кривая (обращается по её таблице), выше — линия возврата. За краями
+        таблицы — те же доопределения, что в `B_major_parallel`: выше B_r(T) линия возврата
+        вверх, ниже левого края — линия μ₀·μ_rec·H (полная потеря).
+        """
+        B = np.asarray(B_par, dtype=float)
+        r = np.asarray(retention, dtype=float)
+        mu_rec_abs = MU0 * self.mu_rec
+        curve = self.curve_at(T)
+        Hv = np.asarray(curve.H_values, dtype=float)
+        Bv = np.asarray(curve.B_values, dtype=float)
+        if not np.all(np.diff(Bv) > 0.0):
+            raise ValueError("главная кривая должна строго возрастать по B — таблица некорректна.")
+        h_star = np.asarray(self.switch_field(r, T), dtype=float)
+        b_star = r * self.Br(T) + mu_rec_abs * h_star                       # точка переключения ветвей
+        # главная кривая: обращение по тому же отрезку таблицы, по которому интерполируется B
+        i = np.clip(np.searchsorted(Bv, B, side="right") - 1, 0, Bv.size - 2)
+        s_tab = (Bv[i + 1] - Bv[i]) / (Hv[i + 1] - Hv[i])
+        h_maj = Hv[i] + (B - Bv[i]) / s_tab
+        above = B > Bv[-1]                                                  # подмагничивание: вверх по возврату
+        h_maj = np.where(above, Hv[-1] + (B - Bv[-1]) / mu_rec_abs, h_maj)
+        below = B < Bv[0]                                                   # ниже −H_cJ: полная потеря
+        h_maj = np.where(below, np.minimum(B / mu_rec_abs, Hv[0]), h_maj)
+        s_maj = np.where(above | below, mu_rec_abs, s_tab)
+        recoil = B >= b_star
+        h = np.where(recoil, (B - r * self.Br(T)) / mu_rec_abs, h_maj)
+        s = np.where(recoil, mu_rec_abs, s_maj)
+        return np.asarray(h, dtype=float), np.asarray(s, dtype=float)
+
     def effective_remanence_vector(self, H_min, T) -> np.ndarray:
         """Вектор эффективной ремнантности B_r_eff * e (FEM-источник A-3)."""
         return float(self.effective_Br(H_min, T)) * self.easy_axis

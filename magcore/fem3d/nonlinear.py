@@ -186,12 +186,10 @@ def _discrete_system(problem: Problem3D, *, bc: str, applied_field, demag: bool,
     mu_rec_abs = MU0 * float(magnet.mu_rec) if magnet is not None else 0.0
 
     def magnet_axial(hpar: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """B∥ [Тл] и dB∥/dH∥ по закону с памятью: новая потеря — главная кривая, иначе линия возврата."""
-        _, _, r_m, br_T = knee
-        new_loss = magnet.retention_now(hpar, T) < r_m
-        b = np.where(new_loss, magnet.B_major_parallel(hpar, T), r_m * br_T + mu_rec_abs * hpar)
-        s = np.where(new_loss, magnet.B_major_slope(hpar, T), mu_rec_abs)
-        return np.asarray(b, dtype=float), np.asarray(s, dtype=float)
+        """B∥ [Тл] и dB∥/dH∥ по закону с памятью (общая реализация `AnisotropicBHTMagnet.branch_parallel`:
+        новая потеря — главная кривая, иначе линия возврата; та же ветвь даёт и наклон)."""
+        _, _, r_m, _ = knee
+        return magnet.branch_parallel(hpar, T, r_m)
 
     def field(phi_vec: np.ndarray) -> np.ndarray:
         return -np.einsum("ci,cik->ck", phi_vec[cells], grads)

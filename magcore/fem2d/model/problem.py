@@ -13,6 +13,7 @@ from magcore.fem2d.model.materials import (
     MagnetMaterial,
     SteelMaterial,
 )
+from magcore.fem2d.magnet_law import MagnetLaw2D
 from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import Fem2DPicardResult, solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -195,13 +196,19 @@ def solve_problem2d(
     tol: float = 1.0e-6,
     track_worst_point: bool = False,
     demag: bool = True,
+    retention=None,
 ) -> Solution2D:
     """
-    Решить общую 2D-задачу: материалы регионов → поячеечная ν + источники (магнит через
-    MagnetDemagPolicy, ток = μ₀·j). `method='newton'` (по умолчанию) — метод Ньютона с
-    касательной релуктивностью: квадратичная сходимость, число итераций НЕ зависит от сетки,
-    без подбора релаксации (демаг гасится ФИКСИРОВАННОЙ `demag_relaxation`, не зависящей от
-    сетки). `method='picard'` — хордовый Пикар с `relaxation` (совместимость/эталон).
+    Решить общую 2D-задачу: материалы регионов → поячеечная ν + источники (ток = μ₀·j).
+
+    `method='newton'` (по умолчанию): сталь — через касательную релуктивность, МАГНИТ — через закон
+    в касательной (`MagnetLaw2D`: вдоль оси рабочая ветвь кривой размагничивания, поперёк μ⊥).
+    Отдельного цикла по источнику магнита и релаксации нет, поэтому за коленом сходимость такая же
+    быстрая, как до него (Л-93: замороженный источник там не сжимает — множитель −(μ_d−μ_rec)/(μ_rec+P)).
+    `retention` — сохранённая доля ремнантности по ячейкам после прежних нагружений (None — новый магнит).
+
+    `method='picard'` — хордовый Пикар с источником `MagnetDemagPolicy` и `relaxation`
+    (совместимость/эталон); `demag_relaxation` и `track_worst_point` относятся только к нему.
     Чистая магнитостатика при заданной T (нагрев — динамический модуль S3).
     """
     problem.check()
@@ -219,9 +226,14 @@ def solve_problem2d(
                                  track_worst_point=track_worst_point)
 
     if method == "newton":
+        if track_worst_point:
+            raise ValueError("track_worst_point — только для method='picard'; в Ньютоне историю "
+                             "нагружения задаёт retention (доля сохранённой ремнантности по ячейкам).")
         nu_and_dnu, nu_init = _reluctivity_newton(problem)
+        law = (None if magnet is None or not demag
+               else MagnetLaw2D(magnet, mmask, nc, T=problem.T, axis=problem.magnet_axis, retention=retention))
         em = solve_nonlinear_2d_newton(
-            space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnetization=_policy(demag_relaxation),
+            space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnet_law=law,
             dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
             max_iter=max_iter, tol=tol,
         )
@@ -237,5 +249,8 @@ def solve_problem2d(
 
     risk = None
     if magnet is not None:
-        risk = compute_demag_risk_map(magnet, em, mmask, T=problem.T, axis=problem.magnet_axis)
+        # История нагружения (если задана) идёт и в карту: потеря считается по r_eff = min(история, сейчас),
+        # иначе прежнее повреждение в отчёте пропало бы (Л-100).
+        risk = compute_demag_risk_map(magnet, em, mmask, T=problem.T, axis=problem.magnet_axis,
+                                      retention=retention)
     return Solution2D(problem=problem, field=em, risk=risk)
