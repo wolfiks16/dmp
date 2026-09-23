@@ -28,7 +28,7 @@ const MATCOL = { magnet: '#9a72d6', steel: '#8391a6', linear: '#4d8bff', air: '#
 const AIR_RGB = [28, 37, 54], GRAY_RGB = [70, 80, 96], LINE_ON_SECTION = [238, 243, 252];
 
 const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20, bc: 'neumann', H0: [0, 0, 0],
-  model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B', pal: 'viridis',   // равномерная палитра
+  model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B',
   field3d: null, restoring: false, restoreNote: '',     // сетка и φ решения для файла расчёта (этап 3D-9)
   sec: { axis: 'off', pos: 0, flip: false, lo: -50, hi: 50 }, secData: null, secSeq: 0, secTimer: 0,
   bodies: new Set(), opacity: 1, pvTimer: 0, pvSeq: 0, pvBBox: null, pvAxes: null, pvArrows: null, pvArrowsOn: false,
@@ -334,7 +334,7 @@ async function updateLines() {
   if (wantVol && S.linesData) parts.push({ d: S.linesData, onTop: false });
   if (wantSec && S.secLinesData) parts.push({ d: S.secLinesData, onTop: true });   // поверх заливки разреза
   if (!parts.length) { v.setFieldLines(null); return; }
-  const top = Math.max((S.result.ranges.B || [0, 1])[1], 1e-12), ramp = S.pal === 'viridis' ? viridis : rainbow;
+  const top = Math.max((S.result.ranges.B || [0, 1])[1], 1e-12), ramp = rainbow;   // палитра поля одна — радуга
   v.setFieldLines(parts.map(({ d, onTop }) => {
     const rgb = new Uint8Array(3 * d.values.length);
     for (let i = 0; i < d.values.length; i++) {
@@ -545,7 +545,7 @@ function cmap() {
     return v => riskColor(v >= 0 ? 0.5 + 0.5 * Math.min(v / hi, 1) : 0.5 - 0.5 * Math.min(v / lo, 1));
   }
   if (SIGNED.has(S.q)) return v => diverging(v / b);
-  const ramp = S.pal === 'viridis' ? viridis : rainbow;
+  const ramp = rainbow;                                 // палитра поля одна — радуга
   return v => ramp((v - a) / (b - a));
 }
 function recolor() {
@@ -775,7 +775,6 @@ function renderResults() {
   if (!r) return;
   const qs = availQ();
   $('r3-q').innerHTML = QTY.filter(q => qs.includes(q[0])).map(q => '<option value="' + q[0] + '"' + (q[0] === S.q ? ' selected' : '') + '>' + q[1] + '</option>').join('');
-  $('r3-pal').value = S.pal;
   $('r3-restore').style.display = ((S.model && S.values) || S.restoring) ? 'none' : '';
   $('r3-restore-note').textContent = S.restoreNote || (S.field3d
     ? 'Поле этого расчёта не открыто — его можно пересчитать с теми же данными.'
@@ -934,7 +933,6 @@ function bindUI() {
   $('c3-bc').onchange = () => { S.bc = $('c3-bc').value; markDirty(); };
   ['x', 'y', 'z'].forEach((a, k) => { $('c3-h' + a).onchange = () => { const x = +$('c3-h' + a).value; if (Number.isFinite(x)) { S.H0[k] = x; markDirty(); } }; });
   $('r3-q').onchange = e => setQuantity(e.target.value);
-  $('r3-pal').onchange = e => { S.pal = e.target.value; recolor(); updateLegend(); updateLines(); };
   $('r3-onsurf').onchange = () => recolor();
   $('r3-bodies').addEventListener('change', e => { const n = e.target.dataset.body; if (n === undefined) return; if (e.target.checked) S.bodies.add(n); else S.bodies.delete(n); });
   $('r3-force').onclick = force;

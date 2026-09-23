@@ -648,7 +648,6 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
         <div id="field-ctrls" style="display:none">
           <h4>Отображение поля</h4>
           <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">B — модуль</option><option value="bx">Bx</option><option value="by">By</option><option value="br">Br — радиальная</option><option value="bt">Bθ — тангенциальная</option><option value="demag" disabled>⚠ Риск размагничивания</option></select></div>
-          <div class="field"><label>Палитра</label><select class="select" id="pal" title="Равномерная: яркость растёт вместе со значением — на рисунке нет ложных границ. Радуга: заметнее мелкие перепады, но рисует ложные границы"><option value="viridis">Равномерная</option><option value="rainbow">Радуга</option></select></div>
           <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div><hr>
         </div>
         <div class="rp-tool" data-tool="view"><p class="hint">Выберите инструмент (Точка/Линия/Окружность) или включите «Показать поле».</p></div>
@@ -699,7 +698,6 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
             <hr></div>
           <h4>Отображение поля</h4>
           <div class="field"><label>Величина</label><select class="select" id="r3-q"></select></div>
-          <div class="field"><label>Палитра</label><select class="select" id="r3-pal" title="Равномерная: яркость растёт вместе со значением — на рисунке нет ложных границ. Радуга: заметнее мелкие перепады, но рисует ложные границы"><option value="viridis">Равномерная</option><option value="rainbow">Радуга</option></select></div>
           <label class="chk" style="margin:-2px 0 10px"><input type="checkbox" id="r3-onsurf" checked>на поверхностях тел</label>
           <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button></div>
           <hr>
@@ -849,9 +847,8 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
 <script>
 const $=id=>document.getElementById(id),clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),lerp=(a,b,t)=>a+(b-a)*t;
 function rainbow(t){t=clamp(t,0,1);return[clamp(1.5-Math.abs(4*t-3),0,1)*255,clamp(1.5-Math.abs(4*t-2),0,1)*255,clamp(1.5-Math.abs(4*t-1),0,1)*255];}
-function viridis(t){t=clamp(t,0,1);const s=[[68,1,84],[59,82,139],[33,145,140],[94,201,98],[253,231,37]],x=t*4,i=x|0,f=x-i,a=s[i],b=s[Math.min(i+1,4)];return[lerp(a[0],b[0],f),lerp(a[1],b[1],f),lerp(a[2],b[2],f)];}
 function diverging(t){t=clamp(t,-1,1);const w=[233,238,245];if(t>=0){const c=[224,72,60];return[lerp(w[0],c[0],t),lerp(w[1],c[1],t),lerp(w[2],c[2],t)];}const c=[62,122,224],a=-t;return[lerp(w[0],c[0],a),lerp(w[1],c[1],a),lerp(w[2],c[2],a)];}
-const ramp=t=>PAL==='viridis'?viridis(t):rainbow(t);
+const ramp=rainbow;                      // палитра поля в проекте одна — радуга (решение Sergey 2026-09-23)
 // Нейтральные цвета холста, графиков и вида 3D — из переменных стиля --cv-*/--ch-* (облик задаёт свои);
 // без них — прежние тёмные. Цвета ДАННЫХ (палитры поля, риска, тепла) обликом не меняются.
 const TH={};
@@ -877,7 +874,7 @@ let VIEWER=false;   // режим просмотра снят; переменн�
 let DIRTY=false;    // есть несохранённые изменения в текущем проекте
 let POST={};   // R5: постобработка снимка {torque, loss, scenario} — пишется в архив расчёта
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
-let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',PAL='viridis',VMAX=2.0,SELREG=null;   // равномерная палитра по умолчанию
+let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',VMAX=2.0,SELREG=null;
 // Силовые линии 2D (этап 3D-7, то же в 2D): A_z в узлах из решения; линии — его линии уровня с равным
 // шагом, поэтому между соседними линиями одинаковый поток на единицу длины машины. LINES2D — готовые
 // отрезки в координатах модели (считаются один раз на решение и число линий).
@@ -1790,7 +1787,6 @@ function heatPlay(){if(HEAT_TIMER){heatStop();return;}if(!TFRAMES)return;
 $('heat-play').onclick=heatPlay;
 $('heat-slider').oninput=e=>{heatStop();heatFrame(+e.target.value);};
 $('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
-$('pal').onchange=e=>{PAL=e.target.value;bars();draw();};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};
 $('apply-line').onclick=()=>{P.line={x1:+$('lx1').value,y1:+$('ly1').value,x2:+$('lx2').value,y2:+$('ly2').value,n:+$('ln').value||60};runProbe();draw();};
 $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
