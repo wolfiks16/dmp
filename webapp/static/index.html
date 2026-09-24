@@ -90,14 +90,14 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .vp-confirm{position:absolute;left:12px;bottom:12px;display:flex;gap:6px}
 .vp-confirm .ok{color:var(--accent);border-color:var(--accent)}.vp-confirm .ok:hover{background:var(--accent);color:#04140e}
 .vp-confirm .no{color:var(--crit);border-color:var(--crit)}.vp-confirm .no:hover{background:var(--crit);color:#fff}
-.vp-msgs{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:8;max-width:82%;pointer-events:none}
+.vp-msgs{position:absolute;left:50%;top:12px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:8px;z-index:8;width:max-content;max-width:82%;pointer-events:none}   /* ширина — по содержимому: от left:50% браузер давал лишь половину вида */
 .vp-busy,.vp-err{display:flex;align-items:center;gap:9px;border-radius:8px;padding:8px 12px;font:600 12.5px/1.4 var(--ui);color:var(--text);box-shadow:0 8px 24px rgba(0,0,0,.35);pointer-events:auto}
 .vp-busy{background:rgba(19,27,40,.95);border:1px solid var(--line2)}
 .vp-busy #vp-busy-t{color:var(--muted);font-variant-numeric:tabular-nums}
 .vp-err{background:rgba(52,20,22,.96);border:1px solid var(--crit);align-items:flex-start}
 .vp-err button{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;line-height:1.4}.vp-err button:hover{color:var(--text)}
 .vp-busy[hidden],.vp-err[hidden]{display:none}
-/* вид 3D поверх модели: строка «Разрез | Показать», под ней — положение разреза (когда он включён) и список «Показать» */
+.vp-busy-x{margin-left:4px;background:none;border:1px solid var(--line2);color:var(--text);border-radius:6px;padding:4px 10px;font:600 12px/1 var(--ui);cursor:pointer}.vp-busy-x:hover{border-color:var(--crit);color:var(--crit)}.vp-busy-x[hidden]{display:none}.vp-busy-x:disabled{opacity:.6;cursor:wait}
 /* Вид 3D: поверх сцены — ничего, кроме подписи величины и хода расчёта. Что показывать после расчёта —
    полоса над видом (как в 2D), как смотреть (разрез, оси, стрелки, виды, снимок) — строка под видом рядом
    со шкалой, на всех шагах. Переключатели — флажки внутри кнопок: нажата — включено. */
@@ -503,7 +503,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div class="cta-btns"><button class="btn pri" id="cta-new">Новый проект</button><button class="btn" id="cta-open">Открыть расчёт…</button></div></div></div>
         <div class="draw-hint" id="reg-info" style="display:none;top:auto;bottom:14px"></div>
         <div class="vp-coord" id="coord">x —  y — мм</div>
-        <div class="vp-msgs"><div class="vp-busy" id="vp-busy" hidden><span class="spin"></span><span id="vp-busy-txt"></span><span id="vp-busy-t"></span></div>
+        <div class="vp-msgs"><div class="vp-busy" id="vp-busy" hidden><span class="spin"></span><span id="vp-busy-txt"></span><span id="vp-busy-t"></span><button class="vp-busy-x" id="vp-busy-x" title="Остановить расчёт: решатель выйдет после текущей итерации" hidden>Отменить</button></div>
           <div class="vp-err" id="vp-err" role="alert" hidden><span id="vp-err-txt"></span><button id="vp-err-x" title="Скрыть">✕</button></div></div>
         <div class="heat-anim" id="heat-anim" style="display:none"><button class="zbtn" id="heat-play" title="Пуск/пауза нагрева">▶</button><input type="range" id="heat-slider" min="0" max="0" value="0" step="1"><span id="heat-time">0 с</span></div>
         <div class="vp-zoom"><button class="zbtn" id="zin">＋</button><button class="zbtn" id="zout">－</button><button class="zbtn" id="zfit" title="Вписать">⤢</button></div>
@@ -1335,6 +1335,11 @@ function setConv(kind,txt){const e=$('st-conv');e.className=kind;e.textContent=t
   else if(busy||kind==='g')er.hidden=true;
   updateSteps();}
 function busyTick(){const b=$('vp-busy'),sec=(Date.now()-BUSY_T0)/1000|0;$('vp-busy-t').textContent=(b.dataset.own&&sec>=2)?sec+' с':'';}
+// «Отменить» на плашке хода расчёта останавливает задачу, за которой плашка сейчас следит. Решатель выходит
+// между итерациями (сервер: /api/jobs/{id}/cancel), поэтому остановка — за секунды, а не мгновенно.
+let CUR_JOB=null;
+function trackJob(id){CUR_JOB=id||null;const x=$('vp-busy-x');x.hidden=!CUR_JOB;x.disabled=false;x.textContent='Отменить';}
+async function cancelJob(id){try{await fetch('/api/jobs/'+encodeURIComponent(id)+'/cancel',{method:'POST'});}catch(e){}pollJobs();}
 function objTag(r){const n=r.name,k=r.kind;if(k==='magnet'||n==='magnet')return shortMat($('material').value);if(k==='steel')return shortMat($('steel').value);if(n==='slot')return'Cu/возд.';if(n==='air_gap'||n==='domain')return'Воздух';if(k==='air')return'воздух';return'—';}
 function populateModel(){const seen={};const rs=SCENE.regions;const order=Object.keys(rs);
   const items=order.map(id=>rs[id]).filter(r=>{if(seen[r.name])return false;seen[r.name]=1;return true;});
@@ -1459,11 +1464,13 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
   const body=MODE==='objects'?{model_id:MESH_ID,T:+$('T').value,label}
     :{mesh_id:MESH_ID,material:$('material').value,steel:$('steel').value,T:+$('T').value,i_peak:+$('i_peak').value,gamma_deg:+$('gamma_deg').value,turns:+$('turns').value,label};
   try{const {job_id}=await(await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-    pollJobs();                                             // сразу показать в индикаторе
+    pollJobs();trackJob(job_id);                            // сразу показать в индикаторе; «Отменить» — на плашке
     while(true){await sleep(500);
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'){setConv('','◷ В очереди…');continue;}
       if(j.status==='running'){setConv('','◐ Расчёт… '+(((Date.now()-t0)/1000)|0)+' с');continue;}
+      if(j.status==='cancelling'){setConv('','◐ Отменяю расчёт…');continue;}
+      if(j.status==='cancelled'){setConv('','● Расчёт отменён');break;}
       if(j.status==='done'){if(j.result.T===undefined)j.result.T=body.T;   // T расчёта — к результату (поле T можно поменять, пока идёт расчёт)
         SNAP.field=j.result;SNAP.saved=nowIso();
         const r=await saveCalcToDir(SNAP).catch(()=>({via:'err'}));                  // архив снимка в рабочую папку
@@ -1472,7 +1479,8 @@ async function solve(){if(!MESH_ID){$('err').textContent='Сначала пос�
           if(r.via==='none')setConv('c',$('st-conv').textContent.replace(/^●\s*/,'● ')+' — не сохранено: задайте рабочую папку в ⚙');}
         break;}
       $('err').textContent=(j.error||'задача не найдена');$('err').style.display='block';setConv('c','● '+(j.error||'ошибка расчёта'));break;}
-  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}}
+  }catch(e){$('err').textContent='Ошибка: '+e;$('err').style.display='block';}
+  finally{trackJob(null);}}
 
 // ---- СЦЕНАРИЙ ТЕПЛОВОЙ СТОЙКОСТИ (S3) ----
 $('s3-losses').addEventListener('change',e=>{$('s3-speed-row').style.display=e.target.checked?'grid':'none';$('s3-slowhint').style.display=e.target.checked?'block':'none';});
@@ -1554,16 +1562,19 @@ async function runScenario(){
     speed_rpm:+$('s3-rpm').value,n_positions:+$('s3-npos').value};
   $('s3-out').innerHTML='<p class="hint">Считаю сценарий…</p>';
   try{const {job_id}=await(await fetch('/api/machine_scenario',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+    trackJob(job_id);
     while(true){await sleep(500);const sec=((Date.now()-t0)/1000)|0;btn.textContent='Считаю… '+sec+' с';
       const j=await(await fetch('/api/jobs/'+job_id)).json();
       if(j.status==='queued'){setConv('','◷ Сценарий в очереди…');continue;}
       if(j.status==='running'){setConv('','◐ Нагрев и размагничивание во времени… '+sec+' с');continue;}
+      if(j.status==='cancelling'){setConv('','◐ Отменяю сценарий…');continue;}
+      if(j.status==='cancelled'){setConv('','● Сценарий отменён');$('s3-out').innerHTML='<p class="hint">Сценарий отменён.</p>';break;}
       if(j.status==='done'){attachPostToCalc(tgt.file,'scenario',j.result);setConv('g','● Сценарий рассчитан');
         if(PROJECT.id===tgt.id)POST.scenario=j.result;renderScenario(j.result);break;}
       const msg=j.error||'ошибка сценария';setConv('c','● '+msg);
       $('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">'+msg+'</p>';break;}
   }catch(e){setConv('c','● Ошибка: '+e);$('s3-out').innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+e+'</p>';}
-  finally{btn.disabled=false;btn.textContent='▶ Запустить сценарий';}}
+  finally{trackJob(null);btn.disabled=false;btn.textContent='▶ Запустить сценарий';}}
 $('s3-run').onclick=runScenario;
 
 // события вьюпорта
@@ -1623,6 +1634,7 @@ window.addEventListener('mousemove',e=>{const p=pos(e),inside=p[0]>=0&&p[0]<=W&&
     pendOn();draw();editHint();return;}
   if(!drag)return;const dx=p[0]-last[0],dy=p[1]-last[1];if(Math.abs(dx)+Math.abs(dy)>3)moved=true;ox+=dx;oy+=dy;last=p;draw();});
 $('vp-err-x').onclick=()=>{$('vp-err').hidden=true;};
+$('vp-busy-x').onclick=async()=>{if(!CUR_JOB)return;const x=$('vp-busy-x');x.disabled=true;x.textContent='Отменяю…';await cancelJob(CUR_JOB);};
 $('zin').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(1.25);return;}scale=clamp(scale*1.25,base*0.3,base*40);draw();};$('zout').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.zoom(0.8);return;}scale=clamp(scale/1.25,base*0.3,base*40);draw();};$('zfit').onclick=()=>{if(MODE==='objects3d'){if(window.WS3D)WS3D.fit();return;}fit();};
 $('edit-ok').onclick=applyGeomEdit;$('edit-cancel').onclick=cancelGeomEdit;
 
@@ -1736,7 +1748,8 @@ $('tq-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('tq-run'),out=
   try{const {job_id}=await(await fetch('/api/torque_sweep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     pollJobs();
     while(true){await sleep(800);const j=await(await fetch('/api/jobs/'+job_id)).json();
-      if(j.status==='queued'||j.status==='running')continue;
+      if(j.status==='queued'||j.status==='running'||j.status==='cancelling')continue;
+      if(j.status==='cancelled'){out.innerHTML='<p class="hint">Расчёт отменён.</p>';break;}
       if(j.status==='done'){attachPostToCalc(tgt.file,'torque',j.result);                 // в архив снимка
         if(PROJECT.id===tgt.id){POST.torque=j.result;renderTorque(j.result);}break;}
       out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
@@ -1773,7 +1786,8 @@ $('loss-run').onclick=async()=>{if(MODE!=='pmsm')return;const btn=$('loss-run'),
   try{const {job_id}=await(await fetch('/api/loss_sweep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     pollJobs();
     while(true){await sleep(900);const j=await(await fetch('/api/jobs/'+job_id)).json();
-      if(j.status==='queued'||j.status==='running')continue;
+      if(j.status==='queued'||j.status==='running'||j.status==='cancelling')continue;
+      if(j.status==='cancelled'){out.innerHTML='<p class="hint">Расчёт отменён.</p>';break;}
       if(j.status==='done'){attachPostToCalc(tgt.file,'loss',j.result);
         if(PROJECT.id===tgt.id){POST.loss=j.result;renderLoss(j.result);}break;}
       out.innerHTML='<p class="hint" style="color:var(--crit)">Ошибка: '+(j.error||'сбой расчёта')+'</p>';break;}
@@ -2445,14 +2459,15 @@ document.addEventListener('click',e=>{const p=$('settings-pop');
 
 // ---- ЭТАП 3: ИНДИКАТОР ФОНОВЫХ РАСЧЁТОВ (переживает перезагрузку — задачи живут на сервере) ----
 let JOBS_TIMER=null;
-function jobIcon(s){return s==='running'?'<span class="spin"></span>':s==='queued'?'◷'
-  :s==='done'?'<span style="color:var(--good)">✓</span>':s==='error'?'<span style="color:var(--crit)">✕</span>':'•';}
-function jobStatusText(s){return {running:'идёт',queued:'в очереди',done:'готово',error:'ошибка'}[s]||s;}
+function jobIcon(s){return (s==='running'||s==='cancelling')?'<span class="spin"></span>':s==='queued'?'◷'
+  :s==='done'?'<span style="color:var(--good)">✓</span>':s==='error'?'<span style="color:var(--crit)">✕</span>':s==='cancelled'?'⊘':'•';}
+function jobStatusText(s){return {running:'идёт',queued:'в очереди',cancelling:'отменяется…',cancelled:'отменён',done:'готово',error:'ошибка'}[s]||s;}
+const jobActive=j=>j.status==='running'||j.status==='queued'||j.status==='cancelling';
 // R3: опрос job'ов → бейдж активности в шапке (+ обновление открытого меню).
 let CALC_MENU_JOBS=[];
 async function pollJobs(){let active=0;
   try{const d=await(await fetch('/api/jobs')).json();CALC_MENU_JOBS=d.jobs||[];
-    active=CALC_MENU_JOBS.filter(j=>j.status==='running'||j.status==='queued').length;}catch(e){}
+    active=CALC_MENU_JOBS.filter(jobActive).length;}catch(e){}
   const b=$('calc-badge');if(b)b.innerHTML=active?('<span class="spin"></span>'+active):'';
   if($('calc-menu').classList.contains('on'))renderCalcMenu();
   clearTimeout(JOBS_TIMER);JOBS_TIMER=setTimeout(pollJobs,active?1000:4000);}
@@ -2463,9 +2478,10 @@ async function renderCalcMenu(){const m=$('calc-menu');
     +'<div class="cm-item" id="cm-openfile"><span class="cm-ic">📂</span><div class="cm-main"><div class="cm-name">Открыть файл .mfz…</div></div></div>'
     +'<div class="cm-item" id="cm-save"><span class="cm-ic">💾</span><div class="cm-main"><div class="cm-name">Сохранить</div></div></div>'
     +'<div class="cm-item" id="cm-saveas"><span class="cm-ic">📥</span><div class="cm-main"><div class="cm-name">Сохранить как…</div></div></div>';
-  const act=CALC_MENU_JOBS.filter(j=>j.status==='running'||j.status==='queued');
+  const act=CALC_MENU_JOBS.filter(jobActive);
   if(act.length)html+='<div class="cm-sec">Идут ('+act.length+')</div>'+act.map(j=>
-    '<div class="cm-item"><span class="cm-ic">'+jobIcon(j.status)+'</span><div class="cm-main"><div class="cm-name">'+j.label+'</div><div class="cm-sub">'+jobStatusText(j.status)+'</div></div></div>').join('');
+    '<div class="cm-item"><span class="cm-ic">'+jobIcon(j.status)+'</span><div class="cm-main"><div class="cm-name">'+j.label+'</div><div class="cm-sub">'+jobStatusText(j.status)+'</div></div>'
+    +(j.status==='cancelling'?'':'<button class="cm-del" data-cancel="'+j.id+'" title="Отменить расчёт">✕</button>')+'</div>').join('');
   const dir=WORKDIR||await ensureWorkdir();
   if(!dir)html+='<div class="cm-sec">Сохранённые</div><div class="cm-empty">Рабочая папка не выбрана. <a id="cm-pickdir">Выбрать папку</a> — расчёты будут сохраняться и появляться здесь.</div>';
   else{const list=await listCalcsInDir();
@@ -2476,6 +2492,7 @@ async function renderCalcMenu(){const m=$('calc-menu');
         +'<button class="cm-del" data-del="'+c.file+'" title="Удалить">✕</button></div>';}).join('')
       :'<div class="cm-empty">Пусто — постройте геометрию и запустите расчёт.</div>';}
   m.innerHTML=html;
+  m.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=async e=>{e.stopPropagation();b.disabled=true;await cancelJob(b.dataset.cancel);renderCalcMenu();});
   const nw=$('cm-new');if(nw)nw.onclick=async()=>{if(!(await okToDiscard()))return;closeCalcMenu();showHome('type');};
   const of=$('cm-openfile');if(of)of.onclick=async()=>{if(!(await okToDiscard()))return;closeCalcMenu();try{const b=await openCalcFile();if(b)loadCalcBundle(b);}catch(e){}};
   const sv=$('cm-save');if(sv)sv.onclick=()=>{closeCalcMenu();saveProject();};

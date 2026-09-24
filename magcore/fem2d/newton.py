@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from magcore.cancel import check as cancel_check
 from magcore.fem2d.assembly import (
     _scatter_local,
     assemble_current_rhs,
@@ -137,6 +138,7 @@ def solve_nonlinear_2d_newton(
     r0 = None
     B = _b_on_cells(cells, rot, a)
     for k in range(max_iter):
+        cancel_check()                               # отмена расчёта — между итерациями
         n_it = k + 1
         if magnet_law is None:                       # источник магнита по текущему полю (мягкая нелинейность)
             nu0, _ = nu_and_dnu(B)

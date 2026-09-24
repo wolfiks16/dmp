@@ -5,6 +5,8 @@ from typing import Callable
 
 import numpy as np
 
+from magcore.cancel import check as cancel_check
+
 
 @dataclass(frozen=True, slots=True)
 class PicardLoopResult:
@@ -106,6 +108,7 @@ def run_picard_fixed_point(
     it = 0
 
     for it in range(1, max_iter + 1):
+        cancel_check()                               # отмена расчёта — между итерациями
         B_cells = np.asarray(step(nu_cells), dtype=float)
 
         if B_prev is not None:

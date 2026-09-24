@@ -4,12 +4,14 @@ FastAPI-бэкенд интерфейса: тонкая обёртка над ma
 ФОНОВОЙ задачей на этой сетке.
 
 Потоки и gmsh:
-  · Построение геометрии (gmsh) ставит обработчик сигналов → работает ТОЛЬКО в главном
-    потоке. Поэтому /api/mesh — `async def`: тело корутины выполняется на потоке event-loop,
-    а он в обычном запуске uvicorn и есть главный поток. Блокировка петли на ~1–2 с при
-    явном «Построить сетку» приемлема (локальный однопользовательский инструмент).
-  · Решение (solve) — чистый numpy, без gmsh → безопасно уходит в фон-поток, чтобы не
-    блокировать UI на тяжёлой тонкой сетке.
+  · Поток event-loop только принимает запросы и отвечает; ничего долгого на нём не выполняется.
+    Построение сетки (gmsh) — обычные `def`-обработчики, их FastAPI выполняет в рабочих потоках, так
+    что пока строится сетка, сервер отвечает на остальное (ход расчёта, предпросмотр, файлы). Раньше
+    сетка строилась на потоке event-loop, и на время построения сервер замирал целиком (Л-102).
+  · gmsh — один на процесс (глобальное состояние): любой его сеанс идёт под общим замком
+    (magcore.mesh.gmsh_session) — и по запросам интерфейса, и внутри прогонок ротора в фоне.
+  · Расчёты — фоновые задачи (_JobManager) с очередью; идущую задачу можно отменить: решатели
+    проверяют флаг между итерациями (magcore.cancel) и выходят, задача получает статус «cancelled».
 
 Запуск:  python -m uvicorn webapp.server:app --port 8017   (из корня репозитория)
 """
@@ -29,7 +31,9 @@ from pathlib import Path
 import numpy as np
 from fastapi import Body, FastAPI
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
+from magcore.cancel import Cancelled, cancel_scope, check as cancel_check
 from magcore.domain import magnet_catalog
 from webapp import materials_db
 from magcore.domain.magnet_model import (
@@ -238,6 +242,7 @@ class _JobManager:
                 "id": jid, "kind": kind, "label": label, "status": "queued",
                 "created": time.time(), "started": None, "finished": None,
                 "result": None, "error": None, "_fn": fn, "_body": body,
+                "_cancel": threading.Event(),       # «Отменить»: решатель выйдет на ближайшей точке отмены
             }
             self.queue.append(jid)
             self._pump()
@@ -256,9 +261,11 @@ class _JobManager:
         rec = self.jobs[jid]
         per = max(1, _CORES // max(1, self.max_parallel))
         try:
-            with _limit_threads(per):
+            with _limit_threads(per), cancel_scope(rec["_cancel"]):
                 rec["result"] = rec["_fn"](rec["_body"])
             rec["status"] = "done"
+        except Cancelled:
+            rec["status"] = "cancelled"
         except Exception as e:                      # noqa: BLE001 — перегрев/данные → в UI
             rec["error"] = str(e)
             rec["status"] = "error"
@@ -267,6 +274,22 @@ class _JobManager:
             with self.lock:
                 self.running.discard(jid)
                 self._pump()
+
+    def cancel(self, jid: str) -> dict:
+        """Отменить задачу: из очереди — сразу; идущую — флагом, решатель выйдет между итерациями.
+        Готовую или уже отменённую не трогаем (успела закончиться — результат остаётся)."""
+        with self.lock:
+            rec = self.jobs.get(jid)
+            if rec is None:
+                return {"status": "unknown"}
+            if rec["status"] == "queued":
+                self.queue.remove(jid)
+                rec["status"] = "cancelled"
+                rec["finished"] = time.time()
+            elif rec["status"] == "running":
+                rec["_cancel"].set()
+                rec["status"] = "cancelling"
+            return {"status": rec["status"]}
 
     def set_max_parallel(self, n: int) -> int:
         with self.lock:
@@ -297,7 +320,7 @@ class _JobManager:
     def clear_finished(self) -> None:
         with self.lock:
             for jid in [j for j, r in self.jobs.items()
-                        if r["status"] in ("done", "error")]:
+                        if r["status"] in ("done", "error", "cancelled")]:
                 del self.jobs[jid]
 
 
@@ -350,7 +373,7 @@ def _params_from(body: dict) -> tuple[OutrunnerPMSMParams, str]:
 
 def _build_mesh(params: OutrunnerPMSMParams, mid: str) -> str:
     """Построить (или взять из кэша) геометрию+сетку под params. Возвращает mesh_id.
-    ⚠ Вызывать только из главного потока (gmsh). Может бросить ValueError (плохая геометрия)."""
+    Может бросить ValueError (плохая геометрия). gmsh — под общим замком (magcore.mesh.gmsh_session)."""
     if mid in _GEOM:
         return mid
     g = build_outrunner_spm_pmsm(params)
@@ -418,7 +441,7 @@ def _spoke_params_from(body: dict) -> tuple[SpokeMotorParams, str]:
 
 
 def _build_spoke_mesh(params: SpokeMotorParams, mid: str) -> str:
-    """Построить (или взять из кэша) спицевую геометрию. ⚠ gmsh — вызывать из главного потока."""
+    """Построить (или взять из кэша) спицевую геометрию (gmsh — под общим замком)."""
     if mid in _GEOM:
         return mid
     g = build_spoke_pmsm(params)
@@ -430,7 +453,7 @@ def _build_spoke_mesh(params: SpokeMotorParams, mid: str) -> str:
     return mid
 
 
-# Прогрев: построить модель по умолчанию в главном потоке при импорте (быстрый первый показ).
+# Прогрев: построить модель по умолчанию при импорте (быстрый первый показ).
 _DEF_PARAMS, _DEF_MID = _params_from({})
 _DEFAULT_MESH_ID = _build_mesh(_DEF_PARAMS, _DEF_MID)
 
@@ -553,6 +576,7 @@ def _do_torque_sweep(body: dict) -> dict:
     lam_a = np.full(n_pos, np.nan)
     conv = np.empty(n_pos, dtype=bool)
     for i, a in enumerate(angles):
+        cancel_check()                               # отмена расчёта — между положениями ротора
         geo = build_spoke_pmsm(replace(params, rotor_angle=float(a)))
         scen = MachineScenario(geometry=geo, magnet=magnet, steel=steel, layout=lay)
         g_abs = gamma + p * float(a)
@@ -609,6 +633,7 @@ def _do_loss_sweep(body: dict) -> dict:
     probe_B = np.empty((n_pos, pts.shape[0], 2))
     conv = np.empty(n_pos, dtype=bool)
     for i, a in enumerate(angles):
+        cancel_check()                               # отмена расчёта — между положениями ротора
         geo = build_spoke_pmsm(replace(params, rotor_angle=float(a)))
         scen = MachineScenario(geometry=geo, magnet=magnet, steel=steel, layout=lay)
         sol = scen.solve(T=T, i_peak=i_peak, gamma_elec=gamma + p * float(a),
@@ -829,8 +854,8 @@ def api_spoke_defaults() -> dict:
 
 
 @app.post("/api/spoke_mesh")
-async def api_spoke_mesh(body: dict = Body(default={})) -> dict:
-    """Построить спицевой двигатель (gmsh на главном потоке = поток event-loop) и вернуть сцену."""
+def api_spoke_mesh(body: dict = Body(default={})) -> dict:
+    """Построить спицевой двигатель и вернуть сцену (рабочий поток: сервер не замирает на время сетки)."""
     try:
         params, mid = _spoke_params_from(dict(body))
         mid = _build_spoke_mesh(params, mid)
@@ -846,11 +871,11 @@ async def api_spoke_mesh(body: dict = Body(default={})) -> dict:
 
 
 @app.post("/api/mesh")
-async def api_mesh(body: dict = Body(default={})) -> dict:
-    """Построить модель (геометрия+сетка, gmsh на главном потоке) и вернуть сцену."""
+def api_mesh(body: dict = Body(default={})) -> dict:
+    """Построить модель (геометрия+сетка) и вернуть сцену (рабочий поток: сервер не замирает)."""
     try:
         params, mid = _params_from(dict(body))
-        mid = _build_mesh(params, mid)   # на потоке event-loop = главный поток (gmsh ОК)
+        mid = _build_mesh(params, mid)
     except Exception as e:  # noqa: BLE001 — плохая геометрия/сетка → в UI, не 500
         return {"error": str(e)}
     out = _mesh_payload(mid)
@@ -948,6 +973,13 @@ def api_jobs_clear() -> dict:
 @app.get("/api/jobs/{jid}")
 def api_job(jid: str) -> dict:
     return _JM.status(jid)
+
+
+@app.post("/api/jobs/{jid}/cancel")
+def api_job_cancel(jid: str) -> dict:
+    """Отменить задачу. Ответ — новый статус: cancelled (была в очереди), cancelling (идёт, выйдет между
+    итерациями), done/error (уже закончилась — не трогаем), unknown."""
+    return _JM.cancel(jid)
 
 
 # ---- ОБЪЕКТНАЯ ПРОИЗВОЛЬНАЯ ГЕОМЕТРИЯ (свободная модель из примитивов) ----
@@ -1064,7 +1096,7 @@ def _geo_from(o: dict) -> GeoObject:
 
 
 def _build_object_model(body: dict) -> str:
-    """Собрать Problem2D из объектов тела запроса; кэшировать; вернуть model_id. ⚠ главный поток."""
+    """Собрать Problem2D из объектов тела запроса; кэшировать; вернуть model_id (gmsh — под общим замком)."""
     objs = [_geo_from(o) for o in (body.get("objects") or [])]
     if not objs:
         raise ValueError("добавьте хотя бы один объект.")
@@ -1113,8 +1145,8 @@ def _do_object_solve(body: dict) -> dict:
 
 
 @app.post("/api/object_model")
-async def api_object_model(body: dict = Body(default={})) -> dict:
-    """Построить свободную объектную модель (gmsh на главном потоке) и вернуть сцену."""
+def api_object_model(body: dict = Body(default={})) -> dict:
+    """Построить свободную объектную модель и вернуть сцену (рабочий поток: сервер не замирает)."""
     try:
         mid = _build_object_model(dict(body))
     except Exception as e:  # noqa: BLE001 — плохая геометрия → в UI
@@ -1146,6 +1178,7 @@ _OBJ3D: dict = {}          # model_id -> Problem3D
 _SOL3D: dict = {}          # model_id -> ScalarField3D (последнее решение модели)
 _NEWFLUX3D: dict = {}      # (model_id, граница) -> поток нового магнита при 20 °C: от события не зависит (Л-104)
 _OBJ3D_MAX = 4             # моделей в памяти (сетка в полмиллиона ячеек — порядка 0,2 ГБ)
+_CACHE3D_LOCK = threading.RLock()   # кэш правят и запросы в рабочих потоках, и фоновые задачи
 _KIND3D = {"box": ("lx", "ly", "lz"), "cylinder": ("r", "h"), "tube": ("r_in", "r_out", "h"),
            "tube_sector": ("r_in", "r_out", "h", "a1", "a2"), "sphere": ("r",), "prism": ("h", "points"),
            CAD_KIND: ("file_id", "body")}
@@ -1241,7 +1274,7 @@ def _range(vals: np.ndarray) -> list | None:
 
 
 @app.post("/api/3d/preview")
-async def api_3d_preview(body: dict = Body(default={})) -> dict:
+def api_3d_preview(body: dict = Body(default={})) -> dict:
     """
     Предпросмотр 3D-геометрии: поверхности тел без объёмной сетки (то же построение тел, что у сетки),
     осевая линия каждого тела (мм) — ось, от которой считается осевое и радиальное намагничивание, — и при
@@ -1285,7 +1318,7 @@ async def api_3d_step_upload(request: Request, name: str = "") -> dict:
             part.write_bytes(data)
             os.replace(part, path)
         try:
-            bodies = step_bodies(path)
+            bodies = await run_in_threadpool(step_bodies, path)      # чтение STEP — не на потоке event-loop
         except Exception:
             if written:
                 path.unlink(missing_ok=True)
@@ -1334,22 +1367,24 @@ def _build_model3d(body: dict) -> str:
 
 def _register_model3d(mid: str, prob, field=None) -> None:
     """Модель (и её решение, если есть) — в кэш; прежнее решение этой модели и поток нового магнита — прочь."""
-    _OBJ3D.pop(mid, None)
-    _OBJ3D[mid] = prob
-    _forget_solutions3d(mid)
-    if field is not None:
-        _SOL3D[mid] = field
-    while len(_OBJ3D) > _OBJ3D_MAX:                  # вытесняем самую старую модель
-        old = next(iter(_OBJ3D))
-        _OBJ3D.pop(old)
-        _forget_solutions3d(old)
+    with _CACHE3D_LOCK:
+        _OBJ3D.pop(mid, None)
+        _OBJ3D[mid] = prob
+        _forget_solutions3d(mid)
+        if field is not None:
+            _SOL3D[mid] = field
+        while len(_OBJ3D) > _OBJ3D_MAX:              # вытесняем самую старую модель
+            old = next(iter(_OBJ3D))
+            _OBJ3D.pop(old)
+            _forget_solutions3d(old)
 
 
 def _forget_solutions3d(mid: str) -> None:
     """Сетка модели новая или модель вытеснена — решение и поток нового магнита больше не годятся."""
-    _SOL3D.pop(mid, None)
-    for key in [k for k in _NEWFLUX3D if k[0] == mid]:
-        _NEWFLUX3D.pop(key)
+    with _CACHE3D_LOCK:
+        _SOL3D.pop(mid, None)
+        for key in [k for k in _NEWFLUX3D if k[0] == mid]:
+            _NEWFLUX3D.pop(key, None)
 
 
 def _flux_loss3d(mid: str, prob, f, bc: str) -> tuple[dict, float]:
@@ -1371,8 +1406,9 @@ def _flux_loss3d(mid: str, prob, f, bc: str) -> tuple[dict, float]:
 
 
 @app.post("/api/3d/model")
-async def api_3d_model(body: dict = Body(default={})) -> dict:
-    """Построить 3D-модель: сетка gmsh и сцена (поверхности объектов из той же сетки)."""
+def api_3d_model(body: dict = Body(default={})) -> dict:
+    """Построить 3D-модель: сетка gmsh и сцена (поверхности объектов из той же сетки). Рабочий поток:
+    сетка на сотни тысяч ячеек строится десятки секунд, сервер в это время отвечает на остальное."""
     try:
         mid = _build_model3d(dict(body))
         prob = _OBJ3D[mid]

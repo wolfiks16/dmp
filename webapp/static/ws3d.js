@@ -433,12 +433,14 @@ async function solve(quiet = false) {
   if (hasH0()) body.applied_field_kA = S.H0.map(Number);
   try {
     const { job_id } = await post('/api/3d/solve', body);
-    pollJobs();
+    pollJobs(); trackJob(job_id);                               // «Отменить» — на плашке хода расчёта
     for (;;) {
       await sleep(500);
       const j = await (await fetch('/api/jobs/' + job_id)).json();
       if (j.status === 'queued') { setConv('', '◷ В очереди…'); continue; }
       if (j.status === 'running') { setConv('', '◐ Расчёт 3D… ' + (((Date.now() - t0) / 1000) | 0) + ' с'); continue; }
+      if (j.status === 'cancelling') { setConv('', '◐ Отменяю расчёт…'); continue; }
+      if (j.status === 'cancelled') { setConv('', '● Расчёт отменён'); return; }
       if (j.status !== 'done') { const msg = j.error || 'задача не найдена'; setConv('c', '● ' + msg); toast(msg, 'warn'); return; }
       let via = 'dir';
       S.field3d = await fetchField3d(body.model_id);             // сетка и φ — в файл расчёта (этап 3D-9)
@@ -464,6 +466,7 @@ async function solve(quiet = false) {
       return;
     }
   } catch (e) { setConv('c', '● Ошибка: ' + e); }
+  finally { trackJob(null); }
 }
 async function restoreField() {
   const keep = S.result;
@@ -489,10 +492,13 @@ async function restoreSaved() {
   let j;
   try {
     const { job_id } = await post('/api/3d/restore', { model: modelBody(), field: fd, label: (PROJECT.name || 'Проект') + ' · поле из файла' });
-    pollJobs();
-    do { await sleep(400); j = await (await fetch('/api/jobs/' + job_id)).json(); } while (j.status === 'queued' || j.status === 'running');
+    pollJobs(); trackJob(job_id);
+    do { await sleep(400); j = await (await fetch('/api/jobs/' + job_id)).json(); }
+    while (j.status === 'queued' || j.status === 'running' || j.status === 'cancelling');
   } catch (e) { fail('Поле не открыто: сервер недоступен (' + e + ').'); return; }
+  finally { trackJob(null); }
   if (moved()) return;
+  if (j.status === 'cancelled') { fail('Открытие поля отменено — поле можно пересчитать.'); return; }
   if (j.status !== 'done') { fail('Поле не открыто: ' + (j.error || 'задача не найдена') + '.'); return; }
   const r = j.result;
   if (!r.ok) {

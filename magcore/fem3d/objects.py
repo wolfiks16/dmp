@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from magcore.mesh.gmsh_session import close_gmsh, open_gmsh
 from magcore.fem2d.model.materials import MagnetMaterial
 from magcore.fem3d.mesh import TetMesh3D, orient_cells
 from magcore.fem3d.problem import Problem3D, Region3D
@@ -297,7 +298,7 @@ def step_bodies(path) -> tuple:
     """
     Тела STEP-файла (этап 3D-1б): номер, метка, объём, центр масс, габарит, число граней — в метрах, в
     координатах CAD (`StepBody`). Файл читает gmsh/OpenCASCADE; результат кэшируется по пути, размеру и
-    времени изменения файла. ⚠ gmsh требует главный поток; при открытой сессии gmsh вызывать нельзя —
+    времени изменения файла. Сеанс gmsh — под общим замком процесса; при открытой сессии gmsh вызывать нельзя —
     построители берут сведения о телах заранее, до своей сессии.
     """
     import gmsh
@@ -305,9 +306,7 @@ def step_bodies(path) -> tuple:
     key = _step_file_key(path)
     if key in _STEP_CACHE:
         return _STEP_CACHE[key]
-    if gmsh.isInitialized():
-        raise RuntimeError("сведения о телах STEP читаются вне открытой сессии gmsh.")
-    gmsh.initialize(interruptible=False)
+    open_gmsh()                                   # вложенный сеанс (из чужого построения) — явная ошибка там
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -322,7 +321,7 @@ def step_bodies(path) -> tuple:
                 bbox_min=tuple(float(v) for v in bb[:3]), bbox_max=tuple(float(v) for v in bb[3:]),
                 n_faces=len(gmsh.model.getBoundary([(3, tag)], combined=False, oriented=False))))
     finally:
-        gmsh.finalize()
+        close_gmsh()
     _STEP_CACHE[key] = tuple(bodies)
     return _STEP_CACHE[key]
 
@@ -877,7 +876,7 @@ def build_object_problem3d(objects, domain: GeoObject3D, *, default_mesh_size: f
     стенки) — размер `thin_factor`·толщина, но не мельче THIN_FLOOR·h; от таких граней размер растёт
     плавно, соседние ячейки отличаются не больше чем в `size_growth` раз (`_feature_sizes`,
     `_feature_fields`). Выключено — прежнее правило: кривизну учитывает сам gmsh, без плавного роста.
-    ⚠ gmsh требует главный поток.
+    Сеанс gmsh — под общим замком процесса (magcore.mesh.gmsh_session).
     """
     import gmsh
 
@@ -915,7 +914,7 @@ def build_object_problem3d(objects, domain: GeoObject3D, *, default_mesh_size: f
             h = min(h, sizes[i] * (1.0 + grading * max(d, 0.0) / extents[i]))
         return h
 
-    gmsh.initialize(interruptible=False)
+    open_gmsh()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -959,7 +958,7 @@ def build_object_problem3d(objects, domain: GeoObject3D, *, default_mesh_size: f
         gmsh.model.mesh.generate(3)
         verts, cells, piece = _extract_tets(gmsh)
     finally:
-        gmsh.finalize()
+        close_gmsh()
 
     mesh = TetMesh3D(verts, cells)
     lut = np.full(int(piece.max()) + 1, -1, dtype=np.int64)
@@ -1102,7 +1101,7 @@ def preview_geometry(objects, *, curvature_elements: int = 24, magnet_arrows: bo
         return PreviewGeometry([], [])
     for o in objs:
         o.validate()
-    gmsh.initialize(interruptible=False)
+    open_gmsh()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -1130,7 +1129,7 @@ def preview_geometry(objects, *, curvature_elements: int = 24, magnet_arrows: bo
                    else None) for o, v, t in zip(objs, vols, surfaces)]
         return PreviewGeometry(surfaces, arrows)
     finally:
-        gmsh.finalize()
+        close_gmsh()
 
 
 def preview_surfaces(objects, *, curvature_elements: int = 24) -> list[np.ndarray]:

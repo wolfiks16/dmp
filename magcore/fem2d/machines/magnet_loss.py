@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from magcore.cancel import check as cancel_check
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.domain.steel_curves import SteelBHCurve
@@ -203,6 +204,7 @@ def rotor_frame_B_series(
     angles = np.arange(int(n_positions)) * span / int(n_positions)
     B_series = np.empty((int(n_positions), idx.size, 2), dtype=float)
     for i, a in enumerate(angles):
+        cancel_check()                               # отмена расчёта — между положениями ротора
         geo = build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a)))
         gamma_abs = float(gamma_elec) + p_pairs * float(a)
         jz = (winding_current_density(geo, layout, i_peak=i_peak, gamma_elec=gamma_abs,

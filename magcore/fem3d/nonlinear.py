@@ -7,6 +7,7 @@ import numpy as np
 import scipy.sparse as sp
 import scipy.sparse.linalg as spla
 
+from magcore.cancel import check as cancel_check
 from magcore.constants import MU0
 from magcore.fem2d.model.materials import Air, LinearMaterial, MagnetMaterial, SteelMaterial
 from magcore.fem3d.problem import Problem3D
@@ -297,6 +298,7 @@ def solve_nonlinear3d(problem: Problem3D, *, bc: str = "neumann", applied_field=
     converged = False
     it = 0
     for it in range(1, max_iter + 1):
+        cancel_check()                               # отмена расчёта — между итерациями
         H, Bn, tang, chord, R = s.residual(phi)
         rnorm = float(np.linalg.norm(R[free]))
         history.append(rnorm)
@@ -311,7 +313,8 @@ def solve_nonlinear3d(problem: Problem3D, *, bc: str = "neumann", applied_field=
         else:                                        # неточный Ньютон: линейная невязка ≤ η‖R‖
             eta = min(0.1, max(rnorm / r0, 1.0e-13))
             dphi, _ = spla.cg(J_ff.tocsr(), -R[free], rtol=eta, maxiter=20 * free.size,
-                              M=sp.diags(1.0 / J_ff.diagonal()))
+                              M=sp.diags(1.0 / J_ff.diagonal()),
+                              callback=lambda _x: cancel_check())   # на большой сетке шаг — секунды
         alpha = 1.0
         for _ in range(12):                         # дробление шага по норме невязки
             trial = phi.copy()

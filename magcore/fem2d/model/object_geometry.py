@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from magcore.mesh.gmsh_session import close_gmsh, open_gmsh
 from magcore.fem2d.mesh import TriangleMesh, signed_area2
 from magcore.fem2d.model.materials import MagnetMaterial
 from magcore.fem2d.model.problem import Problem2D, Region2D
@@ -248,7 +249,7 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
     Собрать общий Problem2D из фон-домена + списка объектов. Приоритет = порядок (последний
     сверху). gmsh: все поверхности fragment → конформная сетка; регион ячейки = самый
     приоритетный объект, содержащий её центроид (иначе домен). Размер сетки — по объекту.
-    ⚠ gmsh требует главный поток.
+    Сеанс gmsh — под общим замком процесса (magcore.mesh.gmsh_session).
     """
     import gmsh
 
@@ -260,7 +261,7 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
     # при равном приоритете позже добавленный сверху. Домен (0) — всегда запасной фон.
     order = sorted(range(1, len(all_objs)), key=lambda i: (all_objs[i].priority, i), reverse=True)
 
-    gmsh.initialize()
+    open_gmsh()
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -282,7 +283,7 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
         gmsh.model.mesh.generate(2)
         verts, cells = _extract_mesh(gmsh)
     finally:
-        gmsh.finalize()
+        close_gmsh()
 
     mesh = TriangleMesh(vertices=verts, cells=cells)
     nc = mesh.n_cells

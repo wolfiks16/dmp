@@ -5,6 +5,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
+from magcore.cancel import check as cancel_check
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.domain.steel_curves import SteelBHCurve
@@ -233,6 +234,7 @@ def sweep_rotor(
     layout = star_of_slots_layout(params.n_slots, params.n_poles)
 
     for i, a in enumerate(angles):
+        cancel_check()                               # отмена расчёта — между положениями ротора
         geo = (geometries[i] if geometries is not None
                else build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a))))
         ret = None if damage is None else damage.sample(geo)

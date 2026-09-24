@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from magcore.cancel import check as cancel_check
 from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.fem2d.assembly import uniaxial_nu_tensor
@@ -568,6 +569,7 @@ def solve_coupled_magneto_thermal_transient(
 
     em_prev = None
     for n in range(1, int(n_steps) + 1):
+        cancel_check()                               # отмена расчёта — между шагами по времени
         T_cells = _cell_temperature(space, T)
 
         em = None
@@ -594,6 +596,7 @@ def solve_coupled_magneto_thermal_transient(
                 ok = True
                 n_it = 0
                 for i in range(1, attempt + 1):
+                    cancel_check()
                     frac = i / attempt
                     state.set_temperature(T_prev_mag + frac * (T_target - T_prev_mag))
                     em = solve_nonlinear_2d_picard(

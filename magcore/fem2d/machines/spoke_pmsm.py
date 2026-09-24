@@ -7,11 +7,11 @@ from enum import Enum
 import numpy as np
 
 from magcore.fem2d.machines.pmsm_outrunner import (
-    _GMSH_LOCK,
     REGION_NAMES,
     MachineGeometry,
     Region,
 )
+from magcore.mesh.gmsh_session import close_gmsh, open_gmsh
 from magcore.fem2d.mesh import TriangleMesh, signed_area2
 
 # НОВЫЙ (реальный) генератор сечения OUTRUNNER PMSM по инженерной схеме заказчика (КОМПАС):
@@ -202,8 +202,7 @@ def build_spoke_pmsm(params: SpokeMotorParams) -> MachineGeometry:
     shoe_half_ang = (0.5 * p.shoe_width_mm * _MM) / p.R_shoe_in     # дуговая полуширина башмака
     default_size = p.mesh_size_mm * _MM if p.mesh_size_mm else (p.R_mag_in - p.R_s_out)
 
-    _GMSH_LOCK.acquire()
-    gmsh.initialize(interruptible=False)
+    open_gmsh()                                   # сеанс gmsh — под общим замком процесса
     try:
         gmsh.option.setNumber("General.Terminal", 0)
         occ = gmsh.model.occ
@@ -332,8 +331,7 @@ def build_spoke_pmsm(params: SpokeMotorParams) -> MachineGeometry:
         cell_region = np.array([tag_region.get(int(t), int(Region.AIR_GAP))
                                 for t in etag_tris], dtype=int)
     finally:
-        gmsh.finalize()
-        _GMSH_LOCK.release()
+        close_gmsh()
 
     verts = np.ascontiguousarray(coords)
     fixed = [(tri[[0, 2, 1]] if signed_area2(verts[tri]) < 0.0 else tri) for tri in cells]
