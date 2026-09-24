@@ -1375,11 +1375,19 @@ function objModelBody(){return {objects:OBJECTS.map(o=>({name:o.name,kind:o.kind
 function meshSig(){return MODE==='objects'?JSON.stringify(objModelBody()):MODE==='pmsm'?JSON.stringify([spokeSpec(),meshSpec()]):'';}
 let MESH_SIG=null;
 function meshStale(){return !!MESH_ID&&MESH_SIG!==meshSig();}
-async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';clearPend();
+// Сетка строится по одной: повторный вызов ждёт идущее построение, а не запускает второе; «Рассчитать» во время
+// построения дожидается его и открывает проверку перед расчётом (прежде в режиме двигателя выходило «постройте модель»).
+let MESH_BUILD=null;
+function buildMesh(){const p=(MESH_BUILD||Promise.resolve()).then(buildMeshOnce);MESH_BUILD=p;
+  p.finally(()=>{if(MESH_BUILD===p)MESH_BUILD=null;}).catch(()=>{});return p;}
+async function buildMeshOnce(){const btn=$('buildmesh');btn.disabled=true;btn.textContent='Строю…';$('err').style.display='none';clearPend();
   try{let d;const sig=meshSig();
+    // Ошибка — и в подвал окна, и в строку состояния с плашкой над видом: из «Рассчитать» окно закрыто,
+    // и ошибка только в подвале оставалась невидимой — кнопка молча ничего не делала.
+    const fail=m=>{$('err').textContent=m;$('err').style.display='block';setConv('c','● '+m);};
     if(MODE==='objects'){
-      if(!OBJECTS.length){$('err').textContent='Добавьте хотя бы один объект.';$('err').style.display='block';return;}
-      if(OBJECTS.some(o=>!(o.name||'').trim())){$('err').textContent='У каждой фигуры должно быть имя — заполните пустые.';$('err').style.display='block';return;}
+      if(!OBJECTS.length){fail('Добавьте хотя бы один объект.');return;}
+      if(OBJECTS.some(o=>!(o.name||'').trim())){fail('У каждой фигуры должно быть имя — заполните пустые (✎ в дереве слева).');return;}
       setConv('','◐ Строю сетку…');
       d=await(await fetch('/api/object_model',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(objModelBody())})).json();
     }else{
@@ -2048,20 +2056,25 @@ function matBtnHTML(id){const m=MAGNETS.concat(STEELS).find(x=>x.id===id);
 // «Материалы модели» зависят от режима: двигатель — магнит+сталь на всю модель,
 // свободная геометрия — строка на каждый объект.
 function syncModelMatBtns(){
-  const free=(typeof MODE!=='undefined'&&MODE==='objects');
+  // Свободная геометрия 2D и 3D — строки объектов (тел) с их материалом; кнопки «Магнит/Сталь» — только у двигателя.
+  const free=(typeof MODE!=='undefined'&&(MODE==='objects'||MODE==='objects3d'));
   $('mat-model-pmsm').style.display=free?'none':'';
   $('mat-model-objs').style.display=free?'':'none';
   if(free){renderObjMatRows();return;}
   $('pm-mag').innerHTML=matBtnHTML($('material').value);
   $('pm-steel').innerHTML=matBtnHTML($('steel').value);}
 function renderObjMatRows(){
-  if(!OBJECTS.length){$('mat-objrows').innerHTML='<p class="hint">Объектов ещё нет — постройте геометрию.</p>';return;}
-  $('mat-objrows').innerHTML=OBJECTS.map((o,i)=>
-    '<div class="field" style="margin-bottom:6px"><label>'+((o.name||'').trim()||'(без имени)')+'</label>'
+  const d3=MODE==='objects3d',list=d3?(window.WS3D?WS3D.bodies():[]):OBJECTS;
+  if(!list.length){$('mat-objrows').innerHTML='<p class="hint">'+(d3?'Тел ещё нет — добавьте тело кнопками над видом.'
+    :'Объектов ещё нет — постройте геометрию.')+'</p>';return;}
+  $('mat-objrows').innerHTML=list.map((o,i)=>
+    '<div class="field" style="margin-bottom:6px"><label>'+escH((o.name||'').trim()||'(без имени)')+'</label>'
     +'<button class="matbtn" data-omat="'+i+'">'+matBtnHTML(o.material)+'</button></div>').join('');
   $('mat-objrows').querySelectorAll('[data-omat]').forEach(b=>b.onclick=()=>{
-    const i=+b.dataset.omat,o=OBJECTS[i];
-    openMatPicker(o.material,'Материал объекта «'+((o.name||'').trim()||'без имени')+'»',id=>{
+    if(editGuard())return;                                  // после расчёта — только через «Редактировать», как и в форме
+    const i=+b.dataset.omat,o=list[i],nm=(o.name||'').trim()||'без имени';
+    if(d3){openMatPicker(o.material,'Материал тела «'+nm+'»',id=>{WS3D.setMaterial(i,id);renderObjMatRows();});return;}
+    openMatPicker(o.material,'Материал объекта «'+nm+'»',id=>{
       invalidateField();pushHist();o.material=id;renderObjMatRows();renderTree();
       if(SEL===i)objForm(o,false);draw();});});}
 $('pm-mag').onclick=()=>openMatPicker($('material').value,'Магнит модели (PMSM)',id=>{
@@ -2301,14 +2314,14 @@ async function runByScenario(){
   if(noProject()){warnNoProj();return;}
   if(MODE==='objects3d'){if(window.WS3D)WS3D.run();return;}
   if(SCENARIO==='dynamic'){setStage('s3');return;}
-  if(MODE==='objects'){
-    if(!OBJECTS.length){setConv('c','● нет фигур — постройте геометрию');return;}
-    if(!MESH_ID||meshStale())await buildMesh();          // фигуры менялись после сетки — сетку заново
-    if(!MESH_ID||meshStale())return;
-  }else{
-    if(!MESH_ID){setConv('c','● постройте модель');return;}
-    if(meshStale()){setConv('c','● Параметры двигателя изменены после построения сетки — постройте модель заново');return;}
-  }
+  // Готовый расчёт не пересчитывается поверх себя — как в 3D: новая версия через «Редактировать».
+  if(locked()){toast('Расчёт готов. Чтобы пересчитать с изменениями, нажмите «Редактировать» на строке проекта.','warn');pulse('proj-edit');return;}
+  if(MESH_BUILD){setConv('','◐ Сетка ещё строится — проверка перед расчётом откроется, когда она будет готова');await MESH_BUILD;}
+  if(MODE==='objects'&&!OBJECTS.length){setConv('c','● нет фигур — постройте геометрию');return;}
+  // Нет сетки или исходные данные менялись после неё — сетку заново, как в 3D (прежде двигатель только просил
+  // «постройте модель»).
+  if(!MESH_ID||meshStale())await buildMesh();
+  if(!MESH_ID||meshStale())return;
   openPrecalc();                                        // окно проверки → «Старт расчёта»
 }
 $('calc').onclick=runByScenario;

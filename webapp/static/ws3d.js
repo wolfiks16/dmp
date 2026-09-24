@@ -36,7 +36,8 @@ const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20,
 // Показ осей, стрелок и силовых линий — настройка вида, а не расчёта: живёт вне fresh() и не сбрасывается
 // при смене проекта.
 const S = Object.assign(fresh(), { viewer: null, active: false, showCoordAxes: true, showBodyAxes: true,
-  showArrows: false, showLines: false, showSecLines: false, linesN: 200 });
+  showArrows: false, showLines: false, showSecLines: false, linesN: 200,
+  building: null });   // идущее построение сетки (промис) — вне fresh(): новое построение ждёт его и в новом проекте
 
 // ---------------------------------------------------------------- мелочи
 const post = async (url, body) => (await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -372,7 +373,15 @@ function updateAxes() {
     ? S.pvAxes.map((a, i) => a && { key: keyOf(i), p0: a[0], p1: a[1] }).filter(Boolean) : null);
 }
 
-async function buildModel(keepResult = false) {
+// Сетка строится по одной: повторный вызов ждёт идущее построение, а не запускает второе; «Рассчитать» во время
+// построения дожидается его и открывает проверку перед расчётом.
+function buildModel(keepResult = false) {
+  const p = (S.building || Promise.resolve()).then(() => buildModelOnce(keepResult));
+  S.building = p;
+  p.finally(() => { if (S.building === p) S.building = null; }).catch(() => {});
+  return p;
+}
+async function buildModelOnce(keepResult) {
   const err = S.objects.length ? checkNames() : 'Добавьте хотя бы одно тело.';
   if (err) { setConv('c', '● ' + err); toast(err, 'warn'); return false; }
   if (!(await ensureStepFiles())) { setConv('c', '● Сервер не получил STEP-файл — подробности в форме тела.'); return false; }
@@ -407,6 +416,7 @@ function showModel() {
 async function run() {
   if (!S.objects.length) { setConv('c', '● Нет тел — добавьте тело кнопками над видом.'); return; }
   if (S.result) { toast('Расчёт готов. Чтобы пересчитать с изменениями, нажмите «Редактировать» на строке проекта.', 'warn'); pulse('proj-edit'); return; }
+  if (S.building) { setConv('', '◐ Сетка ещё строится — проверка перед расчётом откроется, когда она будет готова'); await S.building; }
   if (!S.model || S.modelKey !== JSON.stringify(modelBody())) { if (!(await buildModel())) return; }
   openPrecalc();
 }
@@ -966,6 +976,9 @@ function bindUI() {
 
 window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
+  // шаг «Материалы»: тела с материалом и смена материала — тем же путём, что в форме тела
+  bodies: () => S.objects.map(o => ({ name: o.name, material: o.material })),
+  setMaterial: (i, id) => { const o = S.objects[i]; if (!o) return; o.material = id; changed(); if (STAGE === 'geom') renderForm(); },
   hasModel: () => !!S.model, hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
   temperature: () => S.T, cells: () => (S.model ? S.model.n_cells : null), screenshot: () => (S.viewer ? S.viewer.screenshot() : null),
   // смена темы оформления: вид перекрашивается, оси с подписями и стрелки намагничивания строятся заново
