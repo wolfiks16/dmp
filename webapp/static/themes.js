@@ -51,13 +51,13 @@ const updateStepsBase = window.updateSteps;
 window.updateSteps = function () { updateStepsBase.apply(this, arguments); updateStamp(); };
 window.addEventListener('resize', updateStamp);
 
-// ---------------------------------------------------------------- снимок вида 3D
+// ---------------------------------------------------------------- снимок вида
 function save(href, name) {
   const a = document.createElement('a');
   a.href = href; a.download = name;
   document.body.appendChild(a); a.click(); a.remove();
 }
-const pngName = () => (((PROJECT && PROJECT.name) || 'model3d').trim() || 'model3d') + '.png';
+const pngName = () => (((PROJECT && PROJECT.name) || 'model').trim() || 'model') + '.png';
 const css = k => getComputedStyle(document.documentElement).getPropertyValue(k).trim();
 // Кадр вида + рамка листа + штамп теми же строками, что на экране.
 async function stampedPng(url) {
@@ -93,8 +93,9 @@ async function stampedPng(url) {
   });
   return c.toDataURL('image/png');
 }
-$('r3-png').onclick = async () => {
-  const url = window.WS3D && WS3D.screenshot();
+// Снимок вида — один на 2D и 3D (docs/ui_rules.md §1): 3D — кадр просмотрщика, 2D — холст.
+$('v-png').onclick = async () => {
+  const url = MODE === 'objects3d' ? (window.WS3D && WS3D.screenshot()) : $('cv').toDataURL('image/png');
   if (!url) return;
   save(theme() === 'white' ? await stampedPng(url) : url, pngName());
 };

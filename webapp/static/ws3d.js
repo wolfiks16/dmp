@@ -319,7 +319,7 @@ async function updateLines() {
   if (wantVol && !S.linesData) {
     setConv('', '◐ Строю силовые линии…');
     S.linesData = await fetchLines('/api/3d/field_lines', { model_id: S.model.model_id, n_lines: S.linesN }, '');
-    if (!S.linesData) { $('ln3d-show').checked = S.showLines = false; }
+    if (!S.linesData) { $('v-lines').checked = S.showLines = false; }
     else setConv('', '● Силовых линий: ' + S.linesData.n + ' · поток на линию ' + fmt(S.linesData.dFlux * 1e6, 3) + ' мкВб');
   }
   if (wantSec && (!S.secLinesData || S.secLinesData.key !== secKey)) {
@@ -327,7 +327,7 @@ async function updateLines() {
     const n = VEC[S.sec.axis];
     S.secLinesData = await fetchLines('/api/3d/section_lines',
       { model_id: S.model.model_id, n_lines: S.linesN, point_mm: n.map(c => c * S.sec.pos), normal: n }, secKey);
-    if (!S.secLinesData) { $('ln3d-sec').checked = S.showSecLines = false; }
+    if (!S.secLinesData) { $('v-seclines').checked = S.showSecLines = false; }
     else setConv('', '● Линий на разрезе: ' + S.secLinesData.n + ' · поле выходит из плоскости на '
       + pct(S.secLinesData.out) + (S.secLinesData.out < 0.05 ? ' — это линии поля' : ' — это проекция'));
   }
@@ -784,6 +784,7 @@ function renderCalc() {
 // ---------------------------------------------------------------- правая панель результатов
 function renderResults() {
   if (!S.active) return;
+  updateViewBar();                                 // силовые линии в строке вида — только при готовом поле
   const r = S.result;
   $('r3-empty').style.display = r ? 'none' : '';
   $('r3-body').style.display = r ? '' : 'none';
@@ -856,6 +857,7 @@ async function flux() {
 // ---------------------------------------------------------------- связь со страницей
 function activate() {
   S.active = true;
+  $('v-seclines').checked = S.showSecLines;
   V();
   $('st-scn').textContent = 'Магнитостатика 3D'; $('st-mode').textContent = 'Вид: 3D';
   renderList(); renderResults(); updateLegend();
@@ -929,7 +931,7 @@ function bindUI() {
     S.sec.axis = b.dataset.ax;
     document.querySelectorAll('#sec3d-axis button').forEach(x => x.classList.toggle('on', x === b));
     $('vt3-sec').hidden = S.sec.axis === 'off';               // положение разреза — только при включённом разрезе
-    updateSecRange(true); updateSection();
+    updateSecRange(true); updateSection(); updateViewBar();
   });
   $('sec3d-pos').oninput = () => {
     if (S.sec.axis === 'off') return;
@@ -942,14 +944,16 @@ function bindUI() {
   $('op3d').oninput = e => { S.opacity = +e.target.value / 100; if (S.viewer) S.viewer.setOpacity(S.opacity); };
   $('ax3d-coord').onchange = e => { S.showCoordAxes = e.target.checked; if (S.active) updateAxes(); };
   $('ax3d-body').onchange = e => { S.showBodyAxes = e.target.checked; if (S.active) updateAxes(); };
-  $('mag3d-arrows').onchange = e => { S.showArrows = e.target.checked; if (S.active) updateArrows(); };
-  $('ln3d-show').onchange = e => { S.showLines = e.target.checked; if (S.active) updateLines(); };
-  $('ln3d-sec').onchange = e => { S.showSecLines = e.target.checked; if (S.active) updateLines(); };
-  $('ln3d-n').onchange = () => {
-    const x = Math.round(+$('ln3d-n').value);
-    if (!(x >= 1 && x <= 2000)) { $('ln3d-n').value = S.linesN; return; }
+  // строка вида одна на 2D и 3D: намагничивание и силовые линии — общие переключатели, здесь их 3D-сторона
+  $('v-mag').addEventListener('change', e => { if (MODE !== 'objects3d') return; S.showArrows = e.target.checked; if (S.active) updateArrows(); });
+  $('v-lines').addEventListener('change', e => { if (MODE !== 'objects3d') return; S.showLines = e.target.checked; if (S.active) updateLines(); });
+  $('v-seclines').addEventListener('change', e => { S.showSecLines = e.target.checked; if (S.active) updateLines(); });
+  $('v-lines-n').addEventListener('change', () => {
+    if (MODE !== 'objects3d') return;
+    const x = Math.round(+$('v-lines-n').value);
+    if (!(x >= 1 && x <= 2000)) { $('v-lines-n').value = S.linesN; return; }
     S.linesN = x; S.linesData = S.secLinesData = null; if (S.active) updateLines();
-  };
+  });
   const num = (id, key, ok) => { $(id).onchange = () => { const x = +$(id).value; if (!ok(x)) { $(id).value = S[key]; return; } S[key] = x; changed(); renderMeshInfo(); }; };
   num('m3-h', 'h', x => x > 0); num('m3-margin', 'margin', x => x > 0); num('m3-grading', 'grading', x => x >= 0);
   $('c3-T').onchange = () => { const x = +$('c3-T').value; if (Number.isFinite(x)) { S.T = x; markDirty(); } else $('c3-T').value = S.T; };
@@ -961,21 +965,19 @@ function bindUI() {
   $('r3-force').onclick = force;
   $('r3-flux').onclick = flux;
   $('r3-restore-btn').onclick = restoreField;
-  $('r3-vtu').onclick = () => {
+  $('v-vtu').onclick = () => {
     if (!S.model || !S.values) { toast('Сначала пересчитайте поле.', 'warn'); return; }
     const nm = (PROJECT.name || 'model3d').trim() || 'model3d';
     download('/api/3d/export_vtu?model_id=' + encodeURIComponent(S.model.model_id) + '&name=' + encodeURIComponent(nm), nm + '.vtu');
   };
-  $('r3-png').onclick = () => { if (S.viewer) download(S.viewer.screenshot(), ((PROJECT.name || 'model3d').trim() || 'model3d') + '.png'); };
-  // строка вида под сценой: стандартные виды, «вписать», масштаб
-  document.querySelectorAll('[data-view3]').forEach(b => { b.onclick = () => setView(+b.dataset.view3); });
-  $('v3-fit').onclick = () => { if (S.viewer) S.viewer.fit(); };
-  $('v3-zin').onclick = () => { if (S.viewer) S.viewer.zoom(1.25); };
-  $('v3-zout').onclick = () => { if (S.viewer) S.viewer.zoom(0.8); };
+  // снимок (PNG) — общий для 2D и 3D, в themes.js; «вписать» и масштаб — общие кнопки строки вида (index.html)
+  Menu.bind($('v3-view'), $('v3-view-menu'), v => { setView(+v); Menu.check($('v3-view-menu'), v); });
 }
 
 window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
+  // строка вида (index.html): состояние переключателей 3D и есть ли разрез
+  viewFlags: () => ({ arrows: S.showArrows, lines: S.showLines, n: S.linesN }), sectionOn: () => S.sec.axis !== 'off',
   // шаг «Материалы»: тела с материалом и смена материала — тем же путём, что в форме тела
   bodies: () => S.objects.map(o => ({ name: o.name, material: o.material })),
   setMaterial: (i, id) => { const o = S.objects[i]; if (!o) return; o.material = id; changed(); if (STAGE === 'geom') renderForm(); },
