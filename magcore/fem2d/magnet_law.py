@@ -76,3 +76,26 @@ class MagnetLaw2D:
         """Доля ремнантности, которую оставило текущее поле (для истории нагружения): min(r, r_now)."""
         r_now = np.asarray(self.magnet.retention_now(self.H_par, self.T), dtype=float)
         return np.minimum(self.retention, r_now)
+
+
+class MagnetLaws2D:
+    """
+    Закон магнитов нескольких марок в одной задаче: у каждой марки свой `MagnetLaw2D` на своих ячейках. Для
+    решателя — то же, что один закон: `idx` — ячейки всех марок подряд, H и касательная — в том же порядке.
+    """
+
+    def __init__(self, laws):
+        self.laws = list(laws)
+        if not self.laws:
+            raise ValueError("нужен хотя бы один закон марки.")
+        self.idx = np.concatenate([law.idx for law in self.laws])
+        if np.unique(self.idx).size != self.idx.size:
+            raise ValueError("ячейки марок пересекаются — у ячейки должен быть один закон.")
+
+    def __call__(self, B_cells: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        parts = [law(B_cells) for law in self.laws]
+        return np.concatenate([H for H, _ in parts]), np.concatenate([D for _, D in parts])
+
+    def retention_now(self) -> np.ndarray:
+        """Доля ремнантности после текущего поля — по ячейкам `idx`, у каждой марки по её кривой."""
+        return np.concatenate([law.retention_now() for law in self.laws])

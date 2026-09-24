@@ -304,7 +304,7 @@ def demag_summary(field: ScalarField3D) -> dict[str, DemagSummary3D]:
     problem = field.problem
     reg = np.asarray(problem.cell_region)[risk.cell_indices]
     vol = field.volumes[risk.cell_indices]
-    damaged = (risk.H_par < risk.knee_field) if risk.retention is None else (risk.retention < 1.0)
+    damaged = (risk.H_par < risk.knee_field_cells) if risk.retention is None else (risk.retention < 1.0)
     beyond = np.zeros(vol.size, dtype=bool) if risk.beyond_hcj is None else risk.beyond_hcj
     out: dict[str, DemagSummary3D] = {}
     for rid in np.unique(reg):
@@ -312,6 +312,7 @@ def demag_summary(field: ScalarField3D) -> dict[str, DemagSummary3D]:
         v = vol[s]
         V = float(v.sum())
         name = problem.regions[int(rid)].name
+        br = float(risk.Br_nominal_cells[s][0])     # B_r(T) марки: у магнита-объекта материал один
         out[name] = DemagSummary3D(
             name=name, volume=V,
             past_knee_fraction=float(v[risk.demagnetized[s]].sum() / V),
@@ -319,7 +320,7 @@ def demag_summary(field: ScalarField3D) -> dict[str, DemagSummary3D]:
             beyond_hcj_fraction=float(v[beyond[s]].sum() / V),
             worst_margin=float(risk.margin[s].min()),
             max_loss=float(risk.loss[s].max()),
-            retained=float((risk.Br_eff[s] * v).sum() / (V * risk.Br_nominal)))
+            retained=float((risk.Br_eff[s] * v).sum() / (V * br)))
     return out
 
 

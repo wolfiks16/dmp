@@ -796,11 +796,18 @@ function renderResults() {
   const lossRow = (label, v) => '<li class="' + (v == null ? 'crit' : (v > LOSS_NOISE ? 'warn' : 'ok')) + '"><span>'
     + label + '</span><span class="v">' + (v == null ? '—' : (Math.abs(v) < LOSS_NOISE ? '0 %' : pct(v))) + '</span></li>';
   const lossLabel = 'Потеря потока (замер при ' + r.flux_measure_T + ' °C)';
+  // Поток магнита вырос («потеря» меньше нуля): сам он цел, а в сборке ослабли соседи — это вклад сборки, не потеря.
+  const magnetLossRow = d => {
+    if (d.flux_loss == null || d.flux_loss >= -LOSS_NOISE) return lossRow(lossLabel, d.flux_loss);
+    const weak = r.demag.filter(o => o !== d && o.damaged > 0).length;
+    return '<li class="ok"><span>Поток вырос — ' + (weak > 1 ? 'ослабли соседние магниты' : 'ослаб соседний магнит')
+      + ' (замер при ' + r.flux_measure_T + ' °C)</span><span class="v">+' + pct(-d.flux_loss).replace(' ', '\u00a0') + '</span></li>';
+  };
   let head = r.flux_loss_error ? '<p class="hint" style="color:var(--crit)">⚠ Потеря потока не посчитана: '
     + esc(r.flux_loss_error) + '</p>' : '';
   if (r.demag.length > 1) head += '<ul class="res">' + lossRow('Потеря потока — все магниты вместе', r.flux_loss_total) + '</ul>';
   $('r3-demag').innerHTML = head + r.demag.map(d => '<div class="reshead" style="color:var(--text)">' + esc(d.name) + '</div><ul class="res">'
-    + lossRow(lossLabel, d.flux_loss)
+    + magnetLossRow(d)
     + '<li><span>Повреждено (доля объёма)</span><span class="v">' + pct(d.damaged) + '</span></li>'
     + '<li><span>За коленом сейчас (доля объёма)</span><span class="v">' + pct(d.past_knee) + '</span></li>'
     + (d.beyond_hcj > 0 ? '<li class="crit"><span>За −H_cJ (модель не определена)</span><span class="v">' + pct(d.beyond_hcj) + '</span></li>' : '')

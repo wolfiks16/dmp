@@ -5,7 +5,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
-from magcore.fem2d.model.materials import MagnetMaterial
+from magcore.fem2d.model.materials import MagnetMaterial, magnet_groups_of, single_magnet_of
 from magcore.fem3d.mesh import TetMesh3D
 
 # ОБЩАЯ регион-объектная постановка 3D-задачи — зеркало `fem2d.model.Problem2D`: сетка + метки
@@ -38,14 +38,13 @@ class Problem3D:
     def magnet_regions(self) -> list[Region3D]:
         return [r for r in self.regions.values() if isinstance(r.material, MagnetMaterial)]
 
+    def magnet_groups(self) -> list[tuple[AnisotropicBHTMagnet, np.ndarray]]:
+        """Магниты задачи по маркам: [(закон марки, маска её ячеек)] — см. `magnet_groups_of`."""
+        return magnet_groups_of(self)
+
     def magnet(self) -> AnisotropicBHTMagnet | None:
-        mrs = self.magnet_regions()
-        if not mrs:
-            return None
-        mags = {id(r.material.magnet): r.material.magnet for r in mrs}
-        if len(mags) != 1:
-            raise NotImplementedError("несколько марок магнита в одной задаче пока не поддержано.")
-        return next(iter(mags.values()))
+        """Закон магнита, когда марка в задаче одна (None — магнитов нет); при нескольких — ошибка."""
+        return single_magnet_of(self)
 
     def magnet_mask(self) -> np.ndarray:
         ids = {r.region_id for r in self.magnet_regions()}
@@ -86,10 +85,6 @@ class Problem3D:
                 nrm = np.linalg.norm(axis[self.magnet_mask()], axis=1)
                 if np.any((nrm > 1e-12) & (np.abs(nrm - 1.0) > 1e-9)):
                     issues.append("ось намагничивания в ячейках магнита должна быть единичной.")
-            try:
-                self.magnet()
-            except NotImplementedError as e:
-                issues.append(str(e))
         return issues
 
     def check(self) -> None:

@@ -133,8 +133,9 @@ class OperatingPointField:
     B_op: np.ndarray            # (n_mag,) Тл
     permeance: np.ndarray       # (n_mag,) P_c
     cell_volume: np.ndarray     # (n_mag,) м³
-    knee_field: float           # А/м
+    knee_field: float | None    # колено марки [А/м]; None — в задаче марки с разным коленом
     T: float
+    knee_field_cells: np.ndarray    # (n_mag,) колено марки каждой ячейки [А/м]
 
     @property
     def total_volume(self) -> float:
@@ -152,13 +153,24 @@ class OperatingPointField:
     def volume_fraction_below(self, H: float) -> float:
         return float(self.cell_volume[self.H_op < float(H)].sum() / self.cell_volume.sum())
 
+    def fraction_past_knee(self) -> float:
+        """Доля объёма магнитов, где рабочая точка за коленом СВОЕЙ марки."""
+        return float(self.cell_volume[self.H_op < self.knee_field_cells].sum() / self.cell_volume.sum())
+
 
 def operating_point(solution: Solution2D, *, axial_length: float = 1.0) -> OperatingPointField:
-    """Рабочая точка (H_op, B_op, P_c) по объёму магнита из общего решения (нужен магнит в задаче)."""
+    """
+    Рабочая точка (H_op, B_op, P_c) по объёму магнита из общего решения (нужен магнит в задаче). В задаче из
+    нескольких марок колено у каждой ячейки своей марки (`knee_field_cells`).
+    """
     problem = solution.problem
-    magnet = problem.magnet()
-    if magnet is None:
+    groups = problem.magnet_groups()
+    if not groups:
         raise ValueError("в задаче нет магнита — рабочая точка не определена.")
+    knee = np.zeros(problem.mesh.n_cells)
+    for magnet, mask in groups:
+        knee[mask] = magnet.knee_field(problem.T)
+    knees = {float(magnet.knee_field(problem.T)) for magnet, _ in groups}
     idx = np.where(problem.magnet_mask())[0]
     axes = np.asarray(problem.magnet_axis)[idx]
     H = solution.field.H_cells[idx]
@@ -171,5 +183,6 @@ def operating_point(solution: Solution2D, *, axial_length: float = 1.0) -> Opera
     return OperatingPointField(
         cell_indices=idx, H_op=H_op, B_op=B_op, permeance=permeance,
         cell_volume=areas * float(axial_length),
-        knee_field=float(magnet.knee_field(problem.T)), T=float(problem.T),
+        knee_field=knees.pop() if len(knees) == 1 else None, T=float(problem.T),
+        knee_field_cells=knee[idx],
     )

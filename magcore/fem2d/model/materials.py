@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Union
 
+import numpy as np
+
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.domain.steel_curves import SteelBHCurve
 
@@ -47,3 +49,31 @@ class MagnetMaterial:
 
 
 Material = Union[Air, LinearMaterial, SteelMaterial, MagnetMaterial]
+
+
+def magnet_groups_of(problem) -> list[tuple[AnisotropicBHTMagnet, np.ndarray]]:
+    """
+    Магниты постановки (2D или 3D: нужны `regions` и `cell_region`) по маркам — [(закон марки, маска её
+    ячеек)] в порядке первого региона марки. Марка — закон материала (`AnisotropicBHTMagnet.law_key`), а не
+    объект в памяти: регионы из одинакового материала, созданного порознь, — одна группа и один закон.
+    Марка без ячеек (регион перекрыт другим) остаётся в списке с пустой маской.
+    """
+    groups: dict[tuple, tuple[AnisotropicBHTMagnet, list[int]]] = {}
+    for rid, region in sorted(problem.regions.items()):
+        if isinstance(region.material, MagnetMaterial):
+            m = region.material.magnet
+            groups.setdefault(m.law_key(), (m, []))[1].append(rid)
+    reg = np.asarray(problem.cell_region)
+    return [(m, np.isin(reg, ids)) for m, ids in groups.values()]
+
+
+def single_magnet_of(problem) -> AnisotropicBHTMagnet | None:
+    """
+    Закон магнита постановки, когда марка в ней одна; None — магнитов нет. При нескольких марках одного
+    закона на всю задачу нет — ошибка с их перечнем: такому коду нужно считать по маркам (`magnet_groups_of`).
+    """
+    groups = magnet_groups_of(problem)
+    if len(groups) > 1:
+        raise ValueError("в задаче несколько марок магнита (" + ", ".join(m.name for m, _ in groups)
+                         + ") — одного закона на всю задачу нет, считать нужно по маркам (magnet_groups).")
+    return groups[0][0] if groups else None

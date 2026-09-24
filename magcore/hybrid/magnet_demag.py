@@ -116,27 +116,45 @@ class MagnetDemagPolicy:
 
 @dataclass(frozen=True)
 class DemagRiskMap:
-    """Карта риска размагничивания по ячейкам магнита (deliverable новизны 2)."""
+    """
+    Карта риска размагничивания по ячейкам магнита (deliverable новизны 2).
+
+    В модели из нескольких марок колено и номинальная B_r у каждой ячейки свои (своей марки) —
+    `knee_field_cells`, `Br_nominal_cells`; общие скаляры `knee_field`, `Br_nominal` есть, только когда
+    они одни на все ячейки, иначе None — чтобы код, ждущий одну марку, не считал молча по чужому колену.
+    """
 
     cell_indices: np.ndarray   # (n_mag,) индексы ячеек магнита
     H_par: np.ndarray          # (n_mag,) рабочее поле вдоль e [А/м] (demag → < 0)
-    margin: np.ndarray         # (n_mag,) маржа m = H_par − H_knee(T); m<0 ⇒ за коленом
+    margin: np.ndarray         # (n_mag,) маржа m = H_par − H_knee(T) своей марки; m<0 ⇒ за коленом
     Br_eff: np.ndarray         # (n_mag,) эффективная ремнантность [Тл]
     loss: np.ndarray           # (n_mag,) необратимая потеря Br(T) − Br_eff [Тл] (≥0)
     demagnetized: np.ndarray   # (n_mag,) bool: margin < 0
     T: float
-    Br_nominal: float          # Br(T) без потерь [Тл]
-    knee_field: float          # H_knee(T) [А/м] (<0)
+    Br_nominal: float | None   # Br(T) без потерь [Тл]; None — в карте марки с разной Br(T)
+    knee_field: float | None   # H_knee(T) [А/м] (<0); None — в карте марки с разным коленом
     retention: np.ndarray | None = None    # (n_mag,) сохранённая доля ремнантности r_eff = min(история, r_now) —
                                            # по ней считана потеря: Br_eff = r_eff·Br(T) (Л-100)
     beyond_hcj: np.ndarray | None = None   # (n_mag,) bool: r_eff = 0 — поле хоть раз было ниже −H_cJ; модель
                                            # магнита там не определена, потеря принята полной (как стоп «каскад» в 2D)
+    Br_nominal_cells: np.ndarray | None = None   # (n_mag,) Br(T) марки ячейки [Тл]; не задано — из общего скаляра
+    knee_field_cells: np.ndarray | None = None   # (n_mag,) H_knee(T) марки ячейки [А/м]; не задано — из скаляра
+
+    def __post_init__(self) -> None:
+        n = np.asarray(self.cell_indices).size
+        for cells, common in (("Br_nominal_cells", self.Br_nominal), ("knee_field_cells", self.knee_field)):
+            if getattr(self, cells) is None:
+                if common is None:
+                    raise ValueError(f"{cells}: общего значения на все ячейки нет — нужно значение по ячейкам.")
+                object.__setattr__(self, cells, np.full(n, float(common)))
+            elif np.asarray(getattr(self, cells)).shape != (n,):
+                raise ValueError(f"{cells} — по числу на ячейку карты.")
 
     @property
     def n_damaged(self) -> int:
         """Ячеек с необратимой потерей — сейчас или на прежних нагружениях, при любой температуре: r_eff < 1."""
         if self.retention is None:
-            return int(np.count_nonzero(self.H_par < self.knee_field))
+            return int(np.count_nonzero(self.H_par < self.knee_field_cells))
         return int(np.count_nonzero(self.retention < 1.0))
 
     @property
@@ -203,4 +221,41 @@ def compute_demag_risk_map(
         knee_field=float(magnet.knee_field(T)),
         retention=r_eff,
         beyond_hcj=r_eff == 0.0,
+    )
+
+
+def merge_risk_maps(maps) -> DemagRiskMap:
+    """
+    Карта риска модели из нескольких марок: карты марок (у каждой свои ячейки) — в одну, ячейки по
+    возрастанию номера, как в `magnet_mask`. Колено и номинальная B_r остаются по ячейкам — у каждой марки
+    свои; общий скаляр — только если он у всех марок один, иначе None.
+    """
+    maps = list(maps)
+    if not maps:
+        raise ValueError("нет карт для объединения.")
+    if len({m.T for m in maps}) != 1:
+        raise ValueError("карты марок посчитаны при разных температурах.")
+    for opt in ("retention", "beyond_hcj"):
+        if len({getattr(m, opt) is None for m in maps}) != 1:
+            raise ValueError(f"{opt} есть не у всех карт марок.")
+    idx = np.concatenate([m.cell_indices for m in maps])
+    if np.unique(idx).size != idx.size:
+        raise ValueError("ячейки карт марок пересекаются — у ячейки должна быть одна марка.")
+    order = np.argsort(idx, kind="stable")
+
+    def cat(name):
+        if getattr(maps[0], name) is None:
+            return None
+        return np.concatenate([getattr(m, name) for m in maps])[order]
+
+    def common(name):
+        vals = {getattr(m, name) for m in maps}
+        return vals.pop() if len(vals) == 1 else None
+
+    return DemagRiskMap(
+        cell_indices=idx[order], H_par=cat("H_par"), margin=cat("margin"), Br_eff=cat("Br_eff"),
+        loss=cat("loss"), demagnetized=cat("demagnetized"), T=maps[0].T,
+        Br_nominal=common("Br_nominal"), knee_field=common("knee_field"),
+        retention=cat("retention"), beyond_hcj=cat("beyond_hcj"),
+        Br_nominal_cells=cat("Br_nominal_cells"), knee_field_cells=cat("knee_field_cells"),
     )

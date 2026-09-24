@@ -1129,17 +1129,33 @@ def _do_object_solve(body: dict) -> dict:
         "Bmax": round(float(Bmag.max()), 3), "Bmean": round(float(Bmag.mean()), 3),
         "energy": round(float(magnetic_energy(sol, axial_length=0.03)), 4),
     }
-    if prob.magnet() is not None and prob.magnet_mask().any() and sol.risk is not None:
+    if prob.magnet_mask().any() and sol.risk is not None:
         op = operating_point(sol)
         risk = sol.risk
+        # Колено — своей марки у каждой ячейки: в модели могут быть магниты разных марок.
+        past = op.H_op < op.knee_field_cells
+        reg = np.asarray(prob.cell_region)[op.cell_indices]
+        magnets = []
+        for rid, r in sorted(prob.regions.items()):
+            s = reg == rid
+            if not isinstance(r.material, MagnetMaterial) or not s.any():
+                continue
+            v = op.cell_volume[s]
+            magnets.append({"name": r.name,
+                            "past_knee": round(float(v[past[s]].sum() / v.sum()), 4),
+                            "Bd_mean": round(float(np.average(op.B_op[s], weights=v)), 3),
+                            "knee_kA": round(float(op.knee_field_cells[s][0]) / 1e3, 1)})
         out.update({
             "Bd_mean": round(float(np.average(op.B_op, weights=op.cell_volume)), 3),
             "Bd_worst": round(float(op.B_op.min()), 3),
             "n_demag": int(risk.n_demagnetized), "n_mag": int(risk.cell_indices.size),
-            "demag_frac": round(float(op.volume_fraction_below(op.knee_field)), 4),
+            "demag_frac": round(float(op.fraction_past_knee()), 4),
             "demag_cells": op.cell_indices.astype(int).tolist(),
             "demag_hop_kA": np.round(op.H_op / 1e3, 1).tolist(),
-            "demag_knee_kA": round(float(op.knee_field) / 1e3, 1),
+            "demag_knee_cells_kA": np.round(op.knee_field_cells / 1e3, 1).tolist(),
+            # одно колено на модель — только у модели из одной марки (его читают файлы до 24.09.2026)
+            "demag_knee_kA": None if op.knee_field is None else round(float(op.knee_field) / 1e3, 1),
+            "magnets": magnets,
         })
     return out
 
@@ -1160,7 +1176,7 @@ def api_object_model(body: dict = Body(default={})) -> dict:
     return {"mesh_id": mid, "scene": problem_to_scene(prob),
             "n_cells": int(prob.mesh.n_cells),
             "regions": [r.name for r in prob.regions.values()],
-            "has_magnet": bool(prob.magnet() is not None and prob.magnet_mask().any()),
+            "has_magnet": bool(prob.magnet_mask().any()),
             "warning": warning}
 
 

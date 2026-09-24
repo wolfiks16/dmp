@@ -727,7 +727,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div id="r3-demag-wrap"><h4>Вердикт по магнитам</h4>
             <div id="r3-demag"></div>
             <details class="why"><summary>Как считается вердикт</summary>
-              <p class="hint">Потеря потока: магнит после расчёта и новый сравниваются при 20 °C без внешнего поля, как флюксметром до и после. Запас до колена в отдельной ячейке у краёв магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе всего к колену, показывает карта «Запас до колена».</p></details>
+              <p class="hint">Потеря потока: магнит после расчёта и новый сравниваются при 20 °C без внешнего поля, как флюксметром до и после. В сборке на поток магнита влияют и соседи: если соседний магнит повреждён, поток целого магнита может немного вырасти — тогда вместо потери написано «Поток вырос». Запас до колена в отдельной ячейке у краёв магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе всего к колену, показывает карта «Запас до колена».</p></details>
             <hr></div>
           <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button><hr></div>
           <h4>Сводка</h4><ul class="res" id="r3-sum"></ul>
@@ -907,7 +907,7 @@ let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',VMAX=2.0,SELREG=null;
 // шагом, поэтому между соседними линиями одинаковый поток на единицу длины машины. LINES2D — готовые
 // отрезки в координатах модели (считаются один раз на решение и число линий).
 let AZ=null,LINES2D=null,SHOWLINES2D=false,SHOWMAG2D=false,NLINES2D=24;
-let DEMAG=null,DEMAG_KNEE_kA=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] (NaN — не магнит)
+let DEMAG=null;   // этап 5: поячеечная безопасность магнита s∈[0,1] по колену своей марки (NaN — не магнит)
 let TFIELD=null,TMIN=0,TMAX=1,SHOWTEMP=false;   // тепловое поле (°C по ячейкам) из тепловой динамики
 let TFRAMES=null,TFRAME_T=null,TFRAME_I=0,HEAT_TIMER=null;   // кадры анимации нагрева
 // Тепловая шкала: синий (холодно) → бирюза → жёлтый → красный (горячо).
@@ -1412,14 +1412,17 @@ async function buildMesh(){const btn=$('buildmesh');btn.disabled=true;btn.textCo
 // Короткое значение с единицей («0.562 Тл», «95.3 %») не переносить по строкам; длинное примечание — переносить.
 const keepTogether=v=>{v=String(v);return v.length<20&&v.indexOf('<')<0?v.replace(/ /g,' '):v;};
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+keepTogether(r.v)+'</span></li>').join('');}
+const escH=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function clearSummary(){$('res').innerHTML='<li><span>—</span><span class="v">рассчитайте</span></li>';$('res-verdict').innerHTML='';}   // итог в правой панели → плейсхолдер
 function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
-  // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена.
-  DEMAG=null;DEMAG_KNEE_kA=null;
-  if(d.demag_cells&&d.demag_cells.length){const knee=d.demag_knee_kA;
+  // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена СВОЕЙ марки: в модели могут
+  // быть магниты разных марок. В файлах до 24.09.2026 колено одно на модель — demag_knee_kA.
+  DEMAG=null;
+  if(d.demag_cells&&d.demag_cells.length){const kc=d.demag_knee_cells_kA;
     const arr=new Float32Array(BX.length).fill(NaN);
-    for(let k=0;k<d.demag_cells.length;k++)arr[d.demag_cells[k]]=Math.max(0,Math.min(1,(d.demag_hop_kA[k]-knee)/(-knee)));
-    DEMAG=arr;DEMAG_KNEE_kA=knee;}
+    for(let k=0;k<d.demag_cells.length;k++){const knee=kc?kc[k]:d.demag_knee_kA;
+      arr[d.demag_cells[k]]=Math.max(0,Math.min(1,(d.demag_hop_kA[k]-knee)/(-knee)));}
+    DEMAG=arr;}
   const demOpt=$('comp').querySelector('option[value="demag"]');if(demOpt)demOpt.disabled=!DEMAG;
   if(!DEMAG&&COMP==='demag'){COMP='mag';$('comp').value='mag';}
   bars();
@@ -1433,10 +1436,13 @@ function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;V
     +'<br><span style="font-size:11px">'+d.checks.checks.filter(k=>k.status==='fail')
       .map(k=>k.name+': '+k.value+(k.hint?' → '+k.hint:'')).join('<br>')+'</span></div>';
   if(d.Bd_mean!==undefined){const f=d.demag_frac*100,T=d.T!==undefined?d.T:+$('T').value;
+    const pc=x=>x.toFixed(x>0&&x<0.1?2:1)+' %',many=d.magnets&&d.magnets.length>1;
     top+='<h4>Вердикт по магнитам</h4><ul class="res">'
-      +'<li class="'+(f>0?'crit':'ok')+'"><span>За коленом при '+T+' °C (доля площади)</span><span class="v">'+f.toFixed(f>0&&f<0.1?2:1)+' %</span></li>'
+      +'<li class="'+(f>0?'crit':'ok')+'"><span>За коленом при '+T+' °C (доля площади'+(many?', все магниты':'')+')</span><span class="v">'+pc(f)+'</span></li>'
+      +(many?d.magnets.map(m=>{const g=m.past_knee*100;
+        return '<li class="'+(g>0?'crit':'ok')+'"><span>'+escH(m.name)+': за коленом</span><span class="v">'+pc(g)+'</span></li>';}).join(''):'')
       +'<li><span>Средняя индукция B_d (по площади)</span><span class="v">'+d.Bd_mean+' Тл</span></li></ul>'
-      +'<details class="why"><summary>Как считается вердикт</summary><p class="hint">Доля площади магнита, где рабочая точка при этой температуре ушла за колено кривой размагничивания: там остаточная индукция теряется необратимо. Самая слабая отдельная ячейка у края магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе к колену, показывает карта «Риск размагничивания».</p></details><hr>';}
+      +'<details class="why"><summary>Как считается вердикт</summary><p class="hint">Доля площади магнита, где рабочая точка при этой температуре ушла за колено кривой размагничивания своей марки: там остаточная индукция теряется необратимо. Самая слабая отдельная ячейка у края магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе к колену, показывает карта «Риск размагничивания».</p></details><hr>';}
   $('res-verdict').innerHTML=top;
   const rows=[{k:'Сходимость',v:(d.converged?'да':'нет')+' ('+d.iters+' ит.)',cls:d.converged?'ok':'crit'}];
   if(d.Ke!==undefined){rows.push({k:'K_e (ЭДС-постоянная)',v:d.Ke+' В·с/рад'+(d.kV?' ('+d.kV+' об/мин/В)':'')},

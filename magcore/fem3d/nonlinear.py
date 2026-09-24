@@ -12,7 +12,7 @@ from magcore.constants import MU0
 from magcore.fem2d.model.materials import Air, LinearMaterial, MagnetMaterial, SteelMaterial
 from magcore.fem3d.problem import Problem3D
 from magcore.fem3d.scalar import ScalarField3D, assemble_scalar_system, p1_gradients
-from magcore.hybrid.magnet_demag import compute_demag_risk_map
+from magcore.hybrid.magnet_demag import compute_demag_risk_map, merge_risk_maps
 
 # НЕЛИНЕЙНАЯ 3D-МАГНИТОСТАТИКА НА СКАЛЯРНОМ ПОТЕНЦИАЛЕ (этап 3D-3, план — docs/plan_3d_2026-09-11.md).
 #
@@ -31,6 +31,8 @@ from magcore.hybrid.magnet_demag import compute_demag_risk_map
 #           история для следующего нагружения (`retention`). Хранится доля, а не наихудшее поле (Л-100):
 #           при смене температуры потерянная доля сохраняется, при остывании возвращается только
 #           обратимая часть через B_r(T). При одной температуре закон тождествен прежнему «по полю».
+#           Магниты разных марок в одной задаче — у каждой марки свой закон на своих ячейках
+#           (`Problem3D.magnet_groups`; марка — закон материала, а не объект в памяти).
 #   воздух и линейные — как в `scalar.py`.
 # Метод Ньютона. Невязка R(φ) = −∫ (B/μ₀)·∇v dΩ + ∮ v H₀·n dS (на границе «поток не выходит»);
 # касательная — тензор dB/dH/μ₀ по ячейке: у стали μ_c I + (μ_d − μ_c) ĥĥᵀ (вдоль поля —
@@ -173,24 +175,19 @@ def _discrete_system(problem: Problem3D, *, bc: str, applied_field, demag: bool,
         else:
             raise TypeError(f"неизвестный материал региона {rid}: {type(mat)}")
 
-    magnet = problem.magnet()
-    mmask = problem.magnet_mask()
+    groups = [(magnet, mask) for magnet, mask in problem.magnet_groups() if mask.any()]   # марки с ячейками
+    axis = None if not groups else np.asarray(problem.magnet_axis, dtype=float)
     M = np.zeros((nc, 3))
-    knee = None             # магнит с коленом: (ячейки, оси, сохранённая доля r, B_r(T))
-    if magnet is not None and mmask.any():
-        axis = np.asarray(problem.magnet_axis, dtype=float)
+    # Магниты с коленом по маркам: (закон марки, ячейки, оси, сохранённая доля r). Вдоль оси B∥ и dB∥/dH∥ —
+    # по закону с памятью своей марки (общая реализация `AnisotropicBHTMagnet.branch_parallel`: новая
+    # потеря — главная кривая, иначе линия возврата; та же ветвь даёт и наклон).
+    knees = []
+    for magnet, mask in groups:
         if not demag:
-            M[mmask] = (float(magnet.Br(T)) / MU0) * axis[mmask]
+            M[mask] = (float(magnet.Br(T)) / MU0) * axis[mask]
         else:
-            sel_m = np.where(mmask)[0]
-            knee = (sel_m, axis[sel_m], r_all[sel_m], float(magnet.Br(T)))
-    mu_rec_abs = MU0 * float(magnet.mu_rec) if magnet is not None else 0.0
-
-    def magnet_axial(hpar: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """B∥ [Тл] и dB∥/dH∥ по закону с памятью (общая реализация `AnisotropicBHTMagnet.branch_parallel`:
-        новая потеря — главная кривая, иначе линия возврата; та же ветвь даёт и наклон)."""
-        _, _, r_m, _ = knee
-        return magnet.branch_parallel(hpar, T, r_m)
+            sel_m = np.where(mask)[0]
+            knees.append((magnet, sel_m, axis[sel_m], r_all[sel_m]))
 
     def field(phi_vec: np.ndarray) -> np.ndarray:
         return -np.einsum("ci,cik->ck", phi_vec[cells], grads)
@@ -208,11 +205,10 @@ def _discrete_system(problem: Problem3D, *, bc: str, applied_field, demag: bool,
             u = np.divide(h, hm[:, None], out=np.zeros_like(h), where=hm[:, None] > 0.0)
             tang[sel] = mu_c[:, None, None] * eye + (mu_d - mu_c)[:, None, None] * (u[:, :, None] * u[:, None, :])
             chord[sel] = mu_c[:, None, None] * eye
-        if knee is not None:                         # магнит: вдоль оси — закон с памятью
-            sel, e = knee[0], knee[1]
+        for magnet, sel, e, r_m in knees:            # магнит: вдоль оси — закон с памятью своей марки
             h = H[sel]
             hpar = np.einsum("ij,ij->i", h, e)
-            b_par, slope = magnet_axial(hpar)
+            b_par, slope = magnet.branch_parallel(hpar, T, r_m)
             mu_p = float(magnet.mu_perp)
             ee = e[:, :, None] * e[:, None, :]
             Bn[sel] = mu_p * (h - hpar[:, None] * e) + (b_par / MU0)[:, None] * e
@@ -247,22 +243,21 @@ def _discrete_system(problem: Problem3D, *, bc: str, applied_field, demag: bool,
         for sel, curve in steel:
             wco[sel] = steel_coenergy(curve, np.linalg.norm(H[sel], axis=1))
         M_out = M.copy()
-        retention_out = None
-        if knee is not None:         # эффективная намагниченность для отчёта: B∥/μ₀ = μ_rec H∥ + M_eff
-            sel, e, r_m = knee[0], knee[1], knee[2]
+        retention_out = np.ones(nc) if knees else None
+        for magnet, sel, e, r_m in knees:   # эффективная намагниченность для отчёта: B∥/μ₀ = μ_rec H∥ + M_eff
             hpar = np.einsum("ij,ij->i", H[sel], e)
-            b_par, _ = magnet_axial(hpar)
+            b_par, _ = magnet.branch_parallel(hpar, T, r_m)
             h_perp2 = np.einsum("ij,ij->i", H[sel], H[sel]) - hpar ** 2
             wco[sel] = (magnet_axial_coenergy(magnet, T, hpar, r_m)
                         + 0.5 * MU0 * float(magnet.mu_perp) * h_perp2)
+            mu_rec_abs = MU0 * float(magnet.mu_rec)
             M_out[sel] = ((b_par - mu_rec_abs * hpar) / MU0)[:, None] * e
-            retention_out = np.ones(nc)
             retention_out[sel] = np.minimum(r_m, magnet.retention_now(hpar, T))
         risk = None
-        if magnet is not None and mmask.any():
-            risk = compute_demag_risk_map(magnet, SimpleNamespace(H_cells=MU0 * H), mmask, T,
-                                          axis=np.asarray(problem.magnet_axis, dtype=float),
-                                          retention=r_all if knee is not None else None)
+        if groups:
+            maps = [compute_demag_risk_map(magnet, SimpleNamespace(H_cells=MU0 * H), mask, T, axis=axis,
+                                           retention=r_all if knees else None) for magnet, mask in groups]
+            risk = maps[0] if len(maps) == 1 else merge_risk_maps(maps)
         return ScalarField3D(
             problem=problem, phi=phi, H_cells=H, B_cells=MU0 * Bn, mu_cells=chord, M_cells=M_out,
             volumes=vol, bc=bc, applied_field=H0,

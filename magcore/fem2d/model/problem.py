@@ -12,8 +12,10 @@ from magcore.fem2d.model.materials import (
     LinearMaterial,
     MagnetMaterial,
     SteelMaterial,
+    magnet_groups_of,
+    single_magnet_of,
 )
-from magcore.fem2d.magnet_law import MagnetLaw2D
+from magcore.fem2d.magnet_law import MagnetLaw2D, MagnetLaws2D
 from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import Fem2DPicardResult, solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -21,6 +23,7 @@ from magcore.hybrid.magnet_demag import (
     DemagRiskMap,
     MagnetDemagPolicy,
     compute_demag_risk_map,
+    merge_risk_maps,
 )
 
 # ОБЩАЯ регион-объектная модель 2D-магнитостатической задачи. Не знает ни про «мотор», ни
@@ -57,14 +60,13 @@ class Problem2D:
     def magnet_regions(self) -> list[Region2D]:
         return [r for r in self.regions.values() if isinstance(r.material, MagnetMaterial)]
 
+    def magnet_groups(self) -> list[tuple[AnisotropicBHTMagnet, np.ndarray]]:
+        """Магниты задачи по маркам: [(закон марки, маска её ячеек)] — см. `magnet_groups_of`."""
+        return magnet_groups_of(self)
+
     def magnet(self) -> AnisotropicBHTMagnet | None:
-        mrs = self.magnet_regions()
-        if not mrs:
-            return None
-        mags = {id(r.material.magnet): r.material.magnet for r in mrs}
-        if len(mags) != 1:
-            raise NotImplementedError("несколько марок магнита в одной задаче пока не поддержано.")
-        return next(iter(mags.values()))
+        """Закон магнита, когда марка в задаче одна (None — магнитов нет); при нескольких — ошибка."""
+        return single_magnet_of(self)
 
     def magnet_mask(self) -> np.ndarray:
         ids = {r.region_id for r in self.magnet_regions()}
@@ -86,10 +88,6 @@ class Problem2D:
         if mrs:
             if self.magnet_axis is None or np.asarray(self.magnet_axis).shape != (nc, 2):
                 p.append("для магнитных регионов нужна magnet_axis формы (n_cells,2).")
-            try:
-                self.magnet()
-            except NotImplementedError as e:
-                p.append(str(e))
         return p
 
     def check(self) -> None:
@@ -210,28 +208,33 @@ def solve_problem2d(
     `method='picard'` — хордовый Пикар с источником `MagnetDemagPolicy` и `relaxation`
     (совместимость/эталон); `demag_relaxation` и `track_worst_point` относятся только к нему.
     Чистая магнитостатика при заданной T (нагрев — динамический модуль S3).
+
+    Магниты разных марок в одной задаче: у каждой марки свой закон на своих ячейках (`magnet_groups`),
+    карта риска — по ячейкам с коленом своей марки. Марка — закон материала, а не объект в памяти.
     """
     problem.check()
     space = LagrangeP1Space2D(problem.mesh)
     nc = problem.mesh.n_cells
     j = None if problem.j_cells is None else MU0 * np.asarray(problem.j_cells, dtype=float)
-    magnet = problem.magnet()
-    mmask = problem.magnet_mask()
+    groups = problem.magnet_groups()
 
     def _policy(relax):
-        if magnet is None or not demag:
+        if not groups or not demag:
             return None
-        return MagnetDemagPolicy(magnet, mmask, T=problem.T, n_cells=nc,
-                                 axis=problem.magnet_axis, relaxation=relax,
-                                 track_worst_point=track_worst_point)
+        policies = [MagnetDemagPolicy(magnet, mask, T=problem.T, n_cells=nc,
+                                      axis=problem.magnet_axis, relaxation=relax,
+                                      track_worst_point=track_worst_point) for magnet, mask in groups]
+        return policies[0] if len(policies) == 1 else _joint_source(policies)
 
     if method == "newton":
         if track_worst_point:
             raise ValueError("track_worst_point — только для method='picard'; в Ньютоне историю "
                              "нагружения задаёт retention (доля сохранённой ремнантности по ячейкам).")
         nu_and_dnu, nu_init = _reluctivity_newton(problem)
-        law = (None if magnet is None or not demag
-               else MagnetLaw2D(magnet, mmask, nc, T=problem.T, axis=problem.magnet_axis, retention=retention))
+        laws = ([] if not demag else
+                [MagnetLaw2D(magnet, mask, nc, T=problem.T, axis=problem.magnet_axis, retention=retention)
+                 for magnet, mask in groups])
+        law = None if not laws else laws[0] if len(laws) == 1 else MagnetLaws2D(laws)
         em = solve_nonlinear_2d_newton(
             space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnet_law=law,
             dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
@@ -248,9 +251,20 @@ def solve_problem2d(
         raise ValueError("method должен быть 'newton' | 'picard'.")
 
     risk = None
-    if magnet is not None:
+    if groups:
         # История нагружения (если задана) идёт и в карту: потеря считается по r_eff = min(история, сейчас),
         # иначе прежнее повреждение в отчёте пропало бы (Л-100).
-        risk = compute_demag_risk_map(magnet, em, mmask, T=problem.T, axis=problem.magnet_axis,
-                                      retention=retention)
+        maps = [compute_demag_risk_map(magnet, em, mask, T=problem.T, axis=problem.magnet_axis,
+                                       retention=retention) for magnet, mask in groups]
+        risk = maps[0] if len(maps) == 1 else merge_risk_maps(maps)
     return Solution2D(problem=problem, field=em, risk=risk)
+
+
+def _joint_source(policies):
+    """Источник магнитов нескольких марок для Пикара: у каждой марки свои ячейки, вне них её источник — нули."""
+    def source(B_cells, H_cells, nu_cells):
+        out = policies[0](B_cells, H_cells, nu_cells)
+        for p in policies[1:]:
+            out = out + p(B_cells, H_cells, nu_cells)
+        return out
+    return source

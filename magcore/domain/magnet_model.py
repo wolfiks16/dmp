@@ -75,6 +75,15 @@ class AnisotropicBHTMagnet:
             if not np.isfinite(v):
                 raise ValueError("Temperature parameters must be finite.")
 
+    def law_key(self) -> tuple:
+        """
+        Марка как закон материала — восемь чисел, которыми закон задан целиком: B_r, |H_cB|, |H_k|, |H_cJ|
+        при T0, μ⊥, два температурных коэффициента и T0. Ось сюда не входит: в решателях объектов она своя
+        у каждой ячейки (`magnet_axis`); имя и id — только подписи. Магниты с равным ключом — одна марка,
+        даже если это разные объекты в памяти (каждое тело модели получает свою копию материала).
+        """
+        return (self.Br0, self.Hcb0, self.Hk0, self.Hcj0, self.mu_perp, self.alpha_Br, self.gamma_Hc, self.T0)
+
     # --- релуктивности / тензор (recoil-режим; T-независимы) ---
     @property
     def mu_rec(self) -> float:
