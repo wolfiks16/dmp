@@ -24,7 +24,7 @@ const FROM_ZERO = new Set(['B', 'H', 'loss']);
 const MATCOL = { magnet: '#9a72d6', steel: '#8391a6', linear: '#4d8bff', air: '#5d6d8a' };
 const AIR_RGB = [28, 37, 54], GRAY_RGB = [70, 80, 96], LINE_ON_SECTION = [238, 243, 252];
 
-const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20, bc: 'neumann', H0: [0, 0, 0],
+const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 4, grading: 2, T: 20, bc: 'neumann', H0: [0, 0, 0],
   model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B',
   field3d: null, restoring: false, restoreNote: '',     // сетка и φ решения для файла расчёта (этап 3D-9)
   sec: { axis: 'off', pos: 0, flip: false, lo: -50, hi: 50 }, secData: null, secSeq: 0, secTimer: 0,

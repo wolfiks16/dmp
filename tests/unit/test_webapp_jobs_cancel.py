@@ -77,7 +77,8 @@ def test_real_3d_solve_is_cancelled_through_the_api():
     plate = {"name": "пластина", "kind": "box", "params": {"lx": 12, "ly": 12, "lz": 2}, "material": "steel",
              "center": [0, 0, 4], "rotation": [0, 0, 0], "priority": 1}
     with TestClient(app) as c:
-        model = c.post("/api/3d/model", json={"objects": [magnet, plate], "default_mesh_mm": 0.7}).json()
+        model = c.post("/api/3d/model", json={"objects": [magnet, plate], "default_mesh_mm": 0.7,
+                                                "margin": 2.0}).json()
         assert "error" not in model and model["n_cells"] > 50_000
         # полный расчёт — для сравнения по времени
         t0 = time.time()

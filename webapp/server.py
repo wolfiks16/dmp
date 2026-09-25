@@ -1387,7 +1387,8 @@ async def api_3d_step_has(body: dict = Body(default={})) -> dict:
 
 
 def _domain3d(body: dict, objs):
-    return auto_domain3d(objs, material=Air(), margin_frac=float(body.get("margin", 2.0)))
+    # запас воздуха по умолчанию — 4, как в 2D (решение Sergey 2026-09-25; моменту нужен запас, Л-94)
+    return auto_domain3d(objs, material=Air(), margin_frac=float(body.get("margin", 4.0)))
 
 
 def _model_id3d(body: dict) -> str:
