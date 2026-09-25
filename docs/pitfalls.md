@@ -12,7 +12,8 @@
 >
 > **Связанные документы:** постановка — [`math/coupled_problem.md`](math/coupled_problem.md);
 > порядок расчёта — [`solver_spec.md`](solver_spec.md); источники — [`sources_registry.md`](sources_registry.md);
-> объект расчёта — [`motors/scorpion_im8008/README.md`](motors/scorpion_im8008/README.md).
+> объект расчёта — [`motors/scorpion_im8008/README.md`](motors/scorpion_im8008/README.md);
+> правила интерфейса (в том числе «2D и 3D — одно приложение») — [`ui_rules.md`](ui_rules.md).
 >
 > Создан 2026-09-10 по решению Sergey: «чтобы к ним больше не возвращаться».
 
