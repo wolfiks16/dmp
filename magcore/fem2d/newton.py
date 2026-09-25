@@ -62,6 +62,97 @@ def assemble_newton_tangent(space, nu_cells, dnu_dB2_cells, a):
     return assemble_tangent_2d(space, nu[:, None, None] * eye + 2.0 * dnu[:, None, None] * B[:, :, None] * B[:, None, :])
 
 
+def _newton_system(space: LagrangeP1Space2D, nu_and_dnu, *, j_fn, j_cells, magnet_law, dirichlet_dofs,
+                   dirichlet_values, quadrature_order: int):
+    """
+    Дискретная задача Ньютона — одна на решатель (`solve_nonlinear_2d_newton`) и на поле по заданному A
+    (`evaluate_nonlinear_2d_newton`): узлы Дирихле, начальное A (в них — заданные значения, внутри 0),
+    B по A и `state(a, nu_br)` → (B, ν, dν/d|B|², H, dH/dB, невязка R).
+    """
+    if j_fn is not None and j_cells is not None:
+        raise ValueError("задайте только один источник тока: j_fn ИЛИ j_cells.")
+    nc = space.mesh.n_cells
+    ddofs = np.asarray(space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs, dtype=int)
+    cells, rot, area = _rot_basis(space)
+    eye = np.broadcast_to(np.eye(2), (nc, 2, 2))
+
+    if j_fn is not None:
+        f_cur = assemble_current_rhs(space, j_fn, quadrature_order=quadrature_order)
+    elif j_cells is not None:
+        f_cur = assemble_current_rhs_piecewise(space, j_cells)
+    else:
+        f_cur = np.zeros(space.ndofs, dtype=float)
+
+    # Начальное A удовлетворяет Dirichlet (интерьер 0).
+    a0 = np.zeros(space.ndofs, dtype=float)
+    vals = np.asarray(dirichlet_values, dtype=float)
+    a0[ddofs] = vals if vals.ndim else float(vals)
+
+    def b_of(a_vec):
+        return _b_on_cells(cells, rot, a_vec)
+
+    def state(a_vec, nu_br):
+        """Поле, ν, касательная, H и невязка при данном A (nu_br — эквивалентный источник магнита)."""
+        B = b_of(a_vec)
+        nu, dnu = nu_and_dnu(B)
+        nu = np.asarray(nu, dtype=float)
+        dnu = np.asarray(dnu, dtype=float)
+        H = nu[:, None] * B - nu_br
+        D = nu[:, None, None] * eye + 2.0 * dnu[:, None, None] * B[:, :, None] * B[:, None, :]
+        if magnet_law is not None:
+            H_mag, D_mag = magnet_law(B)
+            H[magnet_law.idx] = H_mag
+            D[magnet_law.idx] = D_mag
+        local = area[:, None] * np.einsum("cai,ci->ca", rot, H)
+        R = np.bincount(cells.ravel(), weights=local.ravel(), minlength=space.ndofs) - f_cur
+        R[ddofs] = 0.0
+        return B, nu, dnu, H, D, R
+
+    return ddofs, a0, b_of, state
+
+
+def evaluate_nonlinear_2d_newton(
+    space: LagrangeP1Space2D,
+    nu_and_dnu,
+    a,
+    *,
+    j_fn=None,
+    j_cells=None,
+    magnet_law=None,
+    dirichlet_dofs=None,
+    dirichlet_values=0.0,
+    tol: float = 1.0e-9,
+    quadrature_order: int = 5,
+) -> Fem2DPicardResult:
+    """
+    Поле при заданном узловом A (например, сохранённом в файле расчёта) — без итераций: та же дискретная
+    задача, что у `solve_nonlinear_2d_newton` (`_newton_system`). История невязки — (R₀, R(A)): R₀ —
+    невязка начального приближения, как у решателя, поэтому R(A)/R₀ сравнимо с его критерием. У A,
+    сохранённого из решения той же задачи тем же кодом, отношение то же, что при решении; изменились
+    уравнения — оно больше (Л-80). A в узлах Дирихле не равно заданным значениям — это решение другой
+    задачи: невязка бесконечна. Магнит — только законом в касательной (`magnet_law`), как у решателя по
+    умолчанию. `converged` — R(A) ≤ tol·R₀.
+    """
+    nc = space.mesh.n_cells
+    ddofs, a0, _, state = _newton_system(space, nu_and_dnu, j_fn=j_fn, j_cells=j_cells, magnet_law=magnet_law,
+                                         dirichlet_dofs=dirichlet_dofs, dirichlet_values=dirichlet_values,
+                                         quadrature_order=quadrature_order)
+    a = np.array(a, dtype=float).reshape(-1)
+    if a.shape != a0.shape or not np.isfinite(a).all():
+        raise ValueError("A — по конечному числу на узел сетки.")
+    nu_br = np.zeros((nc, 2), dtype=float)
+    *_, R0 = state(a0, nu_br)
+    B, nu, _, H, _, R = state(a, nu_br)
+    r0 = max(float(np.linalg.norm(R0)), 1e-30)
+    r = float(np.linalg.norm(R)) if np.array_equal(a[ddofs], a0[ddofs]) else float("inf")
+    if magnet_law is not None:
+        nu_br[magnet_law.idx] = nu[magnet_law.idx, None] * B[magnet_law.idx] - H[magnet_law.idx]
+    return Fem2DPicardResult(
+        a=a, B_cells=B, H_cells=H, nu_cells=nu, nu_br_cells=nu_br,
+        n_iterations=0, converged=r <= tol * r0, rel_change_history=(r0, r),
+    )
+
+
 def solve_nonlinear_2d_newton(
     space: LagrangeP1Space2D,
     nu_and_dnu,
@@ -91,52 +182,20 @@ def solve_nonlinear_2d_newton(
     Возвращает тот же результат, что Пикар (совместим с картой риска и пост-процессингом);
     `converged` ставится только по относительной невязке.
     """
-    if j_fn is not None and j_cells is not None:
-        raise ValueError("задайте только один источник тока: j_fn ИЛИ j_cells.")
     if magnetization is not None and magnet_law is not None:
         raise ValueError("магнит задаётся ЛИБО законом (magnet_law), ЛИБО источником (magnetization).")
     nc = space.mesh.n_cells
-    ddofs = np.asarray(space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs, dtype=int)
     mag_fn = resolve_magnetization(magnetization, nc, dim=2)
-    cells, rot, area = _rot_basis(space)
-    eye = np.broadcast_to(np.eye(2), (nc, 2, 2))
-
-    if j_fn is not None:
-        f_cur = assemble_current_rhs(space, j_fn, quadrature_order=quadrature_order)
-    elif j_cells is not None:
-        f_cur = assemble_current_rhs_piecewise(space, j_cells)
-    else:
-        f_cur = np.zeros(space.ndofs, dtype=float)
-
-    # Начальное A удовлетворяет Dirichlet (интерьер 0).
-    a = np.zeros(space.ndofs, dtype=float)
-    vals = np.asarray(dirichlet_values, dtype=float)
-    a[ddofs] = vals if vals.ndim else float(vals)
-
+    ddofs, a, b_of, state = _newton_system(space, nu_and_dnu, j_fn=j_fn, j_cells=j_cells, magnet_law=magnet_law,
+                                           dirichlet_dofs=dirichlet_dofs, dirichlet_values=dirichlet_values,
+                                           quadrature_order=quadrature_order)
     nu_br = np.zeros((nc, 2), dtype=float)
-
-    def state(a_vec):
-        """Поле, ν, касательная, H и невязка при данном A (nu_br берётся замыканием — обновляется вне)."""
-        B = _b_on_cells(cells, rot, a_vec)
-        nu, dnu = nu_and_dnu(B)
-        nu = np.asarray(nu, dtype=float)
-        dnu = np.asarray(dnu, dtype=float)
-        H = nu[:, None] * B - nu_br
-        D = nu[:, None, None] * eye + 2.0 * dnu[:, None, None] * B[:, :, None] * B[:, None, :]
-        if magnet_law is not None:
-            H_mag, D_mag = magnet_law(B)
-            H[magnet_law.idx] = H_mag
-            D[magnet_law.idx] = D_mag
-        local = area[:, None] * np.einsum("cai,ci->ca", rot, H)
-        R = np.bincount(cells.ravel(), weights=local.ravel(), minlength=space.ndofs) - f_cur
-        R[ddofs] = 0.0
-        return B, nu, dnu, H, D, R
 
     history: list[float] = []
     converged = False
     n_it = 0
     r0 = None
-    B = _b_on_cells(cells, rot, a)
+    B = b_of(a)
     for k in range(max_iter):
         cancel_check()                               # отмена расчёта — между итерациями
         n_it = k + 1
@@ -144,7 +203,7 @@ def solve_nonlinear_2d_newton(
             nu0, _ = nu_and_dnu(B)
             H0 = np.asarray(nu0, dtype=float)[:, None] * B - nu_br
             nu_br = np.asarray(mag_fn(B, H0, np.asarray(nu0, dtype=float)), dtype=float)
-        B, nu, dnu, H, D, R = state(a)
+        B, nu, dnu, H, D, R = state(a, nu_br)
         rnorm = float(np.linalg.norm(R))
         history.append(rnorm)
         if r0 is None:
@@ -159,19 +218,19 @@ def solve_nonlinear_2d_newton(
         alpha = 1.0
         improved = False
         for _ in range(12):
-            *_, Rt = state(a + alpha * da)
+            *_, Rt = state(a + alpha * da, nu_br)
             if np.linalg.norm(Rt) < rnorm:
                 improved = True
                 break
             alpha *= 0.5
         a = a + alpha * da
-        B = _b_on_cells(cells, rot, a)
+        B = b_of(a)
         # Линейный поиск не смог уменьшить невязку — это ЗАСТОЙ, дальше идти некуда. Выходим, но
         # «сошлось» ставит только невязка ВОЗВРАЩАЕМОГО решения (считается ниже), а не малость шага (Л-108).
         if not improved:
             break
 
-    B, nu, _, H, _, R = state(a)
+    B, nu, _, H, _, R = state(a, nu_br)
     if magnet_law is not None:
         # Закон в касательной состояния не хранит, поэтому невязку считаем на ВОЗВРАЩАЕМОМ A: последний
         # шаг мог уже привести решение к нулю, и объявлять «не сошлось» по невязке до шага нечестно.

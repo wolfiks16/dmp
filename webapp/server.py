@@ -102,6 +102,9 @@ from magcore.fem2d.model import (
     problem_to_scene,
     solve_problem2d,
 )
+from magcore.fem2d.machines.bridge import machine_geometry_on_mesh
+from magcore.fem2d.model.object_geometry import object_problem_from_mesh
+from magcore.fem2d.model.storage import field_payload2d, restore_saved_field2d, saved_array, saved_mesh2d
 
 from fastapi import Request  # noqa: E402 — приём файла STEP телом запроса (этап 3D-1б)
 from fastapi.responses import FileResponse  # noqa: E402 — 3D-режим (этап 3D-5)
@@ -573,6 +576,8 @@ def _do_solve(body: dict) -> dict:
         "demag_hop_kA": np.round(op.H_op / 1e3, 1).tolist(),
         "demag_knee_kA": round(float(op.knee_field) / 1e3, 1),
         **_field_extras(sol, op, risk),
+        # точная копия поля для файла расчёта: при открытии сверяется с текущей версией решателя (/api/2d/restore)
+        "field2d": field_payload2d(sol, magnet_axis=g.magnet_easy_axis, slot_id=g.slot_id),
     }
 
 
@@ -1180,6 +1185,7 @@ def _do_object_solve(body: dict) -> dict:
         out.update(_field_extras(sol, op, risk))
     else:
         out.update(_field_extras(sol))
+    out["field2d"] = field_payload2d(sol)      # точная копия поля для файла расчёта (/api/2d/restore)
     return out
 
 
@@ -1207,6 +1213,58 @@ def api_object_model(body: dict = Body(default={})) -> dict:
 def api_object_solve(body: dict = Body(default={})) -> dict:
     label = str(body.get("label") or "Расчёт")
     jid = _JM.submit("object_solve", label, _do_object_solve, dict(body))
+    return {"job_id": jid}
+
+
+# ---- поле 2D из файла расчёта сверяется с текущей версией решателя (как 3D-9; решение Sergey 2026-09-25) ----
+def _problem2d_on_saved_mesh(model: dict, payload: dict, saved) -> object:
+    """
+    Задача модели из файла на сетке из файла, собранная ТЕКУЩИМ кодом. Свободная геометрия (`kind`
+    «objects»): объекты и запас — как для /api/object_model; материалы, токи и оси — из объектов. Двигатель
+    («motor»): параметры и размеры сетки — как для /api/spoke_mesh, марки и режим (ток, угол, витки) — как
+    для /api/solve; сетка, регион, ось магнита и номер паза — из файла (геометрия машины), ток обмотки
+    считает текущий код.
+    """
+    kind = str(model.get("kind", ""))
+    if kind == "objects":
+        objs = [_geo_from(o) for o in (model.get("objects") or [])]
+        if not objs:
+            raise ValueError("в модели нет объектов.")
+        dom = auto_domain(objs, material=Air(), margin_frac=float(model.get("margin", 4.0)))
+        return object_problem_from_mesh(objs, dom, saved.vertices, saved.cells, saved.cell_region, T=saved.T)
+    if kind == "motor":
+        params, _ = _spoke_params_from({"params": model.get("spoke") or {}, "sizes_mm": model.get("sizes") or {}})
+        nc = saved.cells.shape[0]
+        g = machine_geometry_on_mesh(saved.vertices, saved.cells, saved.cell_region,
+                                     saved_array(payload, "magnet_axis", "<f8", 2 * nc).reshape(nc, 2),
+                                     saved_array(payload, "slot_id", "<i4", nc), params)
+        scen = MachineScenario(geometry=g, magnet=_magnet_by_id(str(model.get("material", "ndfeb"))),
+                               steel=_steel_by_id(str(model.get("steel", "steel"))),
+                               layout=star_of_slots_layout(params.n_slots, params.n_poles))
+        return scen.to_problem(T=saved.T, i_peak=float(model.get("i_peak", 0.0)),
+                               gamma_elec=np.deg2rad(float(model.get("gamma_deg", 0.0))),
+                               turns_per_slot=float(model.get("turns", 40.0)))
+    raise ValueError("вид модели — objects или motor.")
+
+
+def _do_restore2d(body: dict) -> dict:
+    """
+    Годится ли поле 2D из файла расчёта для текущей версии решателя: невязка уравнений текущего кода при
+    сохранённом A_z против невязки при решении (`fem2d.model.storage`). Не годится — ответ `stale`, браузер
+    предлагает пересчёт. Поле для показа остаётся в браузере (из файла), сервер его не хранит.
+    """
+    payload = body.pop("field", None)                # тело задачи хранится в очереди — большой массив не держим
+    saved = saved_mesh2d(payload)
+    r = restore_saved_field2d(saved, _problem2d_on_saved_mesh(dict(body.get("model") or {}), payload, saved))
+    # бесконечная невязка (A в узле Дирихле не тот — другая задача) в JSON не идёт — null
+    out = {"ok": r.ok, "residual": float(r.residual) if np.isfinite(r.residual) else None,
+           "stored_residual": r.stored_residual}
+    return out if r.ok else {**out, "stale": True}
+
+
+@app.post("/api/2d/restore")
+def api_2d_restore(body: dict = Body(default={})) -> dict:
+    jid = _JM.submit("restore2d", str(body.get("label") or "Поле из файла 2D"), _do_restore2d, dict(body))
     return {"job_id": jid}
 
 

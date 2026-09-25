@@ -705,6 +705,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
       <div class="rp-stage on" id="res-stage" data-stage="result">
         <!-- «Итоги» (шаг в шапке): недостоверность, вердикт по магнитам, сводка -->
         <div class="rp-page on" data-page="summary"><div id="res-top"><div id="res-verdict"></div>
+          <div id="res-restore" style="display:none"><p class="hint" id="res-restore-note"></p><button class="applybtn" id="res-restore-btn">Пересчитать поле</button><hr></div>
           <h4>Сводка</h4><ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul></div></div>
         <!-- «Измерение»: инструмент, выбранный значком над видом, — форма и результат (одинаково в 2D и 3D) -->
         <div class="rp-page" data-page="measure">
@@ -1667,8 +1668,8 @@ async function buildMeshOnce(){const btn=$('buildmesh');btn.disabled=true;btn.te
 const keepTogether=v=>{v=String(v);return v.length<20&&v.indexOf('<')<0?v.replace(/ /g,' '):v;};
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+keepTogether(r.v)+'</span></li>').join('');}
 const escH=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function clearSummary(){$('res').innerHTML='<li><span>—</span><span class="v">рассчитайте</span></li>';$('res-verdict').innerHTML='';}   // итог в правой панели → плейсхолдер
-function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;
+function clearSummary(){$('res').innerHTML='<li><span>—</span><span class="v">рассчитайте</span></li>';$('res-verdict').innerHTML='';showRestore2D('');}   // итог в правой панели → плейсхолдер
+function applyResult(d){showRestore2D('');LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;
   // H и потеря B_r (с 24.09.2026; в прежних файлах их нет — в списке остаются B и риск)
   HX=d.Hx||null;HY=d.Hy||null;HMAX=Math.max(d.Hmax_kA||1,1);LOSS2D=null;LMAX=0;
   if(d.demag_loss_T&&d.demag_cells){LOSS2D=new Float32Array(BX.length).fill(NaN);
@@ -2883,10 +2884,45 @@ function applyCalcBundle(m){
   CENT=SCENE?SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];}):null;
   setScenario(m.scenario||'magneto');
   if(MODE==='objects')renderTree();else if(SCENE)populateModel();
-  if(m.field)applyResult(m.field);                  // готовый — поле/сводка
+  if(m.field){applyResult(m.field);checkSavedField2D(m);}   // готовый — поле/сводка; сверка — в фоне
   else{BX=null;BY=null;HX=null;HY=null;LOSS2D=null;AZ=null;LINES2D=null;LAST_FIELD=null;SHOWFIELD=false;syncColor();updateResults();updateExcitations();}
   restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
   setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();DIRTY=false;clearPend();}
+// Поле 2D из файла расчёта сверяется с текущей версией решателя — как в 3D (этап 3D-9; решение Sergey
+// 2026-09-25): сервер собирает задачу модели на сетке из файла текущим кодом и сравнивает невязку при
+// сохранённом A_z с невязкой при расчёте (/api/2d/restore). Поле для показа — из файла; не годится —
+// пометка в «Итогах» и «Пересчитать поле» с теми же данными.
+// Невязки — как в 3D (ws3d.js fmt): малые и большие — с порядком, остальные — до трёх знаков после запятой.
+const fmtE=v=>{const a=Math.abs(v);return !Number.isFinite(v)?'—':a!==0&&(a<1e-3||a>=1e5)?v.toExponential(2):String(+v.toFixed(3));};
+function showRestore2D(note){const b=$('res-restore');if(!b)return;b.style.display=note?'':'none';$('res-restore-note').textContent=note||'';}
+const model2D=g=>MODE==='objects'?{kind:'objects',objects:g.objects||[],margin:g.margin}
+  :{kind:'motor',spoke:g.spoke,sizes:g.sizes,material:g.material,steel:g.steel,i_peak:g.i_peak,gamma_deg:g.gamma_deg,turns:g.turns};
+async function checkSavedField2D(m){const f=m.field&&m.field.field2d,pid=PROJECT.id,moved=()=>PROJECT.id!==pid||!BX;
+  if(!f){showRestore2D('Поле в файле не сверено с текущей версией решателя: файл сохранён до 25.09.2026. Его можно пересчитать с теми же данными.');return;}
+  let j;
+  try{const {job_id}=await(await fetch('/api/2d/restore',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:model2D(m.geom||{}),field:f,label:(m.name||'Проект')+' · поле из файла'})})).json();
+    pollJobs();
+    do{await sleep(300);j=await(await fetch('/api/jobs/'+job_id)).json();}
+    while(j.status==='queued'||j.status==='running'||j.status==='cancelling');}
+  catch(e){if(!moved())showRestore2D('Поле не сверено с текущей версией решателя: сервер недоступен ('+e+').');return;}
+  if(moved())return;                                   // пользователь уже в другом расчёте
+  if(j.status!=='done'){showRestore2D('Поле не сверено с текущей версией решателя: '+(j.error||'задача не найдена')+'.');return;}
+  const r=j.result;
+  if(r.ok){setConv('g','● Открыт расчёт «'+m.name+'» — поле сверено с текущей версией решателя');return;}
+  showRestore2D('Поле в файле не подходит к текущей версии решателя: уравнения с тех пор изменились (невязка при сохранённом потенциале '
+    +fmtE(r.residual)+' против '+fmtE(r.stored_residual)+' при расчёте). Пересчитайте поле, чтобы числа отвечали текущей версии.');
+  setConv('c','● Поле в файле не подходит к текущей версии решателя — пересчитайте его');}
+// «Пересчитать поле» — те же данные заново: сетка и расчёт; файл перезапишет сам расчёт. Пока он идёт, файл не
+// трогаем (автосохранение без поля записало бы черновик), а не удался — возвращаем поле из файла вместе с его сеткой.
+$('res-restore-btn').onclick=async()=>{const btn=$('res-restore-btn'),pid=PROJECT.id,note=$('res-restore-note').textContent,
+    prev={field:LAST_FIELD,scene:SCENE,cent:CENT};
+  btn.disabled=true;
+  try{await buildMesh();clearTimeout(AUTOSAVE_T);
+    if(PROJECT.id===pid&&MESH_ID&&!meshStale())await solve();}
+  finally{btn.disabled=false;
+    if(PROJECT.id===pid&&!BX&&prev.field){clearTimeout(AUTOSAVE_T);SCENE=prev.scene;CENT=prev.cent;MESH_ID=null;
+      applyResult(prev.field);DIRTY=false;resize();fit();draw();showRestore2D('Пересчитать не удалось — показано поле из файла. '+note);}}};
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).
 function loadCalcBundle(m){$('home-ov').classList.remove('on');applyCalcBundle(m);
   setConv('g','● Открыт расчёт «'+m.name+'»'+(PROJECT.status==='draft'?' (черновик)':''));}

@@ -286,22 +286,44 @@ def build_object_problem(objects, domain, *, default_mesh_size: float, T: float 
         close_gmsh()
 
     mesh = TriangleMesh(vertices=verts, cells=cells)
+    region = np.zeros(mesh.n_cells, dtype=int)
+    for c in range(mesh.n_cells):
+        cx, cy = mesh.cell_centroid(c)
+        for idx in order:                             # по приоритету сверху вниз; домен (0) — запас
+            if contains(all_objs[idx], cx, cy):
+                region[c] = idx
+                break
+    return _problem_on_mesh(mesh, all_objs, region, T)
+
+
+def object_problem_from_mesh(objects, domain, vertices, cells, cell_region, *, T: float = 20.0) -> Problem2D:
+    """
+    Та же задача, что у `build_object_problem`, но на готовой сетке — например, из файла расчёта:
+    регион ячейки задан (номер объекта: 0 — домен, дальше объекты по порядку), а материалы, токи и оси
+    намагничивания берутся из объектов тем же кодом, что при построении (`_problem_on_mesh`).
+    """
+    domain.validate()
+    for o in objects:
+        o.validate()
+    all_objs = [domain] + list(objects)
+    mesh = TriangleMesh(vertices=np.asarray(vertices, dtype=float), cells=np.asarray(cells, dtype=int))
+    region = np.asarray(cell_region, dtype=int).reshape(-1)
+    if region.shape != (mesh.n_cells,) or region.min() < 0 or region.max() >= len(all_objs):
+        raise ValueError("регион ячейки — номер объекта модели (0 — домен), по одному на ячейку.")
+    return _problem_on_mesh(mesh, all_objs, region, T)
+
+
+def _problem_on_mesh(mesh: TriangleMesh, all_objs, region: np.ndarray, T: float) -> Problem2D:
+    """Задача на сетке с известным регионом ячеек: ток и ось намагничивания — по объекту-владельцу ячейки."""
     nc = mesh.n_cells
-    region = np.zeros(nc, dtype=int)
     j_cells = np.zeros(nc, dtype=float)
     axis = np.zeros((nc, 2), dtype=float)
     for c in range(nc):
-        cx, cy = mesh.cell_centroid(c)
-        owner, rid = domain, 0
-        for idx in order:                             # по приоритету сверху вниз; домен — запас
-            if contains(all_objs[idx], cx, cy):
-                owner, rid = all_objs[idx], idx
-                break
-        region[c] = rid
+        owner = all_objs[int(region[c])]
         if owner.current_density:
             j_cells[c] = owner.current_density
         if isinstance(owner.material, MagnetMaterial):
-            axis[c] = _magnet_axis(owner, cx, cy)
+            axis[c] = _magnet_axis(owner, *mesh.cell_centroid(c))
 
     regions = {i: Region2D(i, o.name, o.material) for i, o in enumerate(all_objs)}
     # Ось магнита нужна ВСЕГДА, если в модели есть магнитный МАТЕРИАЛ (даже если такой объект

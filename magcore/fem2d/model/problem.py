@@ -16,7 +16,7 @@ from magcore.fem2d.model.materials import (
     single_magnet_of,
 )
 from magcore.fem2d.magnet_law import MagnetLaw2D, MagnetLaws2D
-from magcore.fem2d.newton import solve_nonlinear_2d_newton
+from magcore.fem2d.newton import evaluate_nonlinear_2d_newton, solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import Fem2DPicardResult, solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.hybrid.magnet_demag import (
@@ -213,10 +213,8 @@ def solve_problem2d(
     карта риска — по ячейкам с коленом своей марки. Марка — закон материала, а не объект в памяти.
     """
     problem.check()
-    space = LagrangeP1Space2D(problem.mesh)
+    space, j, groups = _common_inputs(problem)
     nc = problem.mesh.n_cells
-    j = None if problem.j_cells is None else MU0 * np.asarray(problem.j_cells, dtype=float)
-    groups = problem.magnet_groups()
 
     def _policy(relax):
         if not groups or not demag:
@@ -231,10 +229,7 @@ def solve_problem2d(
             raise ValueError("track_worst_point — только для method='picard'; в Ньютоне историю "
                              "нагружения задаёт retention (доля сохранённой ремнантности по ячейкам).")
         nu_and_dnu, nu_init = _reluctivity_newton(problem)
-        laws = ([] if not demag else
-                [MagnetLaw2D(magnet, mask, nc, T=problem.T, axis=problem.magnet_axis, retention=retention)
-                 for magnet, mask in groups])
-        law = None if not laws else laws[0] if len(laws) == 1 else MagnetLaws2D(laws)
+        law = _magnet_law(problem, groups, demag=demag, retention=retention)
         em = solve_nonlinear_2d_newton(
             space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnet_law=law,
             dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values,
@@ -249,15 +244,56 @@ def solve_problem2d(
         )
     else:
         raise ValueError("method должен быть 'newton' | 'picard'.")
+    return Solution2D(problem=problem, field=em, risk=_risk_map(problem, em, groups, retention))
 
-    risk = None
-    if groups:
-        # История нагружения (если задана) идёт и в карту: потеря считается по r_eff = min(история, сейчас),
-        # иначе прежнее повреждение в отчёте пропало бы (Л-100).
-        maps = [compute_demag_risk_map(magnet, em, mask, T=problem.T, axis=problem.magnet_axis,
-                                       retention=retention) for magnet, mask in groups]
-        risk = maps[0] if len(maps) == 1 else merge_risk_maps(maps)
-    return Solution2D(problem=problem, field=em, risk=risk)
+
+def restore_problem2d(problem: Problem2D, a, *, demag: bool = True, retention=None,
+                      tol: float = 1.0e-6) -> Solution2D:
+    """
+    Решение по сохранённому узловому A_z (например, из файла расчёта) — без итераций: та же постановка,
+    что у `solve_problem2d(method='newton')` (`_common_inputs`, `_reluctivity_newton`, `_magnet_law`), и та
+    же дискретная задача (`evaluate_nonlinear_2d_newton`). `demag`, `retention` — те, с которыми A получен.
+    Итераций 0; история невязки — (R₀, R(A)), и R(A)/R₀ — то же отношение, по которому решатель ставит
+    «сошлось»: у A, сохранённого тем же кодом из решения той же задачи, оно то же, что при решении; если
+    с тех пор изменились уравнения (материалы, модель магнита, токи, сетка), оно больше — по нему
+    вызывающий и судит, годится ли сохранённое поле (Л-80). Карта риска — как у `solve_problem2d`.
+    """
+    problem.check()
+    space, j, groups = _common_inputs(problem)
+    nu_and_dnu, _ = _reluctivity_newton(problem)
+    em = evaluate_nonlinear_2d_newton(
+        space, nu_and_dnu, a, j_cells=j, magnet_law=_magnet_law(problem, groups, demag=demag, retention=retention),
+        dirichlet_dofs=problem.dirichlet_dofs, dirichlet_values=problem.dirichlet_values, tol=tol,
+    )
+    return Solution2D(problem=problem, field=em, risk=_risk_map(problem, em, groups, retention))
+
+
+def _common_inputs(problem: Problem2D):
+    """Пространство P1, источник тока μ₀·J по ячейкам и магниты по маркам — общее для решения и восстановления."""
+    space = LagrangeP1Space2D(problem.mesh)
+    j = None if problem.j_cells is None else MU0 * np.asarray(problem.j_cells, dtype=float)
+    return space, j, problem.magnet_groups()
+
+
+def _magnet_law(problem: Problem2D, groups, *, demag: bool, retention):
+    """Закон магнитов в касательной: у каждой марки свой на своих ячейках (None — магнитов нет или demag выключен)."""
+    if not groups or not demag:
+        return None
+    nc = problem.mesh.n_cells
+    laws = [MagnetLaw2D(magnet, mask, nc, T=problem.T, axis=problem.magnet_axis, retention=retention)
+            for magnet, mask in groups]
+    return laws[0] if len(laws) == 1 else MagnetLaws2D(laws)
+
+
+def _risk_map(problem: Problem2D, em, groups, retention):
+    """Карта риска по ячейкам магнитов с коленом своей марки (None — магнитов нет)."""
+    if not groups:
+        return None
+    # История нагружения (если задана) идёт и в карту: потеря считается по r_eff = min(история, сейчас),
+    # иначе прежнее повреждение в отчёте пропало бы (Л-100).
+    maps = [compute_demag_risk_map(magnet, em, mask, T=problem.T, axis=problem.magnet_axis,
+                                   retention=retention) for magnet, mask in groups]
+    return maps[0] if len(maps) == 1 else merge_risk_maps(maps)
 
 
 def _joint_source(policies):

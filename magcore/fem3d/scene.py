@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-
 import numpy as np
 
 from magcore.fem2d.model.materials import Air, LinearMaterial, MagnetMaterial, SteelMaterial
@@ -10,6 +8,7 @@ from magcore.fem3d.objects import ARROWS_ALONG, ARROWS_MAX, MagnetArrows, _evenl
 from magcore.fem3d.postprocess import _cells_of, plane_polygons, section_triangles
 from magcore.fem3d.problem import Problem3D
 from magcore.fem3d.scalar import ScalarField3D
+from magcore.packing import pack, unpack  # noqa: F401 — общие с 2D (файл расчёта); прежние импорты из scene
 
 # СЦЕНА ОБЪЁМНОГО ВИДА (этап 3D-5, план — docs/plan_3d_2026-09-11.md). Всё, что рисует браузер, —
 # треугольники в глобальных координатах, у каждого — номер ячейки сетки; величины поля — по ячейкам.
@@ -19,17 +18,6 @@ from magcore.fem3d.scalar import ScalarField3D
 # Осевая линия тела на виде выходит за тело на эту долю длины с каждой стороны; длина — проекция тела
 # на ось, но не меньше его наибольшего габарита (у тонкого диска ось иначе не видна за плоскостью).
 AXIS_MARGIN = 0.15
-
-
-def pack(values, dtype) -> str:
-    """Массив → base64, порядок байтов little-endian (передача в браузер)."""
-    a = np.ascontiguousarray(np.asarray(values), dtype=np.dtype(dtype).newbyteorder("<"))
-    return base64.b64encode(a.tobytes()).decode("ascii")
-
-
-def unpack(text: str, dtype) -> np.ndarray:
-    """Обратное к `pack` (плоский массив)."""
-    return np.frombuffer(base64.b64decode(text), dtype=np.dtype(dtype).newbyteorder("<"))
 
 
 def material_kind(material) -> str:
