@@ -464,6 +464,7 @@ async function solve(quiet = false) {
       if (!availQ().includes(S.q)) S.q = 'B';
       await setQuantity(S.q);
       renderResults(); updateResults(); updateLines();
+      if (!quiet) setRPage('summary');                               // результат пришёл — сначала «Итоги», как в 2D
       const ok = j.result.converged;
       // «не сохранено» — заметно, поверх вида (как в 2D), а не мелко в строке состояния
       if (ok && via === 'none') setConv('c', '● Решено, но не сохранено — задайте рабочую папку в ⚙ · итераций ' + j.result.iters);
@@ -889,6 +890,7 @@ function applyBundle(m) {
   S.result = m.field || null;                     // сводка
   S.field3d = (m.field && m.field3d) || null;     // сетка и φ решения (этап 3D-9); в старых файлах нет — «Пересчитать поле»
   if (S.active) { renderList(); renderResults(); updateLegend(); schedulePreview(); }
+  if (S.result) setRPage('summary');               // открытый расчёт — сначала «Итоги», как в 2D
   if (S.field3d) restoreSaved();                  // поле — сразу, без пересчёта
 }
 function onStage(st) { if (st === 'geom') renderForm(); else if (st === 'mesh') renderMesh(); else if (st === 'calc') renderCalc(); }

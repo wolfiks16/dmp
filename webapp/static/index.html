@@ -34,9 +34,16 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .step.cur{color:var(--text);background:var(--panel3);box-shadow:inset 0 -2px 0 var(--accent)}
 .step.off,.step:disabled{color:var(--dim)}.step:disabled{cursor:default;background:none}
 .step-sub{color:var(--muted);font-weight:500}
+/* «Итоги»: вердикт прямо в шапке — главное число расчёта; цвет — состояние (есть повреждение / нет) */
+.sum-chip{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font:700 11px/1.35 var(--ui);background:var(--panel3);color:var(--muted);white-space:nowrap}
+.sum-chip:empty{display:none}
+.sum-chip.bad{background:color-mix(in srgb,var(--crit) 20%,transparent);color:var(--crit)}
+.sum-chip.ok{background:color-mix(in srgb,var(--good) 18%,transparent);color:var(--good)}
+/* правая панель на шаге результата: «Итоги» или «Измерение» */
+.rp-page{display:none}.rp-page.on{display:block}
 .step-sep{color:var(--dim);font-size:14px;line-height:1;padding:0 1px;user-select:none}
 .steps .btn.pri{padding:7px 14px;margin:0 3px}.steps .btn.pri:disabled{cursor:default;opacity:.45}
-@media (max-width:1320px){.step-sub{display:none}}
+@media (max-width:1320px){.step-sub{display:none}.sum-chip .w{display:none}}   /* на узком — только число */
 @media (max-width:1100px){.step{padding:7px 5px;gap:5px}.step-sep{display:none}}
 .body{flex:1;min-height:0;display:grid;--lw:250px;--rw:292px;grid-template-columns:var(--lw) 1fr var(--rw)}
 /* боковые панели сворачиваются (кнопки в шапке; на узком окне панель проекта убирается сама);
@@ -429,7 +436,8 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
     <button class="step" data-step="mat"><i class="sti"></i>Материалы</button><span class="step-sep" aria-hidden="true">›</span>
     <button class="step" data-step="calc"><i class="sti"></i>Сценарий<span class="step-sub" id="step-scn"></span></button><span class="step-sep" aria-hidden="true">›</span>
     <button class="btn pri" id="calc">Рассчитать</button><span class="step-sep" aria-hidden="true">›</span>
-    <button class="step" data-step="result"><i class="sti"></i>Результат</button>
+    <button class="step" data-step="result"><i class="sti"></i>Результат</button><span class="step-sep" aria-hidden="true">›</span>
+    <button class="step" data-step="summary"><i class="sti"></i>Итоги<span class="sum-chip" id="step-sum"></span></button>
   </nav>
   <span class="spacer"></span>
   <div class="tools"><button class="tbtn" id="tog-right" aria-pressed="true" title="Панель результатов: скрыть или показать"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="14" height="12" rx="1.5"/><path d="M12 4v12"/></svg></button><div class="seg" id="dimseg"><button class="on" data-dim="2" title="2D-проекты: двигатель и свободная геометрия">2D</button><button data-dim="3" title="Свободная геометрия 3D">3D</button></div><button class="tbtn" id="set-btn" title="Настройки">⚙</button><button class="tbtn" title="скоро">?</button></div>
@@ -687,9 +695,11 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
       <!-- РЕЗУЛЬТАТЫ -->
       <div id="res-empty" style="display:none;padding:14px;color:var(--muted);font-size:12.5px;line-height:1.5">Сначала произведите расчёт («Рассчитать»). Затем здесь появятся поля, распределения и графики.</div>
       <div class="rp-stage on" id="res-stage" data-stage="result">
-        <!-- итог расчёта — первым: недостоверность, вердикт по магнитам, сводка -->
-        <div id="res-top"><div id="res-verdict"></div>
-          <h4>Сводка</h4><ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul><hr></div>
+        <!-- «Итоги» (шаг в шапке): недостоверность, вердикт по магнитам, сводка -->
+        <div class="rp-page on" data-page="summary"><div id="res-top"><div id="res-verdict"></div>
+          <h4>Сводка</h4><ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul></div></div>
+        <!-- «Измерение»: инструмент, выбранный над видом, и его результат -->
+        <div class="rp-page" data-page="measure">
         <div class="rp-tool" data-tool="view"><p class="hint">Что измерить — над видом: точка, линия или окружность.</p></div>
         <div class="rp-tool" data-tool="point">
           <p class="hint">Задай координаты или кликни по вьюпорту.</p>
@@ -725,12 +735,14 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <button class="applybtn" id="loss-run">▶ Рассчитать потери</button>
           <div id="loss-out"></div>
         </div>
+        </div>
       </div>
       <div class="needsolve" id="needsolve"></div>
       <div id="res3d" style="display:none">
         <div id="r3-empty" style="padding:4px 2px 12px;color:var(--muted);font-size:12.5px;line-height:1.5">Добавьте тела кнопками над видом, задайте материал и размеры (✎ в дереве слева), затем «Рассчитать» в шапке. Здесь появятся поле, риск размагничивания, сила, момент и поток.</div>
         <div id="r3-body" style="display:none">
-          <!-- вердикт по магнитам — первым: ради него считаем (Л-104) -->
+          <!-- «Итоги» (шаг в шапке): вердикт по магнитам — ради него считаем (Л-104), сводка, тела -->
+          <div class="rp-page on" data-page="summary">
           <div id="r3-demag-wrap"><h4>Вердикт по магнитам</h4>
             <div id="r3-demag"></div>
             <details class="why"><summary>Как считается вердикт</summary>
@@ -739,7 +751,9 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button><hr></div>
           <h4>Сводка</h4><ul class="res" id="r3-sum"></ul>
           <h4 style="margin-top:14px">Тела</h4><table class="s3tab" id="r3-objs"></table>
-          <hr>
+          </div>
+          <!-- «Измерение»: сила и момент, поток через разрез -->
+          <div class="rp-page" data-page="measure">
           <h4>Сила и момент</h4>
           <p class="hint">Отмеченные тела считаются одним телом. Оно должно быть отделено от остальных воздухом (пусть тонким зазором).</p>
           <div class="chks" id="r3-bodies"></div>
@@ -751,6 +765,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <p class="hint">Плоскость — текущий разрез (строка под видом); тела — отмеченные выше, если ни одно не отмечено — вся область.</p>
           <button class="applybtn" id="r3-flux">Поток через разрез</button>
           <div class="r3out" id="r3-flux-out"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1487,7 +1502,7 @@ function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;V
   if(d.torque!==undefined)rows.push({k:'Момент',v:d.torque.toFixed(3)+' Н·м'});
   rows.push({k:'Энергия',v:d.energy.toFixed(3)+' Дж'},{k:'Макс B (в углу, зависит от сетки)',v:d.Bmax+' Тл'},{k:'Средняя B',v:d.Bmean+' Тл'});
   if(d.Bd_mean!==undefined)rows.push({k:'B_d мин (одна ячейка, зависит от сетки)',v:d.Bd_worst+' Тл'},{k:'Ячеек магнита за коленом',v:d.n_demag+' из '+d.n_mag});
-  summary(rows);setTool(TOOL);updateRtools();updateResults();updateViewBar();}
+  summary(rows);setTool(TOOL);updateRtools();updateResults();updateViewBar();setRPage('summary');}
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function solve(){if(!MESH_ID){$('err').textContent='Сначала постройте модель.';$('err').style.display='block';return;}
   if(meshStale()){setConv('c','● Сетка устарела: геометрия изменена после построения — постройте сетку заново');return;}
@@ -1716,9 +1731,28 @@ function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn];
 // Выбор сценария в окне: переключает статику (calc) ↔ динамику (s3), заголовок — имя сценария.
 function onScnChange(v){setScenario(v);setStage(v==='dynamic'?'s3':'calc');}
 // Переход к этапу — из дерева проекта и из строки шагов в шапке.
+// Правая панель на шаге результата — две страницы (одинаково в 2D и 3D): «Итоги» — вердикт по магнитам и сводка,
+// «Измерение» — инструмент над видом и его результат. «Итоги» открывают шаг в шапке и приход результата,
+// «Измерение» — шаг «Результат» и выбор инструмента.
+let RPAGE='summary';
+function setRPage(p){RPAGE=p;document.querySelectorAll('.rp-page').forEach(e=>e.classList.toggle('on',e.dataset.page===p));
+  $('rp-head').textContent=p==='summary'?'Итоги':'Измерение';updateSteps();}
+function hasResult(){return MODE==='objects3d'?!!(window.WS3D&&WS3D.hasResult()):!!BX;}
+// Вердикт одной меткой в шапке: 3D — потеря потока всех магнитов (Л-104), 2D — доля площади за коленом.
+const pct1=x=>{const v=100*x;return (v>0&&v<0.1?v.toFixed(2):v.toFixed(1))+'\u00a0%';};
+const sumChip=(cls,word,val)=>({cls,html:'<span class="w">'+word+'</span>'+val});
+function summaryVerdict(){
+  if(MODE==='objects3d'){const r=window.WS3D&&WS3D.result();
+    if(!r||!r.demag||!r.demag.length||r.flux_loss_total==null)return null;
+    return r.flux_loss_total>1e-6?sumChip('bad','потеря\u00a0',pct1(r.flux_loss_total)):sumChip('ok','потеря\u00a0','0\u00a0%');}
+  const d=LAST_FIELD;if(!BX||!d||d.demag_frac==null)return null;
+  return d.demag_frac>0?sumChip('bad','за коленом\u00a0',pct1(d.demag_frac)):sumChip('ok','за коленом\u00a0','0\u00a0%');}
 function goStage(st,tool){
-  // Результаты доступны только после расчёта — иначе предупреждаем.
-  if(st==='result'&&MODE!=='objects3d'&&!BX){setConv('c','● сначала произведите расчёт («Рассчитать»)');return;}
+  // Итоги и результаты доступны только после расчёта — иначе предупреждаем.
+  if((st==='summary'||st==='result')&&!hasResult()){setConv('c','● сначала произведите расчёт («Рассчитать»)');return;}
+  if(st==='summary'){if(document.querySelector('.body').classList.contains('noright'))setPanel('right',true);
+    setStage('result');setRPage('summary');return;}
+  if(st==='result'){setStage('result');if(tool)setTool(tool);setRPage('measure');return;}
   // Правка модели: нет проекта / расчёт готов → блок + подсказка (нужно «Редактировать»).
   if((st==='geom'||st==='mesh'||st==='mat'||st==='calc')&&editGuard())return;
   if(tool)setTool(tool);
@@ -1735,15 +1769,17 @@ function updateSteps(){updateRtools();if(!STEPS_ON||!$('steps'))return;
   const geom=!np&&nObj>0,meshOld=!np&&!d3&&meshStale();
   const mesh=!np&&(d3?!!(W3&&W3.hasModel()):!!MESH_ID&&!meshOld);
   const solved=!np&&(d3?!!(W3&&W3.hasResult()):!!BX);
-  const cur=(STAGE==='s3'?'calc':STAGE==='result'?(solved?'result':''):STAGE);
+  const cur=(STAGE==='s3'?'calc':STAGE==='result'?(solved?(RPAGE==='summary'?'summary':'result'):''):STAGE);
   const S={geom:[geom,false,geom?'Геометрия задана':'Тел ещё нет — добавьте'],
     mesh:[mesh,meshOld,mesh?'Сетка построена':meshOld?'Сетка устарела: геометрия изменена после построения':'Сетка не построена'],
     mat:[geom,false,geom?'Материалы назначены':'Сначала задайте геометрию'],
     calc:[false,false,'Сценарий расчёта'],
-    result:[solved,false,solved?'Расчёт готов — показать результат':'Результат появится после расчёта']};
+    result:[solved,false,solved?'Поле и измерения':'Результат появится после расчёта'],
+    summary:[solved,false,solved?'Итоги расчёта: вердикт по магнитам и сводка':'Итоги появятся после расчёта']};
   document.querySelectorAll('#steps .step').forEach(b=>{const k=b.dataset.step,s=S[k];
     b.classList.toggle('done',s[0]);b.classList.toggle('old',s[1]);b.classList.toggle('cur',cur===k);b.classList.toggle('off',np);
-    b.title=np?'Сначала создайте проект':s[2];if(k==='result')b.disabled=!solved;});
+    b.title=np?'Сначала создайте проект':s[2];if(k==='result'||k==='summary')b.disabled=!solved;});
+  const v=solved?summaryVerdict():null,c=$('step-sum');c.className='sum-chip'+(v?' '+v.cls:'');c.innerHTML=v?v.html:'';
   const sb=document.querySelector('#steps [data-step="calc"]'),col={magneto:'var(--good)',thermostatic:'var(--warn)',dynamic:'var(--crit)'}[SCENARIO]||'var(--good)';
   if(sb){const i=sb.querySelector('.sti');i.style.background=np?'':col;i.style.borderColor=np?'':col;}
   $('step-scn').textContent=np?'':': '+(d3?'магнитостатика 3D':(SCN_NAME[SCENARIO]||'').toLowerCase());
@@ -1837,7 +1873,7 @@ function updateExcitations(){const body=$('exc-body');if(!body)return;
   }else{const ex=OBJECTS.filter(o=>!isMagnet(o.material)&&Math.abs(o.current||0)>0);
     body.innerHTML=ex.length?ex.map(o=>'<div class="node i1"><span class="ic">↯</span>'+o.name+' <span class="tag mat">'+(o.current/1e6)+' А/мм²</span></div>').join('')
       :'<div class="node i1" style="color:var(--dim)"><span class="ic">↯</span>не задано</div>';}}
-document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');});
+document.querySelectorAll('#rseg button').forEach(b=>b.onclick=()=>{const t=b.dataset.tool;setTool(TOOL===t?'view':t);if(TOOL!=='view')setStage('result');setRPage('measure');});
 $('toppalette').addEventListener('click',e=>{const b=e.target.closest('[data-add]');if(!b)return;if(editGuard())return;startDraw(b.dataset.add);});
 $('snaptog').onchange=e=>{SNAP=e.target.checked;draw();};
 $('snapstep').onchange=e=>{SNAPSTEP=Math.max(0.1,+e.target.value||1);draw();};
