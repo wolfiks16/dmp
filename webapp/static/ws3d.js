@@ -29,7 +29,8 @@ const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20,
   field3d: null, restoring: false, restoreNote: '',     // сетка и φ решения для файла расчёта (этап 3D-9)
   sec: { axis: 'off', pos: 0, flip: false, lo: -50, hi: 50 }, secData: null, secSeq: 0, secTimer: 0,
   bodies: new Set(), opacity: 1, pvTimer: 0, pvSeq: 0, pvBBox: null, pvAxes: null, pvArrows: null, pvArrowsOn: false,
-  cells: {}, regionKey: {}, regionRGB: {}, stepFiles: {}, linesData: null, secLinesData: null });
+  cells: {}, regionKey: {}, regionRGB: {}, stepFiles: {}, linesData: null, secLinesData: null,
+  fluxBodies: new Set(), m3out: {}, m3seq: 0 });    // измерения: тела для потока, последний результат инструмента
 // Показ осей, стрелок и силовых линий — настройка вида, а не расчёта: живёт вне fresh() и не сбрасывается
 // при смене проекта.
 const S = Object.assign(fresh(), { viewer: null, active: false, showCoordAxes: true, showBodyAxes: true,
@@ -256,6 +257,7 @@ function dropModel() {
   S.model = null; S.result = null; S.values = null; S.secData = null; S.cells = {};
   S.field3d = null; S.restoreNote = '';
   S.linesData = null; S.secLinesData = null;
+  S.m3out = {}; if (S.viewer) S.viewer.setProbe(null);
   if (S.viewer) S.viewer.setSection(null);
   if (had) { $('st-cells').textContent = ''; $('st-iters').textContent = ''; renderResults(); updateLegend(); updateResults(); }
 }
@@ -460,6 +462,7 @@ async function solve(quiet = false) {
       }
       S.result = j.result;
       S.linesData = S.secLinesData = null;                           // поле пересчитано — линии строить заново
+      S.m3out = {};                                                  // и измерения — заново
       if (quiet && S.field3d) markDirty();                           // пересчёт открытого файла — сохранить с полем
       if (!availQ().includes(S.q)) S.q = 'B';
       await setQuantity(S.q);
@@ -518,7 +521,7 @@ async function restoreSaved() {
   try { d = await post('/api/3d/scene', { model_id: r.model_id }); } catch (e) { fail('Поле не открыто: сервер недоступен (' + e + ').'); return; }
   if (moved()) return;
   if (d.error) { fail('Поле не открыто: ' + d.error); return; }
-  S.model = d; S.modelKey = key; S.values = null; S.secData = null; S.restoring = false; S.restoreNote = '';
+  S.model = d; S.modelKey = key; S.values = null; S.secData = null; S.restoring = false; S.restoreNote = ''; S.m3out = {};
   if (S.active) showModel();
   $('st-cells').textContent = 'Сетка ' + d.n_cells + ' эл.';
   if (!availQ().includes(S.q)) S.q = 'B';
@@ -528,6 +531,7 @@ async function restoreSaved() {
 }
 function clearResult() {
   S.result = null; S.values = null; S.linesData = S.secLinesData = null; S.field3d = null;
+  S.m3out = {}; if (S.viewer) S.viewer.setProbe(null);
   updateLines();
   recolor(); renderResults(); updateLegend(); updateResults();
   if (S.secData && S.viewer) S.viewer.setSectionColors(sectionColors());
@@ -820,10 +824,11 @@ function renderResults() {
   const names = r.objects.map(o => o.name);
   for (const b of [...S.bodies]) if (!names.includes(b)) S.bodies.delete(b);
   $('r3-bodies').innerHTML = names.map(n => '<label class="chk"><input type="checkbox" data-body="' + esc(n) + '"' + (S.bodies.has(n) ? ' checked' : '') + '>' + esc(n) + '</label>').join('');
+  fillMeasureBodies(names);
 }
 async function force() {
   const out = $('r3-force-out');
-  if (!S.model || !S.values) { out.textContent = 'Сначала пересчитайте поле (кнопка выше).'; return; }
+  if (!S.model || !S.values) { out.textContent = NO_FIELD; return; }
   if (!S.bodies.size) { out.textContent = 'Отметьте хотя бы одно тело.'; return; }
   const body = { model_id: S.model.model_id, bodies: [...S.bodies] };
   if ($('r3-tpoint').value === 'o') body.point_mm = [0, 0, 0];
@@ -836,16 +841,120 @@ async function force() {
 }
 async function flux() {
   const out = $('r3-flux-out');
-  if (!S.model || !S.values) { out.textContent = 'Сначала пересчитайте поле (кнопка выше).'; return; }
+  if (!S.model || !S.values) { out.textContent = NO_FIELD; return; }
   if (S.sec.axis === 'off') { out.textContent = 'Включите разрез (X, Y или Z) в строке под видом.'; return; }
   const n = VEC[S.sec.axis], body = { model_id: S.model.model_id, point_mm: n.map(c => c * S.sec.pos), normal: n };
-  if (S.bodies.size) body.objects = [...S.bodies];
+  if (S.fluxBodies.size) body.objects = [...S.fluxBodies];
   const d = await post('/api/3d/flux', body);
   if (d.error) { out.textContent = '⚠ ' + d.error; return; }
-  const phi = d.flux_Wb, ax = S.sec.axis.toUpperCase();
-  out.textContent = 'Φ = ' + (Math.abs(phi) < 1e-3 ? fmt(phi * 1e6, 4) + ' мкВб' : fmt(phi * 1e3, 4) + ' мВб')
-    + '\nплоскость ' + ax + ' = ' + fmt(S.sec.pos, 2) + ' мм, нормаль +' + ax
-    + (S.bodies.size ? '\nтела: ' + [...S.bodies].join(', ') : '\nвся область');
+  const ax = S.sec.axis.toUpperCase();
+  out.textContent = 'Φ = ' + fmtWb(d.flux_Wb) + '\nплоскость ' + ax + ' = ' + fmt(S.sec.pos, 2) + ' мм, нормаль +' + ax
+    + (S.fluxBodies.size ? '\nтела: ' + [...S.fluxBodies].join(', ') : '\nвся область');
+}
+const NO_FIELD = 'Поле этого расчёта не открыто — «Пересчитать поле» в «Итогах».';
+
+// ---------------------------------------------------------------- измерения (пункт 6 плана интерфейса)
+// Инструменты те же, что в 2D (index.html: TOOL_NAME, setTool). Точка, линия, окружность, гармоники, по телу,
+// насыщение — числа с сервера (/api/3d/probe, body_mean, saturation: значения ячеек, точка вне сетки — null), вид
+// результата — общие функции страницы (pointHTML, chart, harmHTML, bodyHTML, satHTML). Координаты — числами, мм.
+const M3 = new Set(['point', 'line', 'circle', 'harm', 'body', 'sat']);
+const xyz = pre => ['x', 'y', 'z'].map(a => +$(pre + a).value);
+const nums = a => a.map(v => v == null ? NaN : v);
+const clampN = (v, d, lo, hi) => { const n = Math.round(+v); return Number.isFinite(n) && n >= lo ? Math.min(n, hi) : d; };
+const bodyLabel = n => n === 'domain' ? 'воздух' : n;
+// Базис плоскости окружности — как circle_basis на сервере для осей координат: нормаль Z — θ от +X к +Y,
+// X — от +Y к +Z, Y — от +Z к +X.
+const CBASIS = { x: [[0, 1, 0], [0, 0, 1]], y: [[0, 0, 1], [1, 0, 0]], z: [[1, 0, 0], [0, 1, 0]] };
+const circleDef = () => ({ center_mm: xyz('m3c'), normal: VEC[$('m3cn').value], radius_mm: +$('m3cr').value,
+  n: clampN($('m3cN').value, 180, 3, 2000) });
+// Где меряем — на виде: точка — перекрестие, отрезок и окружность — линией поверх тел (viewer3d.setProbe).
+function probeShape(t) {
+  if (t === 'point') return { points: xyz('m3p'), point: true };
+  if (t === 'line') return { points: [...xyz('m3l1'), ...xyz('m3l2')] };
+  if (t === 'circle' || t === 'harm') {
+    const c = xyz('m3c'), r = +$('m3cr').value, [e1, e2] = CBASIS[$('m3cn').value], pts = [];
+    if (!(r > 0)) return null;
+    for (let i = 0; i < 96; i++) {
+      const a = 2 * Math.PI * i / 96;
+      for (let k = 0; k < 3; k++) pts.push(c[k] + r * (Math.cos(a) * e1[k] + Math.sin(a) * e2[k]));
+    }
+    return { points: pts, closed: true };
+  }
+  return null;
+}
+function showProbe() {
+  if (!S.viewer) return;
+  const sh = S.active && STAGE === 'result' && S.result ? probeShape(TOOL) : null;
+  S.viewer.setProbe(sh && sh.points.every(Number.isFinite) ? sh : null);
+}
+// Тела для «По телу» (по умолчанию — первый магнит) и для потока через разрез.
+function fillMeasureBodies(names) {
+  const sel = $('m3b-body'), cur = sel.value;
+  sel.innerHTML = names.map(n => '<option value="' + esc(n) + '">' + esc(n) + '</option>').join('');
+  const mag = S.objects.find(o => kindOf(o.material) === 'magnet' && names.includes(o.name));
+  sel.value = names.includes(cur) ? cur : mag ? mag.name : (names[0] || '');
+  for (const b of [...S.fluxBodies]) if (!names.includes(b)) S.fluxBodies.delete(b);
+  $('r3-bodies-flux').innerHTML = names.map(n => '<label class="chk"><input type="checkbox" data-body="' + esc(n) + '"'
+    + (S.fluxBodies.has(n) ? ' checked' : '') + '>' + esc(n) + '</label>').join('');
+}
+// Выбран инструмент (index.html: setTool): проба на виде; результат — последний посчитанный, а при первом выборе
+// инструмента — сразу по форме по умолчанию.
+function onTool(t) {
+  showProbe();
+  $('m3-out').innerHTML = M3.has(t) ? (S.m3out[t] || '') : '';      // у силы и потока — свой вывод в их разделах
+  if (M3.has(t) && !S.m3out[t] && S.model && S.values) measure(t);
+}
+async function measure(t) {
+  const out = $('m3-out');
+  if (!S.model || !S.values) { out.innerHTML = '<p class="hint">' + NO_FIELD + '</p>'; return; }
+  const mid = S.model.model_id, seq = ++S.m3seq;
+  out.innerHTML = '<p class="hint">Считаю…</p>';
+  let html;
+  try { html = await measureHTML(t, mid); } catch (e) { html = '<p class="hint" style="color:var(--crit)">⚠ ' + esc(e.message || e) + '</p>'; }
+  if (seq !== S.m3seq || !S.model || S.model.model_id !== mid) return;      // пока считали — выбрали другое
+  S.m3out[t] = html;
+  if (TOOL === t) out.innerHTML = html;
+}
+async function ask(url, body) { const d = await post(url, body); if (d.error) throw new Error(d.error); return d; }
+async function measureHTML(t, mid) {
+  if (t === 'point') {
+    const p = xyz('m3p'), d = await ask('/api/3d/probe', { model_id: mid, kind: 'point', point_mm: p });
+    if (d.outside) return '<div class="reshead">Точка вне сетки</div>';
+    return pointHTML('Точка (' + p.join('; ') + ') мм · ' + esc(bodyLabel(d.body[0])), [d.Bx[0], d.By[0], d.Bz[0]], [d.Hx[0], d.Hy[0], d.Hz[0]]);
+  }
+  if (t === 'line') {
+    const d = await ask('/api/3d/probe', { model_id: mid, kind: 'line', p1_mm: xyz('m3l1'), p2_mm: xyz('m3l2'), n: clampN($('m3ln').value, 60, 2, 2000) });
+    const L = d.s_mm[d.s_mm.length - 1], X = d.s_mm.map(s => L > 0 ? s / L : 0), c = { Bx: nums(d.Bx), By: nums(d.By), Bz: nums(d.Bz) };
+    c.B = c.Bx.map((x, i) => Math.hypot(x, c.By[i], c.Bz[i]));
+    const se = [['B', TH.s1], ['Bx', TH.s2], ['By', TH.s3], ['Bz', TH.s4]].filter(([k]) => $('m3lc-' + k).checked)
+      .map(([k, color]) => ({ pts: X.map((x, i) => [x, c[k][i]]), color, label: k }));
+    return '<div class="reshead">Вдоль линии · ' + X.length + ' точек · ' + sig3(L) + ' мм</div>'
+      + (se.length ? chart(se, '0', sig3(L) + ' мм', 'Тл') + leg(se) : '<p class="hint">Выберите компоненту.</p>') + outsideNote(d.outside, X.length);
+  }
+  if (t === 'circle' || t === 'harm') {
+    const cd = circleDef(), d = await ask('/api/3d/probe', { model_id: mid, kind: 'circle', ...cd });
+    const c = { Br: nums(d.Br), Bt: nums(d.Bt), Bn: nums(d.Bn) };
+    if (t === 'harm') return harmHTML(c.Br, clampN($('m3hk').value, 20, 1, 200), 'Гармоники B_r · r\u00a0=\u00a0' + cd.radius_mm + ' мм · ' + c.Br.length + ' точек');
+    c.B = nums(d.Bx).map((x, i) => Math.hypot(x, d.By[i], d.Bz[i]));
+    const se = [['Br', TH.s2, 'Br'], ['Bt', TH.s3, 'Bθ'], ['Bn', TH.s4, 'Bn'], ['B', TH.s1, 'B']].filter(([k]) => $('m3cc-' + k).checked)
+      .map(([k, color, label]) => ({ pts: ring(c[k]), color, label }));
+    return '<div class="reshead">Вдоль окружности · ' + c.Br.length + ' точек</div>'
+      + (se.length ? chart(se, '0°', '360°', 'Тл') + leg(se) : '<p class="hint">Выберите компоненту.</p>') + outsideNote(d.outside, c.Br.length);
+  }
+  if (t === 'body') {
+    const name = $('m3b-body').value;
+    if (!name) return '<p class="hint">Выберите тело.</p>';
+    const d = await ask('/api/3d/body_mean', { model_id: mid, body: name });
+    return bodyHTML({ name: d.body, size: sig3(d.volume_cm3) + '\u00a0см³', B: d.B_mean, Babs: d.B_abs_mean, H: d.H_mean_kA,
+      magnet: d.magnet, Bd: d.Bd, Hd: d.Hd_kA, Pc: d.Pc == null ? Infinity : d.Pc }, 'Объём');
+  }
+  if (t === 'sat') {
+    const thr = +$('m3-thr').value;
+    if (!(thr >= 0)) return '<p class="hint">Порог — неотрицательное число, Тл.</p>';
+    const d = await ask('/api/3d/saturation', { model_id: mid, threshold_T: thr });
+    return satHTML(d.steel.map(r => ({ name: r.body, B_max: r.B_max, frac: r.fraction_above })), thr);
+  }
+  return '';
 }
 
 // ---------------------------------------------------------------- связь со страницей
@@ -864,7 +973,7 @@ function reset() {
   Object.assign(S, fresh(), { viewer: v, active: act, fitCount: -1 });
   if (v) {
     v.setObjects([]); v.setSection(null); v.setClip(null);
-    v.setCoordAxes(null); v.setBodyAxes(null); v.setArrows(null); v.setFieldLines(null);
+    v.setCoordAxes(null); v.setBodyAxes(null); v.setArrows(null); v.setFieldLines(null); v.setProbe(null);
   }
   document.querySelectorAll('#sec3d-axis button').forEach(b => b.classList.toggle('on', b.dataset.ax === 'off'));
   $('vt3-sec').hidden = true;
@@ -893,7 +1002,7 @@ function applyBundle(m) {
   if (S.result) setRPage('summary');               // открытый расчёт — сначала «Итоги», как в 2D
   if (S.field3d) restoreSaved();                  // поле — сразу, без пересчёта
 }
-function onStage(st) { if (st === 'geom') renderForm(); else if (st === 'mesh') renderMesh(); else if (st === 'calc') renderCalc(); }
+function onStage(st) { if (S.viewer) S.viewer.setProbe(null); if (st === 'geom') renderForm(); else if (st === 'mesh') renderMesh(); else if (st === 'calc') renderCalc(); }
 async function onBuild(stage) {
   if (stage === 'mesh') { if (await buildModel()) setStage('result'); return; }
   setStage('result');                              // правки тела применяются сразу — окно просто закрыть
@@ -959,6 +1068,10 @@ function bindUI() {
   $('r3-bodies').addEventListener('change', e => { const n = e.target.dataset.body; if (n === undefined) return; if (e.target.checked) S.bodies.add(n); else S.bodies.delete(n); });
   $('r3-force').onclick = force;
   $('r3-flux').onclick = flux;
+  $('r3-bodies-flux').addEventListener('change', e => { const n = e.target.dataset.body; if (n === undefined) return; if (e.target.checked) S.fluxBodies.add(n); else S.fluxBodies.delete(n); });
+  document.querySelectorAll('[data-run3]').forEach(b => b.onclick = () => measure(b.dataset.run3));
+  $('m3b-body').onchange = () => measure('body');                    // как в 2D: тело выбрано — средние сразу
+  $('res3d').addEventListener('input', e => { if (e.target.closest('.rp-tool')) showProbe(); });   // проба на виде — по мере ввода
   $('r3-restore-btn').onclick = restoreField;
   $('v-vtu').onclick = () => {
     if (!S.model || !S.values) { toast('Сначала пересчитайте поле.', 'warn'); return; }
@@ -969,7 +1082,7 @@ function bindUI() {
   Menu.bind($('v3-view'), $('v3-view-menu'), v => { setView(+v); Menu.check($('v3-view-menu'), v); });
 }
 
-window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes,
+window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes, onTool,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
   // строка вида (index.html): состояние переключателей 3D и есть ли разрез
   viewFlags: () => ({ arrows: S.showArrows, lines: S.showLines, n: S.linesN, color: S.onSurf }), sectionOn: () => S.sec.axis !== 'off',

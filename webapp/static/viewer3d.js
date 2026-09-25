@@ -14,13 +14,14 @@ const CSSV = (k, d) => getComputedStyle(document.documentElement).getPropertyVal
 const hex = s => new THREE.Color(s).getHex();
 const AXIS_COL = ['#e5544e', '#42c25a', '#4d8bff'];                // X, Y, Z — как у тройки осей в углу
 const GHOST = 0.28;                          // яркость участков осей, скрытых телами (как невидимые линии в CAD)
-let BG, EDGE, EDGE_SEL, BODY_AXIS, BODY_AXIS_SEL, ARROW, LABEL, LABEL_HALO;
+let BG, EDGE, EDGE_SEL, BODY_AXIS, BODY_AXIS_SEL, ARROW, LABEL, LABEL_HALO, PROBE;
 function readTheme() {
   BG = hex(CSSV('--cv-bg', '#0a0f18'));
   EDGE = hex(CSSV('--v3-edge', '#0b111b')); EDGE_SEL = hex(CSSV('--cv-sel', '#2fd39c'));
   BODY_AXIS = hex(CSSV('--v3-body-axis', '#8a9cc0')); BODY_AXIS_SEL = EDGE_SEL;
   ARROW = hex(CSSV('--cv-arrow', '#f2f5fa'));   // стрелки намагничивания — один цвет: полюса цветом не подсвечиваются
   LABEL = CSSV('--cv-label', '#c8d4ea'); LABEL_HALO = CSSV('--v3-halo', 'rgba(10,15,24,0.92)');
+  PROBE = hex(CSSV('--cv-probe', '#ffffff'));   // проба измерения — цветом пробы 2D
 }
 readTheme();
 const ARROW_BODY_ALPHA = 0.35;               // непрозрачность магнита, пока показаны его стрелки (иначе их не видно)
@@ -55,8 +56,8 @@ export class Viewer3D {
     this.items = new Map(); this.section = null; this.selected = null; this.opacity = 1; this.viewIdx = 0;
     this.clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0); this.clipOn = false;
     this.axes = new THREE.Group(); this.bodyAxes = new THREE.Group(); this.arrows = new THREE.Group();
-    this.lines = new THREE.Group();
-    this.scene.add(this.axes, this.bodyAxes, this.arrows, this.lines);
+    this.lines = new THREE.Group(); this.probe = new THREE.Group(); this.probeMats = []; this._probeDef = null;
+    this.scene.add(this.axes, this.bodyAxes, this.arrows, this.lines, this.probe);
     this.bodyAxisList = []; this.arrowList = []; this.lineMats = [];
     this._gizmo();
     this.ray = new THREE.Raycaster(); this._down = null;
@@ -308,6 +309,39 @@ export class Viewer3D {
     this._state(); this.render();
   }
 
+  // ---------------------------------------------------------------- проба измерения (пункт 6 плана интерфейса)
+  // Где меряем: p — {points (мм, по 3 числа), closed, point}: ломаная (отрезок, окружность) или перекрестие в точке.
+  // Толстая линия цвета пробы (как в 2D) двумя проходами, как у осей: видимая часть — сплошная, скрытая телами —
+  // бледно поверх (иначе окружность внутри магнита кажется лежащей на его грани). Разрез пробу не режет. null — убрать.
+  setProbe(p) {
+    this._probeDef = p || null;
+    this._clear(this.probe);
+    this.probeMats = [];
+    if (p) {
+      const pts = p.points, seg = [];
+      if (p.point) {                                            // перекрестие вдоль осей, 4 % размера модели
+        const box = new THREE.Box3();
+        for (const it of this.items.values()) box.expandByObject(it.mesh);
+        const r = 0.04 * (box.isEmpty() ? 10 : box.getSize(new THREE.Vector3()).length());
+        for (let k = 0; k < 3; k++) { const a = pts.slice(0, 3), b = pts.slice(0, 3); a[k] -= r; b[k] += r; seg.push(...a, ...b); }
+      } else {
+        const n = pts.length / 3;
+        for (let i = 0; i + 1 < n; i++) seg.push(...pts.slice(3 * i, 3 * i + 6));
+        if (p.closed && n > 2) seg.push(...pts.slice(3 * n - 3), ...pts.slice(0, 3));
+      }
+      const g = new LineSegmentsGeometry(); g.setPositions(seg);
+      for (const hidden of [false, true]) {
+        const mat = new LineMaterial({ color: PROBE, linewidth: 2.5, worldUnits: false, depthTest: !hidden, depthWrite: false,
+          transparent: hidden, opacity: hidden ? GHOST : 1 });
+        mat.resolution.set(this.w || 800, this.h || 600);
+        const m = new LineSegments2(g, mat); m.renderOrder = hidden ? 7 : 3;
+        if (hidden) m.userData.shared = true;                                  // геометрия общая — освобождать один раз
+        this.probe.add(m); this.probeMats.push(mat);
+      }
+    }
+    this.render();
+  }
+
   // Отрезки (по 6 чисел, мм) двумя проходами: видимые — с проверкой глубины, скрытые телами — бледно поверх.
   _lines(group, xyz, color) {
     const g = new THREE.BufferGeometry();
@@ -409,6 +443,7 @@ export class Viewer3D {
     this.camera.aspect = w / h; this.camera.updateProjectionMatrix();
     for (const o of this.axes.children) if (o.userData.label) this._labelScale(o);   // подписи — постоянного размера
     for (const m of (this.lineMats || [])) m.resolution.set(w, h);   // толщина линий задана в пикселях
+    for (const m of this.probeMats) m.resolution.set(w, h);
     this.render();
   }
 
@@ -439,6 +474,7 @@ export class Viewer3D {
     this._buildArrows();
     for (const o of this.lines.children) if (o.isInstancedMesh) o.material.color.setHex(ARROW);   // стрелки силовых линий
     if (this._axesBox !== undefined) this.setCoordAxes(this._axesBox);      // подписи делений — заново
+    if (this._probeDef) this.setProbe(this._probeDef);                    // проба — цветом новой темы
     this.render();
   }
 

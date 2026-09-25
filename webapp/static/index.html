@@ -135,6 +135,9 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .vmenu .vmenu.nested::before{content:'';position:absolute;left:-12px;top:0;bottom:0;width:12px}   /* мостик для мыши */
 .vmenu-sub:hover>.vmenu.nested,.vmenu-sub:focus-within>.vmenu.nested{display:block}
 .vmenu-parent .chev{width:8px;height:8px;flex:0 0 8px;margin-left:auto}
+.rseg.meas button{width:30px;height:24px;padding:0;display:inline-grid;place-items:center}.rseg.meas svg{width:18px;height:18px;display:block;pointer-events:none}
+.rseg.meas .motor-only{display:none}.rseg.meas.motor .motor-only{display:inline-grid}#res-tools .motor-only{display:none}#res-tools.motor .motor-only{display:flex}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}.row3 .field{margin-bottom:8px}.tool-h{margin:2px 0 10px}
 .q-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-width:176px}.q-btn .chev{width:8px;height:8px;flex:0 0 8px}
 #sec3d-pos{width:120px}
 .vop{display:flex;align-items:center;gap:5px;color:var(--muted);cursor:pointer}.vop svg{width:18px;height:18px;flex:0 0 18px}.vop input{width:72px}
@@ -455,9 +458,15 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
       <div class="node i2" style="cursor:default"><span class="dot" id="scn-dot" style="background:var(--good)"></span><span id="tree-scn">Выберите сценарий</span></div>
       <div class="node i1" id="res-hdr"><span class="ic">▾</span>Результаты</div>
       <div id="res-tools">
-        <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Значение в точке</div>
+        <div class="node i2" data-stage="result" data-tool="point"><span class="ic">▸</span>Поле в точке</div>
         <div class="node i2" data-stage="result" data-tool="line"><span class="ic">▸</span>Вдоль линии</div>
         <div class="node i2" data-stage="result" data-tool="circle"><span class="ic">▸</span>Вдоль окружности</div>
+        <div class="node i2" data-stage="result" data-tool="harm"><span class="ic">▸</span>Гармоники по окружности</div>
+        <div class="node i2" data-stage="result" data-tool="body"><span class="ic">▸</span>По телу</div>
+        <div class="node i2" data-stage="result" data-tool="flux"><span class="ic">▸</span>Поток через сечение</div>
+        <div class="node i2" data-stage="result" data-tool="force"><span class="ic">▸</span>Сила и момент</div>
+        <div class="node i2" data-stage="result" data-tool="sat"><span class="ic">▸</span>Насыщение стали</div>
+        <div class="node i2 motor-only" data-stage="result" data-tool="losses"><span class="ic">▸</span>Потери и КПД</div>
       </div>
     </div>
     <div class="mtree"><div class="pane-h">Модель</div>
@@ -492,8 +501,8 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div class="vmenu-wrap"><button class="btn q-btn" id="q-btn" title="Какую величину показывать цветом"><span id="q-lbl">B — модуль</span><svg class="chev" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 3 4 5.5 6.5 3"/></svg></button>
             <div class="vmenu down" id="q-menu" role="menu" aria-label="Величина" hidden></div></div>
           <label class="tg ic" title="Величина цветом; выключено — цвета материалов (в 3D поле тогда видно на разрезе)"><input type="checkbox" id="v-color" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="3.75" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".18" stroke="none"/><rect x="7.75" y="4.75" width="4.5" height="10.5" fill="currentColor" fill-opacity=".48" stroke="none"/><rect x="12.25" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".85" stroke="none"/><rect x="3" y="4" width="14" height="12" rx="1.5"/></svg><span>величина цветом</span></label></span>
-        <span class="vgrp" id="meas-2d"><span class="lbl">Измерить</span>
-          <div class="rseg" id="rseg"><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div></span>
+        <span class="vgrp" id="meas-grp"><span class="lbl">Измерить</span>
+          <div class="rseg meas" id="rseg" role="toolbar" aria-label="Измерить"><button data-tool="point" title="Поле в точке" aria-label="Поле в точке" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.5v3.5M10 14v3.5M2.5 10H6M14 10h3.5"/></svg></button><button data-tool="line" title="Вдоль линии" aria-label="Вдоль линии" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 15.5 15.5 4.5"/><circle cx="4.5" cy="15.5" r="1.7" fill="currentColor" stroke="none"/><circle cx="15.5" cy="4.5" r="1.7" fill="currentColor" stroke="none"/></svg></button><button data-tool="circle" title="Вдоль окружности" aria-label="Вдоль окружности" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="6.6"/><circle cx="10" cy="10" r="1.3" fill="currentColor" stroke="none"/></svg></button><button data-tool="harm" title="Гармоники по окружности: разложение B_r" aria-label="Гармоники по окружности" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6c1.2-3 3.3-3 4.5 0s3.3 3 4.5 0 3.3-3 4.5 0"/><path d="M4.5 17.5v-5M8.5 17.5v-3M12.5 17.5v-1.8M16.5 17.5v-1"/></svg></button><button data-tool="body" title="По телу: средние поля, рабочая точка магнита" aria-label="По телу" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.5 3.2c-1.6-.5-2.6.3-2.8 2.2l-1.2 9.2c-.3 1.9-1.3 2.7-2.8 2.2"/><rect x="10.8" y="7.5" width="6.5" height="6.5" rx="1" fill="currentColor" fill-opacity=".35"/></svg></button><button data-tool="flux" title="Поток через сечение" aria-label="Поток через сечение" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13.5 6.5 7h10.5l-3.5 6.5z"/><path d="M10 17.5V2.8M7.8 5 10 2.8 12.2 5"/></svg></button><button data-tool="force" title="Сила и момент" aria-label="Сила и момент" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="7" width="6" height="6" rx=".8"/><path d="M8.5 10h8.5M14.3 7.3 17 10l-2.7 2.7"/></svg></button><button data-tool="sat" title="Насыщение стали" aria-label="Насыщение стали" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 16.5C4.6 10.4 7.2 6.6 17 6.1"/><path d="M3 4.5h14" stroke-dasharray="2 2"/></svg></button><button data-tool="losses" class="motor-only" title="Потери и КПД двигателя" aria-label="Потери и КПД" aria-pressed="false"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.5 2.5 4.5 11.5H9l-1 6 7-9h-4.5z"/></svg></button></div></span>
       </div>
       <div class="rtgroup" id="rtools-3d" style="display:none">
         <span class="lbl">Добавить тело</span>
@@ -698,11 +707,12 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
         <!-- «Итоги» (шаг в шапке): недостоверность, вердикт по магнитам, сводка -->
         <div class="rp-page on" data-page="summary"><div id="res-top"><div id="res-verdict"></div>
           <h4>Сводка</h4><ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul></div></div>
-        <!-- «Измерение»: инструмент, выбранный над видом, и его результат -->
+        <!-- «Измерение»: инструмент, выбранный значком над видом, — форма и результат (одинаково в 2D и 3D) -->
         <div class="rp-page" data-page="measure">
-        <div class="rp-tool" data-tool="view"><p class="hint">Что измерить — над видом: точка, линия или окружность.</p></div>
+        <h4 class="tool-h" hidden></h4>
+        <div class="rp-tool" data-tool="view"><p class="hint">Что измерить — значки над видом: поле в точке, вдоль линии и окружности, гармоники, средние по телу, поток, сила и момент, насыщение стали.</p></div>
         <div class="rp-tool" data-tool="point">
-          <p class="hint">Задай координаты или кликни по вьюпорту.</p>
+          <p class="hint">Задайте координаты или щёлкните по виду.</p>
           <div class="row2"><div class="field"><label>x, мм</label><input class="num" id="px" value="15"></div><div class="field"><label>y, мм</label><input class="num" id="py" value="8"></div></div>
           <button class="applybtn" id="apply-point">Показать в точке</button>
         </div>
@@ -714,26 +724,53 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div class="chks"><label class="chk"><input type="checkbox" id="lc-mag" checked>B</label><label class="chk"><input type="checkbox" id="lc-bx">Bx</label><label class="chk"><input type="checkbox" id="lc-by">By</label></div>
           <button class="applybtn" id="apply-line">Построить распределение</button>
         </div>
-        <div class="rp-tool" data-tool="circle">
-          <div class="row2"><div class="field"><label>Центр x</label><input class="num" id="ccx" value="0"></div><div class="field"><label>Центр y</label><input class="num" id="ccy" value="0"></div></div>
+        <div class="rp-tool" data-tool="circle harm">
+          <div class="row2"><div class="field"><label>Центр x₀, мм</label><input class="num" id="ccx" value="0"></div><div class="field"><label>Центр y₀, мм</label><input class="num" id="ccy" value="0"></div></div>
           <div class="row2"><div class="field"><label>Радиус, мм</label><input class="num" id="cr" value="22.5"></div><div class="field"><label>Точек</label><input class="num" id="cn" value="180"></div></div>
+        </div>
+        <div class="rp-tool" data-tool="circle">
           <label style="font-size:11px;color:var(--muted)">Компоненты</label>
           <div class="chks"><label class="chk"><input type="checkbox" id="cc-br" checked>Br</label><label class="chk"><input type="checkbox" id="cc-bt" checked>Bθ</label><label class="chk"><input type="checkbox" id="cc-mag">B</label></div>
+          <p class="hint">B_r и B_θ — относительно центра окружности; θ — от оси +X к +Y.</p>
           <button class="applybtn" id="apply-circle">Построить распределение</button>
         </div>
+        <div class="rp-tool" data-tool="harm">
+          <div class="field"><label>Гармоник показать</label><input class="num" id="hk" value="20"></div>
+          <p class="hint">Раскладывается радиальная составляющая B_r вдоль окружности; номер гармоники k — число периодов на полный оборот. Поле берётся по ячейкам, ступеньками, поэтому высокие гармоники и искажения зависят от сетки.</p>
+          <button class="applybtn" id="apply-harm">Разложить на гармоники</button>
+        </div>
+        <div class="rp-tool" data-tool="body">
+          <div class="field"><label>Тело</label><select class="select" id="mb-body"></select></div>
+          <p class="hint">Или щёлкните по телу на виде. Средние — по площади тела; у магнита — рабочая точка вдоль оси намагничивания.</p>
+        </div>
+        <div class="rp-tool" data-tool="flux">
+          <div class="row2"><div class="field"><label>x₁, мм</label><input class="num" id="fx1" value="0"></div><div class="field"><label>y₁, мм</label><input class="num" id="fy1" value="0"></div></div>
+          <div class="row2"><div class="field"><label>x₂, мм</label><input class="num" id="fx2" value="10"></div><div class="field"><label>y₂, мм</label><input class="num" id="fy2" value="0"></div></div>
+          <p class="hint">Поток через отрезок т.1 → т.2 на метр длины — разность A_z в его концах. Плюс — поток идёт слева направо, если смотреть от т.1 к т.2 (стрелка на виде).</p>
+          <button class="applybtn" id="apply-flux">Посчитать поток</button>
+        </div>
+        <div class="rp-tool" data-tool="sat">
+          <div class="field"><label>Порог индукции, Тл</label><input class="num" id="st-thr" value="1.6"></div>
+          <p class="hint">По каждой стальной области: наибольшая |B| в ячейке (у острых углов зависит от сетки) и доля площади выше порога.</p>
+          <button class="applybtn" id="apply-sat">Проверить насыщение</button>
+        </div>
         <div id="presult"></div>
-        <div id="torque-panel" style="display:none">
-          <hr><h4>⟳ Момент от угла ротора</h4>
+        <div class="rp-tool" data-tool="force">
+          <div id="force2d-out"></div>
+          <div id="torque-panel" style="display:none">
+          <h4>Момент от угла ротора</h4>
           <div class="mrow"><label>Положений</label><input class="num" id="tq-npos" value="12" style="width:56px"><span class="u">за эл. период</span></div>
           <button class="applybtn" id="tq-run">▶ Рассчитать момент</button>
           <div id="tq-out"></div>
+          </div>
         </div>
-        <div id="loss-panel" style="display:none">
-          <hr><h4>⚡ Потери и КПД</h4>
+        <div class="rp-tool" data-tool="losses">
+          <div id="loss-panel" style="display:none">
           <div class="row2"><div class="field"><label>Скорость, об/мин</label><input class="num" id="loss-rpm" value="3000"></div><div class="field"><label>Заполнение паза k</label><input class="num" id="loss-fill" value="0.45"></div></div>
           <div class="mrow"><label>Положений</label><input class="num" id="loss-npos" value="24" style="width:56px"><span class="u">за эл. период</span></div>
           <button class="applybtn" id="loss-run">▶ Рассчитать потери</button>
           <div id="loss-out"></div>
+          </div>
         </div>
         </div>
       </div>
@@ -752,19 +789,61 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <h4>Сводка</h4><ul class="res" id="r3-sum"></ul>
           <h4 style="margin-top:14px">Тела</h4><table class="s3tab" id="r3-objs"></table>
           </div>
-          <!-- «Измерение»: сила и момент, поток через разрез -->
+          <!-- «Измерение»: инструмент, выбранный значком над видом (координаты — числами, мм) -->
           <div class="rp-page" data-page="measure">
-          <h4>Сила и момент</h4>
+          <h4 class="tool-h" hidden></h4>
+          <div class="rp-tool" data-tool="view"><p class="hint">Что измерить — значки над видом: поле в точке, вдоль линии и окружности, гармоники, средние по телу, поток, сила и момент, насыщение стали.</p></div>
+          <div class="rp-tool" data-tool="point">
+          <div class="row3"><div class="field"><label>x, мм</label><input class="num" id="m3px" value="0"></div><div class="field"><label>y, мм</label><input class="num" id="m3py" value="0"></div><div class="field"><label>z, мм</label><input class="num" id="m3pz" value="0"></div></div>
+          <button class="applybtn" data-run3="point">Показать в точке</button>
+          </div>
+          <div class="rp-tool" data-tool="line">
+          <div class="row3"><div class="field"><label>x₁, мм</label><input class="num" id="m3l1x" value="-10"></div><div class="field"><label>y₁, мм</label><input class="num" id="m3l1y" value="0"></div><div class="field"><label>z₁, мм</label><input class="num" id="m3l1z" value="0"></div></div>
+          <div class="row3"><div class="field"><label>x₂, мм</label><input class="num" id="m3l2x" value="10"></div><div class="field"><label>y₂, мм</label><input class="num" id="m3l2y" value="0"></div><div class="field"><label>z₂, мм</label><input class="num" id="m3l2z" value="0"></div></div>
+          <div class="field"><label>Число точек</label><input class="num" id="m3ln" value="60"></div>
+          <label style="font-size:11px;color:var(--muted)">Компоненты</label>
+          <div class="chks"><label class="chk"><input type="checkbox" id="m3lc-B" checked>B</label><label class="chk"><input type="checkbox" id="m3lc-Bx">Bx</label><label class="chk"><input type="checkbox" id="m3lc-By">By</label><label class="chk"><input type="checkbox" id="m3lc-Bz">Bz</label></div>
+          <button class="applybtn" data-run3="line">Построить распределение</button>
+          </div>
+          <div class="rp-tool" data-tool="circle harm">
+          <div class="row3"><div class="field"><label>x₀, мм</label><input class="num" id="m3cx" value="0"></div><div class="field"><label>y₀, мм</label><input class="num" id="m3cy" value="0"></div><div class="field"><label>z₀, мм</label><input class="num" id="m3cz" value="0"></div></div>
+          <div class="row2"><div class="field"><label>Нормаль</label><select class="select" id="m3cn"><option value="z">Z</option><option value="x">X</option><option value="y">Y</option></select></div><div class="field"><label>Радиус, мм</label><input class="num" id="m3cr" value="5"></div></div>
+          <div class="field"><label>Точек</label><input class="num" id="m3cN" value="180"></div>
+          </div>
+          <div class="rp-tool" data-tool="circle">
+          <label style="font-size:11px;color:var(--muted)">Компоненты</label>
+          <div class="chks"><label class="chk"><input type="checkbox" id="m3cc-Br" checked>Br</label><label class="chk"><input type="checkbox" id="m3cc-Bt" checked>Bθ</label><label class="chk"><input type="checkbox" id="m3cc-Bn">Bn</label><label class="chk"><input type="checkbox" id="m3cc-B">B</label></div>
+          <p class="hint">B_r и B_θ — в плоскости окружности относительно её центра, B_n — по нормали. θ: нормаль Z — от +X к +Y, X — от +Y к +Z, Y — от +Z к +X.</p>
+          <button class="applybtn" data-run3="circle">Построить распределение</button>
+          </div>
+          <div class="rp-tool" data-tool="harm">
+          <div class="field"><label>Гармоник показать</label><input class="num" id="m3hk" value="20"></div>
+          <p class="hint">Раскладывается радиальная составляющая B_r вдоль окружности; номер гармоники k — число периодов на полный оборот. Поле берётся по ячейкам, ступеньками, поэтому высокие гармоники и искажения зависят от сетки.</p>
+          <button class="applybtn" data-run3="harm">Разложить на гармоники</button>
+          </div>
+          <div class="rp-tool" data-tool="body">
+          <div class="field"><label>Тело</label><select class="select" id="m3b-body"></select></div>
+          <p class="hint">Средние — по объёму тела; у магнита — рабочая точка вдоль оси намагничивания.</p>
+          </div>
+          <div class="rp-tool" data-tool="sat">
+          <div class="field"><label>Порог индукции, Тл</label><input class="num" id="m3-thr" value="1.6"></div>
+          <p class="hint">По каждому стальному телу: наибольшая |B| в ячейке (у острых углов зависит от сетки) и доля объёма выше порога.</p>
+          <button class="applybtn" data-run3="sat">Проверить насыщение</button>
+          </div>
+          <div id="m3-out"></div>
+          <div class="rp-tool" data-tool="force">
           <p class="hint">Отмеченные тела считаются одним телом. Оно должно быть отделено от остальных воздухом (пусть тонким зазором).</p>
           <div class="chks" id="r3-bodies"></div>
           <div class="field"><label>Момент относительно</label><select class="select" id="r3-tpoint"><option value="c">центра выбранного тела</option><option value="o">начала координат</option></select></div>
           <button class="applybtn" id="r3-force">Рассчитать силу и момент</button>
           <div class="r3out" id="r3-force-out"></div>
-          <hr>
-          <h4>Поток через разрез</h4>
-          <p class="hint">Плоскость — текущий разрез (строка под видом); тела — отмеченные выше, если ни одно не отмечено — вся область.</p>
-          <button class="applybtn" id="r3-flux">Поток через разрез</button>
+          </div>
+          <div class="rp-tool" data-tool="flux">
+          <p class="hint">Плоскость — текущий разрез (строка под видом). Тела — отмеченные ниже; ни одно не отмечено — вся область.</p>
+          <div class="chks" id="r3-bodies-flux"></div>
+          <button class="applybtn" id="r3-flux">Посчитать поток</button>
           <div class="r3out" id="r3-flux-out"></div>
+          </div>
           </div>
         </div>
       </div>
@@ -911,7 +990,7 @@ function readTheme(){const cs=getComputedStyle(document.documentElement),v=(k,d)
     chGrid:v('--ch-grid','#25314a'),chAxis:v('--ch-axis','#31405d'),chText:v('--ch-text','#5d6d8a'),chTitle:v('--ch-title','#8fa2bf'),
     chTick:v('--ch-tick','#6b7c99'),chBox:v('--ch-box','#0d1420'),
     cB:v('--ch-b','#2fd39c'),cJ:v('--ch-j','#7f9dc4'),cKnee:v('--ch-knee','#e0a53a'),     // кривая материала: B(H), J(H), колено
-    s1:v('--ch-s1','#42c25a'),s2:v('--ch-s2','#e0a53a'),s3:v('--ch-s3','#4d8bff')});}     // ряды графиков: B | Bx, Br, медь | By, Bθ, железо
+    s1:v('--ch-s1','#42c25a'),s2:v('--ch-s2','#e0a53a'),s3:v('--ch-s3','#4d8bff'),s4:v('--ch-s4','#c678dd')});}     // ряды графиков: B | Bx, Br, медь | By, Bθ, железо | Bz, Bn
 readTheme();
 function regColor(rid){const r=(SCENE&&SCENE.regions[rid])||{},n=r.name||'',k=r.kind||'';
   if(n==='magnet'||k==='magnet')return TH.magnet;if(n==='slot')return TH.copper;if(n==='air_gap')return TH.gap;if(k==='steel')return TH.steel;if(k==='air')return TH.air;return TH.other;}
@@ -942,7 +1021,7 @@ function riskColor(s){const R=[229,84,78],Y=[224,165,58],G=[66,194,90];
 // Приглушить цвет области: смешать с фоном холста (доля f своего цвета) — на тёмном и на светлом фоне одинаково.
 function dimHex(hex,f){const n=parseInt(hex.slice(1),16),b=parseInt(TH.bg.slice(1),16);
   const mix=(s)=>((n>>s&255)*f+(b>>s&255)*(1-f))|0;return'rgb('+[mix(16),mix(8),mix(0)].join(',')+')';}
-const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180}};
+const P={point:{x:15,y:8},line:{x1:0,y1:6,x2:0,y2:29,n:60},circle:{cx:0,cy:0,r:22.5,n:180},flux:{x1:0,y1:0,x2:10,y2:0}};
 const cv=$('cv'),ctx=cv.getContext('2d');let W=1,H=1,scale=1,base=1,ox=0,oy=0;
 const w2s=(x,y)=>[ox+x*scale,oy-y*scale],s2w=(sx,sy)=>[(sx-ox)/scale,(oy-sy)/scale];
 function snapV(v){return SNAP?+(Math.round(v/SNAPSTEP)*SNAPSTEP).toFixed(3):+v.toFixed(1);}
@@ -1072,7 +1151,15 @@ function drawMagArrows2D(){
 function overlays(){ctx.lineWidth=1.7;
   if(TOOL==='point'){const s=w2s(P.point.x,P.point.y);ctx.strokeStyle=TH.probe;ctx.beginPath();ctx.moveTo(s[0]-9,s[1]);ctx.lineTo(s[0]+9,s[1]);ctx.moveTo(s[0],s[1]-9);ctx.lineTo(s[0],s[1]+9);ctx.stroke();ctx.fillStyle=TH.probe;ctx.beginPath();ctx.arc(s[0],s[1],3.2,0,7);ctx.fill();}
   else if(TOOL==='line'){const a=w2s(P.line.x1,P.line.y1),b=w2s(P.line.x2,P.line.y2);ctx.strokeStyle=TH.probe;ctx.setLineDash([6,4]);ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle=TH.sel;const n=Math.min(P.line.n,40);for(let i=0;i<=n;i++){const s=w2s(lerp(P.line.x1,P.line.x2,i/n),lerp(P.line.y1,P.line.y2,i/n));ctx.beginPath();ctx.arc(s[0],s[1],1.5,0,7);ctx.fill();}}
-  else if(TOOL==='circle'){ctx.strokeStyle=TH.sel;ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}}
+  else if(TOOL==='circle'||TOOL==='harm'){ctx.strokeStyle=TH.sel;ctx.beginPath();for(let i=0;i<=80;i++){const a=i/80*2*Math.PI,s=w2s(P.circle.cx+P.circle.r*Math.cos(a),P.circle.cy+P.circle.r*Math.sin(a));i?ctx.lineTo(s[0],s[1]):ctx.moveTo(s[0],s[1]);}ctx.stroke();}
+  else if(TOOL==='flux'){const F=P.flux,a=w2s(F.x1,F.y1),b=w2s(F.x2,F.y2),sx=b[0]-a[0],sy=b[1]-a[1],L=Math.hypot(sx,sy);
+    ctx.strokeStyle=TH.probe;ctx.fillStyle=TH.probe;ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.stroke();
+    [a,b].forEach(q=>{ctx.beginPath();ctx.arc(q[0],q[1],3,0,7);ctx.fill();});
+    ctx.font='600 11px '+TH.font;ctx.fillText('1',a[0]+6,a[1]-6);ctx.fillText('2',b[0]+6,b[1]-6);
+    // стрелка «плюс» из середины: вправо от направления т.1 → т.2 (на экране ось y вниз: нормаль (−sy, sx)/L)
+    if(L>4){const nx=-sy/L,ny=sx/L,tx=sx/L,ty=sy/L,m=[(a[0]+b[0])/2,(a[1]+b[1])/2],e=[m[0]+20*nx,m[1]+20*ny];
+      ctx.beginPath();ctx.moveTo(m[0],m[1]);ctx.lineTo(e[0],e[1]);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(e[0]+7*nx,e[1]+7*ny);ctx.lineTo(e[0]+4*tx,e[1]+4*ty);ctx.lineTo(e[0]-4*tx,e[1]-4*ty);ctx.closePath();ctx.fill();}}}
 function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect(0,0,W,H);
   if(!SCENE){grid();
     if(MODE==='objects'){drawObjects();}          // контуры фигур видны ДО сборки сетки
@@ -1099,7 +1186,8 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect
       else fill=dimHex(regColor(''+REG[i]),0.42);}
     else fill=regColor(''+REG[i]);
     ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=fill;ctx.stroke();}
-  if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
+  const HL=TOOL==='body'?bodySel():(MODE==='pmsm'?SELREG:null);
+  if(HL!=null){for(let i=0;i<C.length;i++){if(REG[i]!==HL)continue;
     const t=C[i],a=w2s(V[t[0]][0],V[t[0]][1]),b=w2s(V[t[1]][0],V[t[1]][1]),c=w2s(V[t[2]][0],V[t[2]][1]);
     ctx.beginPath();ctx.moveTo(a[0],a[1]);ctx.lineTo(b[0],b[1]);ctx.lineTo(c[0],c[1]);ctx.closePath();
     ctx.fillStyle=TH.selFill;ctx.fill();}}
@@ -1197,7 +1285,8 @@ function updateRtools(){const solved=!!BX,d3=MODE==='objects3d';
   const res3=d3&&STAGE==='result'&&!!(window.WS3D&&WS3D.hasResult());
   $('rtools-geom').style.display=(solved||d3)?'none':'flex';
   $('rtools-res').style.display=((solved&&!d3)||res3)?'flex':'none';
-  $('meas-2d').style.display=d3?'none':'';                 // измерения 3D — отдельным шагом (пункт 6 плана)
+  $('rseg').classList.toggle('motor',MODE==='pmsm');$('res-tools').classList.toggle('motor',MODE==='pmsm');
+  if(TOOL==='losses'&&MODE!=='pmsm')setTool('view');
   $('rtools-3d').style.display=(d3&&!res3)?'flex':'none';
   $('toppalette').style.display=MODE==='objects'?'flex':'none';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
@@ -1293,29 +1382,145 @@ function bars(){const cbar=$('cbar'),wasHidden=cbar.classList.contains('hide');
     const wcx=(W/2-ox)/scale,wcy=(oy-H/2)/scale;
     resize();ox=W/2-wcx*scale;oy=H/2+wcy*scale;}}
 
-function poly(pts,c){return'<polyline fill="none" stroke="'+c+'" stroke-width="1.8" points="'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>';}
-function chart(series,x0,x1){const w=256,h=160,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>30+t*(w-38),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
+// Ломаная ряда; точка без значения (вне сетки, NaN) — разрыв линии, а не ноль.
+function poly(pts,c){let s='',seg=[];const out=()=>{if(seg.length>1)s+='<polyline fill="none" stroke="'+c+'" stroke-width="1.8" points="'+seg.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' ')+'"/>';seg=[];};
+  for(const p of pts){if(Number.isFinite(p[1]))seg.push(p);else out();}out();return s;}
+function chart(series,x0,x1,unit){const w=256,h=160,all=[].concat(...series.map(s=>s.pts.map(p=>p[1]))).filter(Number.isFinite),mx=Math.max(1e-6,...all.map(Math.abs)),X=t=>30+t*(w-38),Y=v=>10+(h-26)/2-(v/mx)*(h-26)/2;
   let s='';for(let i=0;i<=4;i++){const y=10+i*(h-26)/4;s+='<line x1="30" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="'+TH.chGrid+'"/>';}
   s+='<line x1="30" y1="'+(10+(h-26)/2)+'" x2="'+(w-6)+'" y2="'+(10+(h-26)/2)+'" stroke="'+TH.chAxis+'" stroke-dasharray="3 3"/>';
   series.forEach(se=>s+=poly(se.pts.map(p=>[X(p[0]),Y(p[1])]),se.color));
-  const tx=(x,y,t)=>'<text x="'+x+'" y="'+y+'" fill="'+TH.chText+'" font-size="9" font-family="'+TH.font+'">'+t+'</text>';
-  s+=tx(30,h-1,x0)+tx(w-28,h-1,x1)+tx(3,14,mx.toFixed(2));
+  const tx=(x,y,t,end)=>'<text x="'+x+'" y="'+y+'" fill="'+TH.chText+'" font-size="9" font-family="'+TH.font+'"'+(end?' text-anchor="end"':'')+'>'+t+'</text>';
+  s+=tx(30,h-1,x0)+tx(w-6,h-1,x1,true)+tx(3,9,'±'+sig3(mx)+(unit?' '+unit:''));
+  return'<svg class="chartsvg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'+s+'</svg>';}
+// Спектр: столбики амплитуд гармоник k = 1…K (a[k]); подписи номеров — не гуще, чем помещаются.
+function specChart(a,unit){const w=256,h=150,K=a.length-1,X0=30,bw=(w-X0-6)/Math.max(K,1),H0=h-24,mx=Math.max(1e-12,...a.slice(1));
+  let s='';for(let i=0;i<=4;i++){const y=8+i*H0/4;s+='<line x1="'+X0+'" y1="'+y+'" x2="'+(w-6)+'" y2="'+y+'" stroke="'+TH.chGrid+'"/>';}
+  for(let k=1;k<=K;k++){const v=a[k]/mx*H0;s+='<rect x="'+(X0+(k-1)*bw+0.15*bw).toFixed(1)+'" y="'+(8+H0-v).toFixed(1)+'" width="'+(0.7*bw).toFixed(1)+'" height="'+v.toFixed(1)+'" fill="'+TH.s2+'"/>';}
+  const tx=(x,y,t,mid)=>'<text x="'+x+'" y="'+y+'" fill="'+TH.chText+'" font-size="9" font-family="'+TH.font+'"'+(mid?' text-anchor="middle"':'')+'>'+t+'</text>';
+  const st=K<=12?1:K<=30?5:10;for(let k=1;k<=K;k++)if(k===1||k%st===0)s+=tx((X0+(k-0.5)*bw).toFixed(1),h-4,k,true);
+  s+=tx(3,9,sig3(mx)+(unit?' '+unit:''));
   return'<svg class="chartsvg" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none">'+s+'</svg>';}
 function leg(se){return'<div class="legend">'+se.map(s=>'<span><i style="background:'+s.color+'"></i>'+s.label+'</span>').join('')+'</div>';}
 
-function runProbe(){const R=$('presult');if(!R)return;if(!BX){R.innerHTML='';return;}
+// ---- Измерения (пункт 6 плана интерфейса): одни инструменты и одни определения в 2D и 3D. 2D считает здесь, по
+// решению в браузере; 3D — сервер (/api/3d/probe, body_mean, saturation), вид результата — эти же функции.
+// Числа — по ячейкам решения (Л-103): поле в точке — значение ячейки, где точка лежит; точка вне сетки — пропуск
+// (NaN), а не ноль.
+const MU0=4e-7*Math.PI;                                    // как magcore.constants.MU0
+const AXN='xyz';
+// Поле в точке: составляющие и модуль B [Тл], H [кА/м]; extra — строки после составляющих B ([подпись, Тл]).
+function pointHTML(head,B,H,extra){
+  const row=(k,v,u,d)=>'<tr><td class="k">'+k+'</td><td class="v">'+(v>=0?'+':'')+v.toFixed(d)+'</td><td class="u">'+u+'</td></tr>';
+  const mod=(k,v,u,d)=>'<tr><td class="k"><b>'+k+'</b></td><td class="v" style="color:var(--accent)">'+v.toFixed(d)+'</td><td class="u">'+u+'</td></tr>';
+  let t=B.map((v,k)=>row('B'+AXN[k],v,'Тл',3)).join('')+(extra||[]).map(e=>row(e[0],e[1],'Тл',3)).join('')+mod('B',Math.hypot(...B),'Тл',3);
+  if(H&&H.every(Number.isFinite))t+=H.map((v,k)=>row('H'+AXN[k],v,'кА/м',1)).join('')+mod('H',Math.hypot(...H),'кА/м',1);
+  return'<div class="reshead">'+head+'</div><table class="ptable">'+t+'</table>';}
+// Гармоники ряда f_j = f(θ_j), θ_j = 2πj/N: c_k = (1/N)·Σ f_j·e^(−ikθ_j); a_0 = c_0 (среднее), a_k = 2|c_k| при
+// 0 < k < N/2. Для f = A·cos(pθ + φ), p < N/2, даёт a_p = A и нули остальным. Ряд с пропусками — null.
+function dftAmps(f,K){const N=f.length;if(!N||f.some(v=>!Number.isFinite(v)))return null;const out=[];
+  for(let k=0;k<=K&&k<N/2;k++){let re=0,im=0;
+    for(let j=0;j<N;j++){const a=2*Math.PI*k*j/N;re+=f[j]*Math.cos(a);im-=f[j]*Math.sin(a);}
+    out.push(k?2*Math.hypot(re,im)/N:re/N);}
+  return out;}
+// Разложение B_r по окружности: столбики k = 1…K, основная (наибольшая) гармоника, гармонические искажения —
+// корень из суммы квадратов прочих амплитуд (все до N/2) к основной.
+function harmHTML(br,K,head){const all=dftAmps(br,Math.floor((br.length-1)/2));
+  if(!all||all.length<2)return'<div class="reshead">'+head+'</div><p class="hint">Часть окружности вне сетки — разложение не определено.</p>';
+  let k1=1;for(let k=2;k<all.length;k++)if(all[k]>all[k1])k1=k;
+  const a1=all[k1],rest=Math.sqrt(all.reduce((q,v,k)=>k&&k!==k1?q+v*v:q,0)),rel=v=>a1>0?(100*v/a1).toFixed(1)+'\u00a0%':'—';
+  const top=all.map((v,k)=>[k,v]).slice(1).sort((x,y)=>y[1]-x[1]).slice(0,6);
+  return'<div class="reshead">'+head+'</div>'+specChart(all.slice(0,Math.min(K,all.length-1)+1),'Тл')
+    +s3rows([['Основная (наибольшая)','k\u00a0=\u00a0'+k1+': '+sig3(a1)+' Тл'],['Среднее, k\u00a0=\u00a00',sig3(all[0])+' Тл'],['Гармонические искажения',rel(rest)]])
+    +'<table class="s3tab"><tr><th>k</th><th>Амплитуда, Тл</th><th>к основной</th></tr>'
+    +top.map(([k,v])=>'<tr'+(k===k1?' class="hi"':'')+'><td>'+k+'</td><td>'+sig3(v)+'</td><td>'+rel(v)+'</td></tr>').join('')+'</table>';}
+// Средние по телу: {name, size (площадь/объём строкой), B[], Babs, H[] | null, magnet, Bd, Hd [кА/м], Pc}.
+function bodyHTML(o,sizeLabel){
+  const rows=[[sizeLabel,o.size]].concat(o.B.map((v,k)=>['⟨B'+AXN[k]+'⟩',sig3(v)+' Тл']),[['⟨|B|⟩',sig3(o.Babs)+' Тл']]);
+  if(o.H)o.H.forEach((v,k)=>rows.push(['⟨H'+AXN[k]+'⟩',sig3(v)+' кА/м']));
+  let h='<div class="reshead">'+escH(o.name)+'</div>'+s3rows(rows);
+  if(o.magnet)h+='<h4>Рабочая точка магнита</h4>'+s3rows([['B_d — вдоль оси намагничивания',sig3(o.Bd)+' Тл'],['H_d',sig3(o.Hd)+' кА/м'],
+    ['P_c = B_d/(μ₀|H_d|)',Number.isFinite(o.Pc)?sig3(o.Pc):'—']]);
+  return h;}
+// Насыщение стали: [{name, B_max, frac}] по стальным телам.
+function satHTML(rows,thr){if(!rows.length)return'<p class="hint">В модели нет стали.</p>';
+  return'<div class="reshead">Порог '+sig3(thr)+' Тл</div><table class="s3tab"><tr><th>Тело</th><th>B макс, Тл</th><th>выше порога</th></tr>'
+    +rows.map(r=>'<tr><td>'+escH(r.name)+'</td><td>'+sig3(r.B_max)+'</td><td>'+pct1(r.frac)+'</td></tr>').join('')+'</table>';}
+// Поток [Вб]: мВб от 1 мВб, иначе мкВб; 4 значащие цифры (так же в 3D).
+const fmtWb=(v,suf)=>{const k=Math.abs(v)>=1e-3?1e3:1e6;return String(Number((v*k).toPrecision(4)))+'\u00a0'+(k===1e3?'мВб':'мкВб')+(suf||'');};
+
+// 2D: имя области (у двигателя — по-русски, фоновая область — «воздух», как в 3D), площадь треугольника [мм²],
+// выбранное тело.
+const regLabel=n=>n==='domain'?'воздух':(REG_RU[n]||n);
+const regName=rid=>{const r=(SCENE&&SCENE.regions[''+rid])||{};return r.name?regLabel(r.name):(''+rid);};
+const triArea=t=>{const V=SCENE.vertices,a=V[t[0]],b=V[t[1]],c=V[t[2]];return Math.abs((b[0]-a[0])*(c[1]-a[1])-(c[0]-a[0])*(b[1]-a[1]))/2;};
+const bodySel=()=>{const v=$('mb-body').value;return v===''?null:+v;};
+function fillBodies2D(){const sel=$('mb-body');if(!SCENE){sel.innerHTML='';return;}
+  const rs=SCENE.regions,ids=Object.keys(rs),cur=sel.value;
+  sel.innerHTML=ids.map(k=>'<option value="'+k+'">'+escH(regName(k))+'</option>').join('');
+  sel.value=(cur&&rs[cur])?cur:(ids.find(k=>rs[k].kind==='magnet')||ids[0]||'');}
+// Средние по телу с весом площади ячеек: ⟨B⟩, ⟨|B|⟩, ⟨H⟩; у магнита — рабочая точка вдоль оси намагничивания ячейки
+// B_d = ⟨B·e⟩, H_d = ⟨H·e⟩, P_c = B_d/(μ₀|H_d|) — те же определения, что у сервера (operating_point) и в 3D.
+function bodyMean2D(rid){const C=SCENE.cells,REG=SCENE.region,ax=SCENE.magnet_axis,R=+rid,r=SCENE.regions[''+rid]||{};
+  const mag=r.kind==='magnet'&&!!ax&&!!HX;let A=0,bx=0,by=0,bm=0,hx=0,hy=0,bd=0,hd=0;
+  for(let i=0;i<C.length;i++){if(REG[i]!==R)continue;const s=triArea(C[i]);A+=s;
+    bx+=BX[i]*s;by+=BY[i]*s;bm+=Math.hypot(BX[i],BY[i])*s;
+    if(HX){hx+=HX[i]*s;hy+=HY[i]*s;}
+    if(mag){const e=ax[i];bd+=(BX[i]*e[0]+BY[i]*e[1])*s;hd+=(HX[i]*e[0]+HY[i]*e[1])*s;}}
+  if(!(A>0))return null;
+  const o={name:regName(rid),area:A,size:sig3(A)+'\u00a0мм²',B:[bx/A,by/A],Babs:bm/A,H:HX?[hx/A,hy/A]:null,magnet:mag};
+  if(mag){o.Bd=bd/A;o.Hd=hd/A;o.Pc=o.Hd!==0?o.Bd/(MU0*Math.abs(o.Hd)*1e3):Infinity;}
+  return o;}
+// A_z в точке — линейная интерполяция узловых значений по ячейке (A_z решения кусочно-линеен; как interpolate_Az
+// на сервере). Вне сетки — NaN.
+function azAt(x,y){const i=cellAt(x,y);if(i<0||!AZ)return NaN;const V=SCENE.vertices,t=SCENE.cells[i],a=V[t[0]],b=V[t[1]],c=V[t[2]];
+  const d=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]),l0=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/d,l1=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/d;
+  return l0*AZ[t[0]]+l1*AZ[t[1]]+(1-l0-l1)*AZ[t[2]];}
+// Насыщение стали: по каждой стальной области — наибольшая |B| в ячейке и доля площади, где |B| выше порога.
+function saturation2D(thr){const C=SCENE.cells,REG=SCENE.region,rs=SCENE.regions,acc={};
+  for(let i=0;i<C.length;i++){const k=''+REG[i];if((rs[k]||{}).kind!=='steel')continue;
+    const s=triArea(C[i]),b=Math.hypot(BX[i],BY[i]),o=acc[k]||(acc[k]={A:0,above:0,bmax:0});
+    o.A+=s;if(b>thr)o.above+=s;if(b>o.bmax)o.bmax=b;}
+  return Object.keys(acc).map(k=>({name:regName(k),B_max:acc[k].bmax,frac:acc[k].above/acc[k].A}));}
+// Поле на окружности: N точек равномерно, первая — на +X от центра; B_r и B_θ — относительно центра окружности (как в 3D).
+function circleSamples2D(c){const N=Math.max(3,c.n|0),br=[],bt=[],mag=[];
+  for(let i=0;i<N;i++){const a=2*Math.PI*i/N,ca=Math.cos(a),sa=Math.sin(a),f=fieldAtPoint(c.cx+c.r*ca,c.cy+c.r*sa);
+    br.push(f?f.bx*ca+f.by*sa:NaN);bt.push(f?-f.bx*sa+f.by*ca:NaN);mag.push(f?f.mag:NaN);}
+  return{N,br,bt,mag};}
+// Ряд по окружности для графика: θ/360° в [0, 1), последняя точка — повтор первой (график замкнут).
+const ring=v=>v.map((y,i)=>[i/v.length,y]).concat([[1,v[0]]]);
+const outsideNote=(n,N)=>n?'<p class="hint">'+n+' из '+N+' точек — вне сетки, на графике пропуск.</p>':'';
+// Сила и момент в 2D: у двигателя — момент по зазору в этом положении ротора и прогонка по углу; у свободной
+// геометрии сила на тело пока не считается (в 3D есть; docs/ui_rules.md — открытые расхождения).
+function renderForce2D(){const o=$('force2d-out'),d=LAST_FIELD;
+  if(MODE==='pmsm'){o.innerHTML=(d&&d.torque!=null)?s3rows([['Момент в этом положении ротора',d.torque+' Н·м']]):'';return;}
+  o.innerHTML='<p class="hint">В свободной 2D-геометрии сила и момент на тело пока не считаются (в 3D — есть). У двигателя здесь — момент по зазору и его зависимость от угла ротора.</p>';}
+function runProbe(){const R=$('presult');if(!R||MODE==='objects3d')return;if(!BX){R.innerHTML='';return;}
   if(TOOL==='point'){const f=fieldAtPoint(P.point.x,P.point.y);
     if(!f){R.innerHTML='<div class="reshead">Точка вне сетки</div>';return;}
-    const row=(k,v)=>'<tr><td class="k">'+k+'</td><td class="v">'+(v>=0?'+':'')+v.toFixed(3)+'</td><td class="u">Тл</td></tr>';
-    R.innerHTML='<div class="reshead">Точка ('+P.point.x+', '+P.point.y+') · '+f.reg+'</div><table class="ptable">'+row('Bx',f.bx)+row('By',f.by)+row('Br',f.br)+row('Bθ',f.bt)+'<tr><td class="k"><b>B</b></td><td class="v" style="color:var(--accent)">'+f.mag.toFixed(3)+'</td><td class="u">Тл</td></tr></table>';}
-  else if(TOOL==='line'){const L=P.line,N=Math.max(2,L.n|0),d={mag:[],bx:[],by:[]};
-    for(let i=0;i<=N;i++){const t=i/N,f=fieldAtPoint(lerp(L.x1,L.x2,t),lerp(L.y1,L.y2,t))||{mag:0,bx:0,by:0};d.mag.push([t,f.mag]);d.bx.push([t,f.bx]);d.by.push([t,f.by]);}
+    R.innerHTML=pointHTML('Точка ('+P.point.x+'; '+P.point.y+') мм · '+escH(regLabel(f.reg)),[f.bx,f.by],HX?[f.hx,f.hy]:null,[['Br',f.br],['Bθ',f.bt]])
+      +'<p class="hint">B_r и B_θ — относительно начала координат.</p>';}
+  else if(TOOL==='line'){const L=P.line,N=Math.max(2,L.n|0),len=Math.hypot(L.x2-L.x1,L.y2-L.y1),d={mag:[],bx:[],by:[]};let out=0;
+    for(let i=0;i<N;i++){const t=i/(N-1),f=fieldAtPoint(lerp(L.x1,L.x2,t),lerp(L.y1,L.y2,t));if(!f)out++;
+      d.mag.push([t,f?f.mag:NaN]);d.bx.push([t,f?f.bx:NaN]);d.by.push([t,f?f.by:NaN]);}
     const se=[];if($('lc-mag').checked)se.push({pts:d.mag,color:TH.s1,label:'B'});if($('lc-bx').checked)se.push({pts:d.bx,color:TH.s2,label:'Bx'});if($('lc-by').checked)se.push({pts:d.by,color:TH.s3,label:'By'});
-    R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек</div>'+(se.length?chart(se,'т.1','т.2')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
-  else if(TOOL==='circle'){const c=P.circle,N=Math.max(3,c.n|0),d={br:[],bt:[],mag:[]};
-    for(let i=0;i<=N;i++){const a=i/N*2*Math.PI,f=fieldAtPoint(c.cx+c.r*Math.cos(a),c.cy+c.r*Math.sin(a))||{br:0,bt:0,mag:0};d.br.push([i/N,f.br]);d.bt.push([i/N,f.bt]);d.mag.push([i/N,f.mag]);}
-    const se=[];if($('cc-br').checked)se.push({pts:d.br,color:TH.s2,label:'Br'});if($('cc-bt').checked)se.push({pts:d.bt,color:TH.s3,label:'Bθ'});if($('cc-mag').checked)se.push({pts:d.mag,color:TH.s1,label:'B'});
-    R.innerHTML='<div class="reshead">Вдоль окружности · '+N+' точек</div>'+(se.length?chart(se,'0°','360°')+leg(se):'<p class="hint">Выберите компоненту.</p>');}
+    R.innerHTML='<div class="reshead">Вдоль линии · '+N+' точек · '+sig3(len)+' мм</div>'+(se.length?chart(se,'0',sig3(len)+' мм','Тл')+leg(se):'<p class="hint">Выберите компоненту.</p>')+outsideNote(out,N);}
+  else if(TOOL==='circle'){const c=P.circle,m=circleSamples2D(c),se=[];
+    if($('cc-br').checked)se.push({pts:ring(m.br),color:TH.s2,label:'Br'});if($('cc-bt').checked)se.push({pts:ring(m.bt),color:TH.s3,label:'Bθ'});if($('cc-mag').checked)se.push({pts:ring(m.mag),color:TH.s1,label:'B'});
+    R.innerHTML='<div class="reshead">Вдоль окружности · '+m.N+' точек</div>'+(se.length?chart(se,'0°','360°','Тл')+leg(se):'<p class="hint">Выберите компоненту.</p>')+outsideNote(m.mag.filter(v=>!Number.isFinite(v)).length,m.N);}
+  else if(TOOL==='harm'){const c=P.circle,m=circleSamples2D(c);
+    R.innerHTML=harmHTML(m.br,Math.max(1,Math.min(200,Math.round(+$('hk').value)||20)),'Гармоники B_r · r\u00a0=\u00a0'+c.r+' мм · '+m.N+' точек');}
+  else if(TOOL==='body'){if(!$('mb-body').options.length)fillBodies2D();const rid=bodySel(),o=rid==null?null:bodyMean2D(rid);
+    R.innerHTML=o?bodyHTML(o,'Площадь'):'<p class="hint">Выберите тело.</p>';}
+  else if(TOOL==='flux'){const F=P.flux;
+    if(!AZ){R.innerHTML='<p class="hint">В файле этого расчёта нет A_z: он сохранён до появления силовых линий в 2D. Пересчитайте поле.</p>';return;}
+    const q=azAt(F.x2,F.y2)-azAt(F.x1,F.y1);
+    if(!Number.isFinite(q)){R.innerHTML='<div class="reshead">Конец отрезка вне сетки</div>';return;}
+    const d=LAST_FIELD,Lm=MODE==='pmsm'&&d&&d.axial_length_mm>0?d.axial_length_mm:null,rows=[['Φ/L — на метр длины',fmtWb(q,'/м')]];
+    if(Lm)rows.push(['Φ — на длину пакета '+sig3(Lm)+' мм',fmtWb(q*Lm/1000)]);
+    R.innerHTML='<div class="reshead">Отрезок ('+F.x1+'; '+F.y1+') → ('+F.x2+'; '+F.y2+') мм</div>'+s3rows(rows);}
+  else if(TOOL==='sat'){const thr=+$('st-thr').value;
+    R.innerHTML=thr>=0?satHTML(saturation2D(thr),thr):'<p class="hint">Порог — неотрицательное число, Тл.</p>';}
+  else if(TOOL==='force'){R.innerHTML='';renderForce2D();}
   else R.innerHTML='';}
 
 const STAGE_NAME={geom:'Геометрия',mesh:'Сетка',mat:'Материалы',calc:'Расчёт',s3:'Тепловая стойкость (S3)',precalc:'Проверка перед расчётом',result:'Результаты'};
@@ -1328,7 +1533,7 @@ function setDocked(on){$('modal-ov').classList.toggle('dock',on);
 function openModal(){$('modal-ov').classList.add('on');}
 function closeModal(){$('modal-ov').classList.remove('on');setDocked(false);}
 function setStage(st){STAGE=st;
-  if(st==='result'){closeModal();editHint();}
+  if(st==='result'){closeModal();editHint();if(MODE==='objects3d'&&window.WS3D)WS3D.onTool(TOOL);}
   else{
     document.querySelectorAll('.modal-body .rp-stage').forEach(s=>s.classList.toggle('on',s.dataset.stage===st));
     $('modal-title').textContent=(st==='calc'||st==='s3')?SCN_NAME[SCENARIO]:STAGE_NAME[st];
@@ -1348,13 +1553,21 @@ function setStage(st){STAGE=st;
   }
   document.querySelectorAll('#ptree .node').forEach(n=>n.classList.toggle('sel',n.dataset.stage===st&&(!n.dataset.tool||n.dataset.tool===TOOL)));
   updateSteps();}
+// Инструменты измерения — одни в 2D и 3D (docs/ui_rules.md §1, §3): значок над видом, пункт дерева проекта, форма и
+// результат в правой панели; названия — одни везде.
+const TOOL_NAME={point:'Поле в точке',line:'Вдоль линии',circle:'Вдоль окружности',harm:'Гармоники по окружности',
+  body:'По телу',flux:'Поток через сечение',force:'Сила и момент',sat:'Насыщение стали',losses:'Потери и КПД'};
 function setTool(t){TOOL=t;
-  document.querySelectorAll('#rseg button').forEach(b=>b.classList.toggle('on',b.dataset.tool===(t==='view'?'view':t)));
-  document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
-  cv.classList.toggle('pt',t==='point');
-  $('st-mode').textContent='Вид: '+({view:'Геометрия',point:'Точка',line:'Линия',circle:'Окружность'})[t];
+  document.querySelectorAll('#rseg button').forEach(b=>{const on=b.dataset.tool===t;b.classList.toggle('on',on);b.setAttribute('aria-pressed',String(on));});
+  document.querySelectorAll('.rp-tool').forEach(e=>e.classList.toggle('on',e.dataset.tool.split(' ').includes(t)));
+  document.querySelectorAll('.tool-h').forEach(h=>{h.textContent=TOOL_NAME[t]||'';h.hidden=!TOOL_NAME[t];});
+  document.querySelectorAll('#ptree .node[data-tool]').forEach(n=>n.classList.toggle('sel',STAGE==='result'&&n.dataset.tool===t));
+  $('needsolve').textContent=(t!=='view'&&!hasResult())?'⚠ сначала «Рассчитать»':'';
+  if(MODE==='objects3d'){if(window.WS3D)WS3D.onTool(t);return;}
+  cv.classList.toggle('pt',t==='point'||t==='body');
+  $('st-mode').textContent='Вид: '+(TOOL_NAME[t]||'Геометрия');
   $('vplbl').innerHTML=(SHOWFIELD&&BX)?('<b>'+(COMP==='risk'?'⚠ ':'')+escH(QLBL[COMP]||COMP)+'</b>'):'<b>Геометрия модели</b>';
-  $('needsolve').textContent=(t!=='view'&&!BX)?'⚠ сначала «Рассчитать»':'';
+  if(t==='body')fillBodies2D();
   if(STAGE==='result')runProbe();draw();}
 
 // Строка состояния + то же поверх вида: идёт работа (◐, ◷) — плашка с прошедшим временем, ошибка — заметная
@@ -1659,6 +1872,7 @@ window.addEventListener('mouseup',e=>{const p=pos(e);
     if(DRAW.start)finishDraw(paramsFromDrag(DRAW.kind,DRAW.start,[w[0],w[1]]));return;}
   if(EDIT){EDIT=null;renderObjects();editHint();draw();return;}
   if(drag&&!moved&&TOOL==='point'){const w=s2w(p[0],p[1]);P.point.x=+w[0].toFixed(1);P.point.y=+w[1].toFixed(1);$('px').value=P.point.x;$('py').value=P.point.y;runProbe();draw();}
+  else if(drag&&!moved&&TOOL==='body'&&SCENE&&BX){const w=s2w(p[0],p[1]),i=cellAt(w[0],w[1]);if(i>=0){if(!$('mb-body').options.length)fillBodies2D();$('mb-body').value=''+SCENE.region[i];runProbe();draw();}}
   else if(drag&&!moved&&MODE==='pmsm'&&TOOL==='view'&&SCENE){selectRegionAt(s2w(p[0],p[1]));}
   drag=false;cv.classList.remove('pan');});
 // Выделение элемента двигателя по клику: находим ячейку, её регион, показываем характеристики.
@@ -1938,7 +2152,11 @@ $('heat-play').onclick=heatPlay;
 $('heat-slider').oninput=e=>{heatStop();heatFrame(+e.target.value);};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};
 $('apply-line').onclick=()=>{P.line={x1:+$('lx1').value,y1:+$('ly1').value,x2:+$('lx2').value,y2:+$('ly2').value,n:+$('ln').value||60};runProbe();draw();};
-$('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
+const readCircle=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
+$('apply-circle').onclick=readCircle;$('apply-harm').onclick=readCircle;
+$('apply-flux').onclick=()=>{P.flux={x1:+$('fx1').value,y1:+$('fy1').value,x2:+$('fx2').value,y2:+$('fy2').value};runProbe();draw();};
+$('apply-sat').onclick=()=>runProbe();
+$('mb-body').onchange=()=>{runProbe();draw();};
 ['lc-mag','lc-bx','lc-by','cc-br','cc-bt','cc-mag'].forEach(id=>$(id).addEventListener('change',runProbe));
 $('material').addEventListener('change',()=>{if(SCENE&&MODE==='pmsm')populateModel();});
 $('mat-q').addEventListener('input',renderMatList);
@@ -2071,7 +2289,7 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects',d3=MODE==='object
   $('v-lines').checked=d3?!!(window.WS3D&&WS3D.viewFlags().lines):SHOWLINES2D;
   $('v-lines-n').value=d3?(window.WS3D?WS3D.viewFlags().n:200):NLINES2D;
   $('v-color').checked=d3?(window.WS3D?WS3D.viewFlags().color:true):SHOWFIELD;
-  ['res-hdr','res-tools','exc-hdr','exc-body'].forEach(id=>{const el=$(id);if(el)el.style.display=d3?'none':'';});
+  ['exc-hdr','exc-body'].forEach(id=>{const el=$(id);if(el)el.style.display=d3?'none':'';});   // измерения («Результаты») — в обоих режимах
   document.querySelectorAll('#dimseg button').forEach(b=>b.classList.toggle('on',(b.dataset.dim==='3')===d3));
   $('st-ver').textContent=(d3?'3D':'2D')+' · v0.8';
   if(window.WS3D){if(d3)WS3D.activate();else WS3D.deactivate();}

@@ -147,7 +147,7 @@ details.why>summary{font-size:12.5px}
   --cv-sel:#1f5b7a;--cv-knob:#ffffff;--cv-rot:#b86e0a;--cv-add:#1f5b7a;--cv-sel-fill:rgba(31,91,122,.20);
   --cv-magnet:#cfc3e3;--cv-copper:#e7cdb2;--cv-gap:#f7f9fa;--cv-steel:#c3ccd4;--cv-air:#ffffff;--cv-other:#dde2e6;
   --ch-grid:#e6ebef;--ch-axis:#c7cfd6;--ch-text:#5f6b75;--ch-title:#4f5b66;--ch-tick:#5f6b75;--ch-box:#ffffff;
-  --ch-b:#1e262d;--ch-j:#1f5b7a;--ch-knee:#b86e0a;--ch-s1:#2e7d4f;--ch-s2:#b86e0a;--ch-s3:#1f5b7a;
+  --ch-b:#1e262d;--ch-j:#1f5b7a;--ch-knee:#b86e0a;--ch-s1:#2e7d4f;--ch-s2:#b86e0a;--ch-s3:#1f5b7a;--ch-s4:#7a3e9d;
   --v3-edge:#1e262d;--v3-body-axis:#4f5b66;--v3-halo:rgba(255,255,255,.92)}
 /* ---- подписи — узким начертанием, заголовки разделов обычным регистром ---- */
 :root[data-theme="white"] .pane-h,:root[data-theme="white"] .rtools .lbl,:root[data-theme="white"] .vbar .lbl,:root[data-theme="white"] .field label,:root[data-theme="white"] .res li span:first-child,:root[data-theme="white"] .pc-row,:root[data-theme="white"] .mrow label,:root[data-theme="white"] .node .tag,:root[data-theme="white"] .step{font-stretch:semi-condensed}
@@ -224,7 +224,7 @@ details.why>summary{font-size:12.5px}
   --cv-sel-fill:rgba(240,180,41,.22);
   --cv-magnet:#7a6a96;--cv-copper:#94704e;--cv-gap:#1e2429;--cv-steel:#515b64;--cv-air:#262d33;--cv-other:#5b646c;
   --ch-grid:#323a41;--ch-axis:#4a545d;--ch-text:#939ea7;--ch-title:#a3aeb7;--ch-tick:#939ea7;--ch-box:#171c20;
-  --ch-b:#f0b429;--ch-j:#a3aeb7;--ch-knee:#e2503f;--ch-s1:#4fa36b;--ch-s2:#f0b429;--ch-s3:#6aa7d8;
+  --ch-b:#f0b429;--ch-j:#a3aeb7;--ch-knee:#e2503f;--ch-s1:#4fa36b;--ch-s2:#f0b429;--ch-s3:#6aa7d8;--ch-s4:#c49bd8;
   --v3-edge:#0f1316;--v3-body-axis:#8f9aa3;--v3-halo:rgba(23,28,32,.92)}
 /* ---- гравировка: подписи и заголовки разделов — узкие, приглушённые, обычным регистром ---- */
 :root[data-theme="grey"] .pane-h,:root[data-theme="grey"] .rtools .lbl,:root[data-theme="grey"] .vbar .lbl,:root[data-theme="grey"] .field label,:root[data-theme="grey"] .res li span:first-child,:root[data-theme="grey"] .pc-row,:root[data-theme="grey"] .mrow label{font-stretch:semi-condensed}

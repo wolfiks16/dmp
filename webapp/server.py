@@ -559,6 +559,8 @@ def _do_solve(body: dict) -> dict:
         "Bmean": round(float(Bmag.mean()), 3),
         "torque": round(float(scen.torque(sol)), 4),
         "energy": round(float(magnetic_energy(sol, axial_length=scen.axial_length)), 4),
+        # длина пакета, на которую пересчитаны момент и энергия, — ею же интерфейс переводит поток на метр в поток
+        "axial_length_mm": round(float(scen.axial_length) * 1e3, 3),
         "Bd_mean": round(float(np.average(op.B_op, weights=op.cell_volume)), 3),
         "Bd_worst": round(float(op.B_op.min()), 3),
         "Hop_worst_kA": round(float(op.worst_H_op() / 1e3), 0),
@@ -1632,6 +1634,84 @@ def api_3d_flux(body: dict = Body(default={})) -> dict:
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
     return {"flux_Wb": phi}
+
+
+# ---- измерения по решению 3D (пункт 6 плана интерфейса): точка, линия, окружность, среднее по телу, насыщение.
+# Значения — поля в ячейках (magcore.fem3d.probes); точка вне сетки — null. Единицы ответа: мм, Тл, кА/м.
+def _mm3(v, what: str) -> np.ndarray:
+    a = np.asarray(v if v is not None else [], dtype=float).reshape(-1)
+    if a.shape != (3,) or not np.isfinite(a).all():
+        raise ValueError(f"{what} — три числа, мм.")
+    return a / 1000.0
+
+
+def _num(v, nd: int):
+    return None if v is None or not np.isfinite(v) else round(float(v), nd)
+
+
+def _samples_payload(sm) -> dict:
+    """Поле в точках: B [Тл] и H [кА/м] по составляющим, тело в точке; вне сетки — null."""
+    col = lambda a, k, nd: [_num(x * k, nd) for x in a]                 # noqa: E731
+    return {"Bx": col(sm.B[:, 0], 1.0, 5), "By": col(sm.B[:, 1], 1.0, 5), "Bz": col(sm.B[:, 2], 1.0, 5),
+            "Hx": col(sm.H[:, 0], 1e-3, 3), "Hy": col(sm.H[:, 1], 1e-3, 3), "Hz": col(sm.H[:, 2], 1e-3, 3),
+            "body": sm.body, "outside": int((sm.cells < 0).sum())}
+
+
+@app.post("/api/3d/probe")
+def api_3d_probe(body: dict = Body(default={})) -> dict:
+    """Поле в точке, вдоль отрезка или окружности (kind: point | line | circle) — значения ячеек."""
+    from magcore.fem3d.probes import circle, line_points, sample
+
+    try:
+        f = _solution3d(body)
+        kind = str(body.get("kind", "point"))
+        if kind == "point":
+            return {"kind": kind, **_samples_payload(sample(f, _mm3(body.get("point_mm"), "точка")[None, :]))}
+        n = int(body.get("n", 60))
+        if not 2 <= n <= 2000:
+            raise ValueError("число точек — от 2 до 2000.")
+        if kind == "line":
+            pts, dist = line_points(_mm3(body.get("p1_mm"), "начало отрезка"), _mm3(body.get("p2_mm"), "конец отрезка"), n)
+            return {"kind": kind, "s_mm": np.round(dist * 1e3, 4).tolist(), **_samples_payload(sample(f, pts))}
+        if kind == "circle":
+            c = circle(f, _mm3(body.get("center_mm"), "центр окружности"), np.asarray(body.get("normal"), dtype=float),
+                       float(body.get("radius_mm", 0.0)) / 1000.0, n)
+            col = lambda a: [_num(x, 5) for x in a]                          # noqa: E731
+            return {"kind": kind, "theta_deg": np.round(np.degrees(c.theta), 4).tolist(),
+                    "Br": col(c.Br), "Bt": col(c.Bt), "Bn": col(c.Bn), **_samples_payload(c.samples)}
+        raise ValueError("вид измерения — point, line или circle.")
+    except Exception as e:  # noqa: BLE001 — плохой ввод → в UI
+        return {"error": str(e)}
+
+
+@app.post("/api/3d/body_mean")
+def api_3d_body_mean(body: dict = Body(default={})) -> dict:
+    """Средние по объёму тела: ⟨B⟩, ⟨|B|⟩, ⟨H⟩; у магнита — рабочая точка B_d, H_d и P_c вдоль оси намагничивания."""
+    from magcore.fem3d.probes import body_mean
+
+    try:
+        m = body_mean(_solution3d(body), str(body.get("body", "")))
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    out = {"body": m.name, "volume_cm3": m.volume * 1e6, "B_mean": [float(x) for x in m.B_mean],
+           "B_abs_mean": m.B_abs_mean, "H_mean_kA": [float(x) / 1e3 for x in m.H_mean], "magnet": m.magnet}
+    if m.magnet:
+        out.update({"Bd": m.B_par, "Hd_kA": m.H_par / 1e3, "Pc": _num(m.permeance, 4)})
+    return out
+
+
+@app.post("/api/3d/saturation")
+def api_3d_saturation(body: dict = Body(default={})) -> dict:
+    """Насыщение стали: по каждому стальному телу наибольшая |B| и доля объёма выше порога [Тл]."""
+    from magcore.fem3d.probes import steel_saturation
+
+    try:
+        t = float(body.get("threshold_T", 1.6))
+        rows = steel_saturation(_solution3d(body), t)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)}
+    return {"threshold_T": t, "steel": [{"body": r.name, "volume_cm3": r.volume * 1e6, "B_max": r.B_max,
+                                         "fraction_above": r.fraction_above} for r in rows]}
 
 
 @app.post("/api/3d/field_lines")
