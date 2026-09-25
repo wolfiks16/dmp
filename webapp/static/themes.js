@@ -29,11 +29,11 @@ function stampRows() {
   const d3 = MODE === 'objects3d', W3 = window.WS3D;
   const proj = ((PROJECT && PROJECT.name) || '').trim() || '—';
   let scn;
-  if (d3) {
-    const r = W3 && W3.result(), T = (r && r.T != null) ? r.T : (W3 ? W3.temperature() : 20);
-    scn = 'магнитостатика 3D, ' + T + ' °C';
-  } else if (SCENARIO === 'dynamic') scn = 'нагрев во времени, среда ' + (+$('s3-tamb').value) + ' °C';
-  else scn = (SCN_NAME[SCENARIO] || '').toLowerCase() + ', ' + (SCENARIO === 'thermostatic' ? +$('T').value : 20) + ' °C';
+  if (SCENARIO === 'dynamic') scn = 'нагрев во времени, среда ' + (+$('s3-tamb').value) + ' °C';
+  else {                                           // сценарий — общий с 2D; у готового 3D-расчёта T — из результата
+    const r = d3 && W3 && W3.result(), T = (r && r.T != null) ? r.T : scnT();
+    scn = (SCN_NAME[SCENARIO] || '').toLowerCase() + (d3 ? ' 3D' : '') + ', ' + T + ' °C';
+  }
   const n = d3 ? (W3 && W3.cells()) : (SCENE ? SCENE.cells.length : null);
   const mesh = n ? n.toLocaleString('ru-RU') + ' ' + plural(n, 'ячейка', 'ячейки', 'ячеек') : 'не построена';
   return [['Проект', proj], ['Сценарий', scn], ['Сетка', mesh], ['Дата', new Date().toLocaleDateString('ru-RU')]];

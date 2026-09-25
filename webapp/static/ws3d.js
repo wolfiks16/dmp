@@ -24,7 +24,7 @@ const FROM_ZERO = new Set(['B', 'H', 'loss']);
 const MATCOL = { magnet: '#9a72d6', steel: '#8391a6', linear: '#4d8bff', air: '#5d6d8a' };
 const AIR_RGB = [28, 37, 54], GRAY_RGB = [70, 80, 96], LINE_ON_SECTION = [238, 243, 252];
 
-const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 4, grading: 2, T: 20, bc: 'neumann', H0: [0, 0, 0],
+const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 4, grading: 2, bc: 'neumann', H0: [0, 0, 0],
   model: null, modelKey: '', result: null, values: null, range: null, unit: '', q: 'B',
   field3d: null, restoring: false, restoreNote: '',     // сетка и φ решения для файла расчёта (этап 3D-9)
   sec: { axis: 'off', pos: 0, flip: false, lo: -50, hi: 50 }, secData: null, secSeq: 0, secTimer: 0,
@@ -426,7 +426,7 @@ function openPrecalc() {
   html += pcSec('Сетка', pcRow('Размер по умолчанию', S.h + ' мм') + pcRow('Запас воздуха', S.margin + ' ×')
     + S.objects.filter(o => o.mesh_size_mm).map(o => pcRow(esc(o.name), o.mesh_size_mm + ' мм')).join('')
     + pcRow('<b>Всего ячеек</b>', '<b>' + (S.model ? S.model.n_cells : '—') + '</b>'));
-  html += pcSec('Параметры расчёта', pcRow('Температура T', S.T + ' °C')
+  html += pcSec('Параметры расчёта', pcRow('Сценарий', SCN_NAME[SCENARIO]) + pcRow('Температура T', scnT() + ' °C')
     + pcRow('Граница области', S.bc === 'neumann' ? 'поток не выходит' : 'φ = 0')
     + pcRow('Внешнее поле', hasH0() ? S.H0.join(' / ') + ' кА/м' : 'нет'));
   $('precalc-body').innerHTML = html;
@@ -438,7 +438,7 @@ async function solve(quiet = false) {
   if (!S.model) { setConv('c', '● Сначала постройте сетку.'); return; }
   const t0 = Date.now(), label = (PROJECT.name || 'Проект') + ' · 3D';
   const snap = quiet ? null : buildCalcBundle(PROJECT.name || 'расчёт', 'done', null);   // снимок на момент запуска, как в 2D
-  const body = { model_id: S.model.model_id, T: S.T, bc: S.bc, label };
+  const body = { model_id: S.model.model_id, T: scnT(), bc: S.bc, label };   // T — по сценарию, как в 2D
   if (hasH0()) body.applied_field_kA = S.H0.map(Number);
   try {
     const { job_id } = await post('/api/3d/solve', body);
@@ -776,7 +776,7 @@ function renderMeshInfo() {
     : 'Сетка ещё не построена — «Построить сетку» ниже или «Рассчитать» в шапке.';
 }
 function renderCalc() {
-  $('c3-T').value = S.T; $('c3-bc').value = S.bc;
+  $('c3-bc').value = S.bc;
   ['x', 'y', 'z'].forEach((a, k) => { $('c3-h' + a).value = S.H0[k]; });
 }
 
@@ -962,7 +962,7 @@ function activate() {
   S.active = true;
   $('v-seclines').checked = S.showSecLines;
   V();
-  $('st-scn').textContent = 'Магнитостатика 3D'; $('st-mode').textContent = 'Вид: 3D';
+  $('st-scn').textContent = SCN_NAME[SCENARIO]; $('st-mode').textContent = 'Вид: 3D';
   renderList(); renderResults(); updateLegend();
   if (S.model) showModel(); else schedulePreview();
   requestAnimationFrame(() => { if (S.viewer) S.viewer.resize(); });
@@ -985,7 +985,7 @@ function geomDef() {
   return { objects: S.objects.map(o => ({ ...o, params: JSON.parse(JSON.stringify(o.params)), center: [...o.center], rotation: [...o.rotation],
       ...(o.magnet_rotation ? { magnet_rotation: [...o.magnet_rotation] } : {}) })),
     stepFiles: Object.fromEntries(Object.entries(S.stepFiles).map(([id, f]) => [id, { ...f }])),
-    h: S.h, margin: S.margin, grading: S.grading, T: S.T, bc: S.bc, H0: S.H0.slice() };
+    h: S.h, margin: S.margin, grading: S.grading, T: scnT(), bc: S.bc, H0: S.H0.slice() };
 }
 function applyBundle(m) {
   reset();
@@ -994,7 +994,7 @@ function applyBundle(m) {
     center: [...(o.center || [0, 0, 0])], rotation: [...(o.rotation || [0, 0, 0])],
     ...(o.magnet_rotation ? { magnet_rotation: [...o.magnet_rotation] } : {}) }));
   S.stepFiles = Object.fromEntries(Object.entries(g.stepFiles || {}).map(([id, f]) => [id, { ...f }]));
-  for (const k of ['h', 'margin', 'grading', 'T', 'bc']) if (g[k] !== undefined) S[k] = g[k];
+  for (const k of ['h', 'margin', 'grading', 'bc']) if (g[k] !== undefined) S[k] = g[k];   // T и сценарий — в index.html (общие с 2D)
   if (Array.isArray(g.H0)) S.H0 = g.H0.slice();
   S.result = m.field || null;                     // сводка
   S.field3d = (m.field && m.field3d) || null;     // сетка и φ решения (этап 3D-9); в старых файлах нет — «Пересчитать поле»
@@ -1060,7 +1060,6 @@ function bindUI() {
   });
   const num = (id, key, ok) => { $(id).onchange = () => { const x = +$(id).value; if (!ok(x)) { $(id).value = S[key]; return; } S[key] = x; changed(); renderMeshInfo(); }; };
   num('m3-h', 'h', x => x > 0); num('m3-margin', 'margin', x => x > 0); num('m3-grading', 'grading', x => x >= 0);
-  $('c3-T').onchange = () => { const x = +$('c3-T').value; if (Number.isFinite(x)) { S.T = x; markDirty(); } else $('c3-T').value = S.T; };
   $('c3-bc').onchange = () => { S.bc = $('c3-bc').value; markDirty(); };
   ['x', 'y', 'z'].forEach((a, k) => { $('c3-h' + a).onchange = () => { const x = +$('c3-h' + a).value; if (Number.isFinite(x)) { S.H0[k] = x; markDirty(); } }; });
   // «Величина цветом» — общий значок над видом; здесь 3D-сторона: цвет величины на поверхностях тел
@@ -1092,7 +1091,7 @@ window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBu
   bodies: () => S.objects.map(o => ({ name: o.name, material: o.material })),
   setMaterial: (i, id) => { const o = S.objects[i]; if (!o) return; o.material = id; changed(); if (STAGE === 'geom') renderForm(); },
   hasModel: () => !!S.model, hasResult: () => !!S.result, result: () => S.result, field3d: () => S.field3d,
-  temperature: () => S.T, cells: () => (S.model ? S.model.n_cells : null), screenshot: () => (S.viewer ? S.viewer.screenshot() : null),
+  temperature: () => scnT(), cells: () => (S.model ? S.model.n_cells : null), screenshot: () => (S.viewer ? S.viewer.screenshot() : null),
   // смена темы оформления: вид перекрашивается, оси с подписями и стрелки намагничивания строятся заново
   applyTheme: () => { if (!S.viewer) return; S.viewer.applyTheme(); if (S.active) { updateAxes(); updateArrows(); } },
   zoom: f => { if (S.viewer) S.viewer.zoom(f); }, fit: () => { if (S.viewer) S.viewer.fit(); } };

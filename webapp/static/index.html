@@ -663,8 +663,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <p class="hint">Сетка строится на шаге «Сетка». Выберите сценарий и нажмите «Выбрать» — расчёт запускается кнопкой «Рассчитать» в шапке.</p>
         </div>
         <div id="calc-3d" style="display:none">
-          <p class="hint">Магнитостатика 3D: нелинейная сталь, магнит с коленом при температуре T (необратимая потеря — по той же модели, что в 2D). Внешнее однородное поле — по желанию.</p>
-          <div class="field"><label>Температура магнитов T, °C</label><input class="num" id="c3-T" value="20"></div>
+          <p class="hint">3D: нелинейная сталь, магнит с коленом; необратимая потеря — по той же модели, что в 2D. Внешнее однородное поле — по желанию.</p>
           <div class="field"><label>Внешняя граница области</label><select class="select" id="c3-bc"><option value="neumann">поток не выходит (B·n = 0)</option><option value="dirichlet">φ = 0 (поток уходит в стенку)</option></select></div>
           <div class="field"><label>Внешнее поле H₀ (X, Y, Z), кА/м</label><div class="vec3"><input class="num" id="c3-hx" value="0"><input class="num" id="c3-hy" value="0"><input class="num" id="c3-hz" value="0"></div></div>
         </div>
@@ -1938,10 +1937,14 @@ function setScenario(scn){SCENARIO=scn;$('st-scn').textContent=SCN_NAME[scn];
   // Тепловая динамика — T в своей панели.
   const t=$('T');t.value=(scn==='magneto'?20:t.value);
   $('t-row').style.display=(scn==='thermostatic')?'':'none';
-  $('calc-scn-hint').textContent=scn==='magneto'?'Поле при T=20 °C (ток по желанию — реакция якоря).'
-    :'Поле при заданной температуре: магнит ослаблен по T.';
+  scnHint();
   if(STAGE==='calc'||STAGE==='s3')$('modal-title').textContent=SCN_NAME[scn];
   updateSteps();}
+// Подсказка под сценарием: ток (реакция якоря) задаётся только у двигателя.
+function scnHint(){$('calc-scn-hint').textContent=SCENARIO==='magneto'
+  ?'Поле при T = 20 °C'+(MODE==='pmsm'?' (ток по желанию — реакция якоря).':'.'):'Поле при заданной температуре: магнит ослаблен по T.';}
+// Температура расчёта по сценарию — одна для 2D и 3D: магнитостатика — 20 °C, тепловая статика — из ряда «T, °C».
+function scnT(){return SCENARIO==='thermostatic'?+$('T').value:20;}
 // Выбор сценария в окне: переключает статику (calc) ↔ динамику (s3), заголовок — имя сценария.
 function onScnChange(v){setScenario(v);setStage(v==='dynamic'?'s3':'calc');}
 // Переход к этапу — из дерева проекта и из строки шагов в шапке.
@@ -1996,7 +1999,7 @@ function updateSteps(){updateRtools();if(!STEPS_ON||!$('steps'))return;
   const v=solved?summaryVerdict():null,c=$('step-sum');c.className='sum-chip'+(v?' '+v.cls:'');c.innerHTML=v?v.html:'';
   const sb=document.querySelector('#steps [data-step="calc"]'),col={magneto:'var(--good)',thermostatic:'var(--warn)',dynamic:'var(--crit)'}[SCENARIO]||'var(--good)';
   if(sb){const i=sb.querySelector('.sti');i.style.background=np?'':col;i.style.borderColor=np?'':col;}
-  $('step-scn').textContent=np?'':': '+(d3?'магнитостатика 3D':(SCN_NAME[SCENARIO]||'').toLowerCase());
+  $('step-scn').textContent=np?'':': '+(SCN_NAME[SCENARIO]||'').toLowerCase();
   $('calc').disabled=np;$('calc').title=np?'Сначала создайте проект':'';}
 // правка размеров и свойств фигур меняет отпечаток сетки — обновить шаги после обработчика самого поля
 const STEP_INPUTS='.gsz,.msz,#dommargin,.opar,.oedit,.mobjsz';
@@ -2277,8 +2280,7 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects',d3=MODE==='object
   if(free)newDraft();
   // 3D (этап 3D-5): свои блоки окна и правой панели, объёмный вид вместо холста 2D.
   ['geom-3d','mesh-3d','calc-3d'].forEach(id=>$(id).style.display=d3?'block':'none');
-  $('scn-select').closest('.field').style.display=d3?'none':'';$('calc-scn-hint').style.display=d3?'none':'';
-  if(d3)$('t-row').style.display='none';
+  scnHint();                                            // подсказка сценария зависит от режима
   if(d3){$('mat-model-pmsm').style.display='none';$('mat-model-objs').style.display='none';}
   $('cv').style.display=d3?'none':'';$('v3d').style.display=d3?'block':'none';$('coord').style.display=d3?'none':'';
   $('res3d').style.display=d3?'block':'none';
@@ -2627,6 +2629,7 @@ $('buildmesh').onclick=onBuildBtn;
 // открыть панель S3 (расчёт её кнопкой внутри — там же результаты/анимация).
 async function runByScenario(){
   if(noProject()){warnNoProj();return;}
+  if(SCENARIO==='thermostatic'&&!Number.isFinite(scnT())){setConv('c','● Температура T — число, °C (сценарий «Тепловая статика»)');return;}
   if(MODE==='objects3d'){if(window.WS3D)WS3D.run();return;}
   if(SCENARIO==='dynamic'){setStage('s3');return;}
   // Готовый расчёт не пересчитывается поверх себя — как в 3D: новая версия через «Редактировать».
@@ -2862,6 +2865,8 @@ function applyCalcBundle(m){
   POST=m.post||{};                                    // R5: восстановить постобработку снимка
   $('proj-tree-name').textContent=m.name;
   if(m.mode==='objects3d'||m.type==='free3d'){applyMode('objects3d');if(window.WS3D)WS3D.applyBundle(m);
+    const T3=(m.geom&&m.geom.T!=null)?+m.geom.T:20;$('T').value=T3;
+    setScenario(m.scenario==='thermostatic'||T3!==20?'thermostatic':'magneto');   // в файлах до 25.09.2026 в 3D всегда «магнитостатика»
     setStage('result');updateResults();updateCta();DIRTY=false;clearPend();return;}
   applyMode(m.mode==='objects'||m.type==='free'?'objects':'pmsm');
   const g=m.geom||{};
