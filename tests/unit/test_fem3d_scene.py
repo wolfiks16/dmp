@@ -126,6 +126,9 @@ def test_view_quantities_are_the_solution_numbers():
     assert np.array_equal(q["B"][0], np.linalg.norm(f.B_cells, axis=1))
     assert np.array_equal(q["H"][0], np.linalg.norm(f.H_cells, axis=1) / 1.0e3)
     assert np.array_equal(q["Bz"][0], f.B_cells[:, 2])
+    for k, key in enumerate(("Hx", "Hy", "Hz")):                                  # составляющие H — для списка величин
+        assert np.array_equal(q[key][0], f.H_cells[:, k] / 1.0e3) and q[key][1] == "кА/м"
+    assert np.allclose(np.linalg.norm(np.c_[q["Hx"][0], q["Hy"][0], q["Hz"][0]], axis=1), q["H"][0], rtol=1e-14, atol=0)
     idx = f.risk.cell_indices
     other = np.setdiff1d(np.arange(p.mesh.n_cells), idx)
     for key, ref in (("margin", f.risk.margin / 1.0e3), ("loss", f.risk.loss), ("Hpar", f.risk.H_par / 1.0e3)):

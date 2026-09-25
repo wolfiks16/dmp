@@ -133,7 +133,7 @@ def cell_quantities(field: ScalarField3D) -> dict[str, tuple[np.ndarray, str]]:
     """
     Величины по ячейкам для вида: {имя: (значения (n_cells,), единица)}. У величин магнита вне
     магнитов — NaN.
-      B, Bx, By, Bz — индукция [Тл];  H — |H| [кА/м];  mu — хордовая относительная проницаемость
+      B, Bx, By, Bz — индукция [Тл];  H, Hx, Hy, Hz — напряжённость [кА/м];  mu — хордовая относительная проницаемость
       (след тензора / 3);  Hpar — поле вдоль оси магнита [кА/м];  margin — запас до колена [кА/м]
       (< 0 — за коленом);  loss — потеря ремнантности с учётом истории [Тл].
     """
@@ -141,6 +141,7 @@ def cell_quantities(field: ScalarField3D) -> dict[str, tuple[np.ndarray, str]]:
     q = {"B": (np.linalg.norm(B, axis=1), "Тл"),
          "Bx": (B[:, 0].copy(), "Тл"), "By": (B[:, 1].copy(), "Тл"), "Bz": (B[:, 2].copy(), "Тл"),
          "H": (np.linalg.norm(H, axis=1) / 1.0e3, "кА/м"),
+         "Hx": (H[:, 0] / 1.0e3, "кА/м"), "Hy": (H[:, 1] / 1.0e3, "кА/м"), "Hz": (H[:, 2] / 1.0e3, "кА/м"),
          "mu": (np.trace(field.mu_cells, axis1=1, axis2=2) / 3.0, "")}
     risk = field.risk
     if risk is not None:

@@ -18,12 +18,9 @@ const DIRS = [['axial', 'вдоль оси тела'], ['axial-in', 'проти�
 const DIRS_STEP = [['axial', 'вдоль оси двигателя'], ['axial-in', 'против оси двигателя'], ['radial', 'радиально от оси'],
   ['radial-in', 'радиально к оси'], ['x', 'по +X'], ['y', 'по +Y'], ['z', 'по +Z']];
 const VEC = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] };
-const QTY = [['B', 'B — модуль индукции'], ['Bx', 'Bx'], ['By', 'By'], ['Bz', 'Bz'], ['H', 'H — модуль напряжённости'],
-  ['mu', 'μ — относительная проницаемость'], ['margin', '⚠ Запас до колена (магниты)'],
-  ['loss', 'Потеря B_r (магниты)'], ['Hpar', 'H вдоль оси намагничивания (магниты)']];
-const SIGNED = new Set(['Bx', 'By', 'Bz', 'Hpar']);
+// Список величин — общий с 2D (index.html: QLBL, qtyList, buildQtyMenu): B ▸, H ▸, потеря B_r (docs/ui_rules.md §1).
+const SIGNED = new Set(['Bx', 'By', 'Bz', 'Hx', 'Hy', 'Hz']);        // знакопеременные — расходящаяся шкала
 const FROM_ZERO = new Set(['B', 'H', 'loss']);
-const MAGNET_ONLY = new Set(['margin', 'loss', 'Hpar']);
 const MATCOL = { magnet: '#9a72d6', steel: '#8391a6', linear: '#4d8bff', air: '#5d6d8a' };
 const AIR_RGB = [28, 37, 54], GRAY_RGB = [70, 80, 96], LINE_ON_SECTION = [238, 243, 252];
 
@@ -36,7 +33,7 @@ const fresh = () => ({ objects: [], sel: -1, h: 2, margin: 2, grading: 2, T: 20,
 // Показ осей, стрелок и силовых линий — настройка вида, а не расчёта: живёт вне fresh() и не сбрасывается
 // при смене проекта.
 const S = Object.assign(fresh(), { viewer: null, active: false, showCoordAxes: true, showBodyAxes: true,
-  showArrows: false, showLines: false, showSecLines: false, linesN: 200,
+  showArrows: false, showLines: false, showSecLines: false, linesN: 200, onSurf: true,
   building: null });   // идущее построение сетки (промис) — вне fresh(): новое построение ждёт его и в новом проекте
 
 // ---------------------------------------------------------------- мелочи
@@ -536,8 +533,8 @@ function clearResult() {
 }
 
 // ---------------------------------------------------------------- поле: цвет и шкала
-const availQ = () => QTY.map(q => q[0]).filter(q => !MAGNET_ONLY.has(q) || (S.result && S.result.demag.length));
-const qLabel = q => (QTY.find(x => x[0] === q) || [q, q])[1];
+const availQ = () => qtyList().all;
+const qLabel = q => QLBL[q] || q;
 async function setQuantity(q) {
   S.q = q;
   if (!S.result || !S.model) { updateLegend(); return; }
@@ -556,10 +553,6 @@ function rng() {
 }
 function cmap() {
   const [a, b] = rng();
-  if (S.q === 'margin') {                        // за коленом — красный, у колена — жёлтый, запас — зелёный
-    const lo = Math.min(a, -1e-9), hi = Math.max(b, 1e-9);
-    return v => riskColor(v >= 0 ? 0.5 + 0.5 * Math.min(v / hi, 1) : 0.5 - 0.5 * Math.min(v / lo, 1));
-  }
   if (SIGNED.has(S.q)) return v => diverging(v / b);
   const ramp = rainbow;                                 // палитра поля одна — радуга
   return v => ramp((v - a) / (b - a));
@@ -567,7 +560,7 @@ function cmap() {
 function recolor() {
   const v = S.viewer;
   if (!v || !S.model) return;
-  const f = (S.values && $('r3-onsurf').checked) ? cmap() : null;
+  const f = (S.values && S.onSurf) ? cmap() : null;
   for (const key of Object.keys(S.cells)) {
     if (!f) { v.setColors(key, null); continue; }
     const cells = S.cells[key], rgb = new Uint8Array(cells.length * 3);
@@ -594,13 +587,14 @@ function sectionColors() {
 function updateLegend() {
   const cb = $('cbar');
   if (!S.active || !S.values) { cb.classList.add('hide'); return; }
-  let [a, b] = rng();
-  const risk = S.q === 'margin';
-  if (risk) { a = Math.min(a, 0); b = Math.max(b, 0); }
+  const [a, b] = rng();
   // Градиент шкалы — той же функцией, что красит тела: шкала совпадает с картинкой при любом отображении.
   $('cscale').style.background = 'linear-gradient(90deg,' + stops(cmap(), a, b) + ')';
-  $('cmin').textContent = fmt(a) + (risk ? (a < 0 ? ' (за коленом)' : ' (колено)') : '');
-  $('cmax').textContent = fmt(b) + (risk ? ' (запас)' : '');
+  // Подписи — одно правило с 2D (sig3 в index.html): знакопеременная величина «−X … +X», остальные «0 … X», три
+  // значащие цифры. Пустой размах (потери B_r нет — все нули) растянут на 1e-12; подписывается нулём.
+  const lab = v => (Math.abs(v) < 1e-9 ? '0' : v < 0 ? '−' + sig3(-v) : (SIGNED.has(S.q) ? '+' : '') + sig3(v));
+  $('cmin').textContent = lab(a);
+  $('cmax').textContent = lab(b);
   $('cunit').textContent = S.unit || '';
   cb.classList.remove('hide');
 }
@@ -790,8 +784,7 @@ function renderResults() {
   $('r3-body').style.display = r ? '' : 'none';
   $('vplbl').innerHTML = (r && S.values) ? '<b>' + esc(qLabel(S.q)) + '</b>' : '<b>Геометрия модели · 3D</b>';
   if (!r) return;
-  const qs = availQ();
-  $('r3-q').innerHTML = QTY.filter(q => qs.includes(q[0])).map(q => '<option value="' + q[0] + '"' + (q[0] === S.q ? ' selected' : '') + '>' + q[1] + '</option>').join('');
+  buildQtyMenu();                                  // список величин над видом — общий с 2D
   $('r3-restore').style.display = ((S.model && S.values) || S.restoring) ? 'none' : '';
   $('r3-restore-note').textContent = S.restoreNote || (S.field3d
     ? 'Поле этого расчёта не открыто — его можно пересчитать с теми же данными.'
@@ -959,8 +952,8 @@ function bindUI() {
   $('c3-T').onchange = () => { const x = +$('c3-T').value; if (Number.isFinite(x)) { S.T = x; markDirty(); } else $('c3-T').value = S.T; };
   $('c3-bc').onchange = () => { S.bc = $('c3-bc').value; markDirty(); };
   ['x', 'y', 'z'].forEach((a, k) => { $('c3-h' + a).onchange = () => { const x = +$('c3-h' + a).value; if (Number.isFinite(x)) { S.H0[k] = x; markDirty(); } }; });
-  $('r3-q').onchange = e => setQuantity(e.target.value);
-  $('r3-onsurf').onchange = () => recolor();
+  // «Величина цветом» — общий значок над видом; здесь 3D-сторона: цвет величины на поверхностях тел
+  $('v-color').addEventListener('change', e => { if (MODE !== 'objects3d') return; S.onSurf = e.target.checked; recolor(); });
   $('r3-bodies').addEventListener('change', e => { const n = e.target.dataset.body; if (n === undefined) return; if (e.target.checked) S.bodies.add(n); else S.bodies.delete(n); });
   $('r3-force').onclick = force;
   $('r3-flux').onclick = flux;
@@ -977,7 +970,9 @@ function bindUI() {
 window.WS3D = { activate, deactivate, reset, applyBundle, geomDef, onStage, onBuild, run, clearResult, setView, importStepBytes,
   solve: () => solve(false), materialIds: () => S.objects.map(o => o.material), hasObjects: () => S.objects.length > 0,
   // строка вида (index.html): состояние переключателей 3D и есть ли разрез
-  viewFlags: () => ({ arrows: S.showArrows, lines: S.showLines, n: S.linesN }), sectionOn: () => S.sec.axis !== 'off',
+  viewFlags: () => ({ arrows: S.showArrows, lines: S.showLines, n: S.linesN, color: S.onSurf }), sectionOn: () => S.sec.axis !== 'off',
+  // список величин (index.html): текущая, выбрать, есть ли магниты (потеря B_r)
+  quantity: () => S.q, setQuantity: q => setQuantity(q), hasMagnets: () => !!(S.result && S.result.demag && S.result.demag.length),
   // шаг «Материалы»: тела с материалом и смена материала — тем же путём, что в форме тела
   bodies: () => S.objects.map(o => ({ name: o.name, material: o.material })),
   setMaterial: (i, id) => { const o = S.objects[i]; if (!o) return; o.material = id; changed(); if (STAGE === 'geom') renderForm(); },

@@ -122,6 +122,13 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .vmenu button[aria-checked="true"],.vmenu .has-checked{color:var(--text)}
 .vmenu button[aria-checked="true"]::before,.vmenu .has-checked::before{background:var(--accent)}
 .ib-dd{width:auto;gap:2px;padding:0 5px 0 6px}.ib-dd .chev{width:8px;height:8px;flex:0 0 8px}
+/* вложенный список (величина: B ▸, H ▸) — справа от пункта, по наведению или фокусу */
+.vmenu-sub{position:relative}
+.vmenu .vmenu.nested{position:absolute;left:calc(100% + 6px);top:-6px;display:none}
+.vmenu .vmenu.nested::before{content:'';position:absolute;left:-12px;top:0;bottom:0;width:12px}   /* мостик для мыши */
+.vmenu-sub:hover>.vmenu.nested,.vmenu-sub:focus-within>.vmenu.nested{display:block}
+.vmenu-parent .chev{width:8px;height:8px;flex:0 0 8px;margin-left:auto}
+.q-btn{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;min-width:176px}.q-btn .chev{width:8px;height:8px;flex:0 0 8px}
 #sec3d-pos{width:120px}
 .vop{display:flex;align-items:center;gap:5px;color:var(--muted);cursor:pointer}.vop svg{width:18px;height:18px;flex:0 0 18px}.vop input{width:72px}
 .tg,.ib{position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 10px;flex:0 0 auto;
@@ -133,8 +140,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .tg.ic>span{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 .tg:has(input:checked){background:var(--accent);border-color:var(--accent);color:#04140e}
 .tg:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
-#rtools-3dres{flex-wrap:wrap;gap:6px 18px}
-.rtools #r3-q{width:210px;text-overflow:ellipsis}
+#rtools-res{flex-wrap:wrap;gap:6px 18px}
+
 .vp-cbar{display:flex;align-items:center;gap:8px;padding:9px 12px;border:1px solid var(--line);border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--panel)}
 .vp-cbar.hide{display:none}.vp-cbar .scale{flex:1;height:12px;border-radius:3px}.vp-cbar .lab{font:600 10px/1 var(--mono);color:var(--muted)}
 .rp{padding:12px}
@@ -213,8 +220,6 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .res .crit .v{color:var(--crit)}.res .ok .v{color:var(--good)}
 .rp-stage{display:none}.rp-stage.on{display:block}
 .rp-tool{display:none}.rp-tool.on{display:block}
-.rp-cbar{height:110px;width:22px;border-radius:5px;float:right;margin-left:10px}
-.rp-scale{font:600 10px/1.2 var(--mono);color:var(--muted);display:flex;flex-direction:column;justify-content:space-between;height:110px}
 /* действия внутри панелей — второстепенные (контур); главная кнопка на экране одна — «Рассчитать» в шапке */
 .applybtn{width:100%;background:var(--panel2);border:1px solid var(--accent2);color:var(--accent);padding:8px;border-radius:6px;font:700 12px/1 var(--ui);cursor:pointer;margin-top:2px}
 .applybtn:hover{background:color-mix(in srgb,var(--accent) 13%,var(--panel2))}.applybtn:disabled{opacity:.55;cursor:wait}
@@ -472,10 +477,15 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
         <input class="num" id="snapstep" value="1" title="шаг привязки, мм" style="width:46px;padding:5px 6px">
         <label class="chk" style="white-space:nowrap"><input type="checkbox" id="moveen" checked>перемещение</label>
       </div>
+      <!-- после расчёта (2D и 3D): что показывать и что измерить; список величин один на оба режима
+           (docs/ui_rules.md §1, §3). К геометрии — шаг «Геометрия» в шапке. -->
       <div class="rtgroup" id="rtools-res" style="display:none">
-        <span class="lbl">Результаты</span>
-        <div class="rseg" id="rseg"><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div>
-        <div style="margin-left:16px;display:flex;align-items:center;gap:8px"><span class="toggle" id="showfield"></span><span style="font-size:12px;font-weight:600">Показать поле</span></div>
+        <span class="vgrp"><span class="lbl">Величина</span>
+          <div class="vmenu-wrap"><button class="btn q-btn" id="q-btn" title="Какую величину показывать цветом"><span id="q-lbl">B — модуль</span><svg class="chev" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 3 4 5.5 6.5 3"/></svg></button>
+            <div class="vmenu down" id="q-menu" role="menu" aria-label="Величина" hidden></div></div>
+          <label class="tg ic" title="Величина цветом; выключено — цвета материалов (в 3D поле тогда видно на разрезе)"><input type="checkbox" id="v-color" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="3.75" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".18" stroke="none"/><rect x="7.75" y="4.75" width="4.5" height="10.5" fill="currentColor" fill-opacity=".48" stroke="none"/><rect x="12.25" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".85" stroke="none"/><rect x="3" y="4" width="14" height="12" rx="1.5"/></svg><span>величина цветом</span></label></span>
+        <span class="vgrp" id="meas-2d"><span class="lbl">Измерить</span>
+          <div class="rseg" id="rseg"><button data-tool="point">Точка</button><button data-tool="line">Линия</button><button data-tool="circle">Окружность</button></div></span>
       </div>
       <div class="rtgroup" id="rtools-3d" style="display:none">
         <span class="lbl">Добавить тело</span>
@@ -489,12 +499,6 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <button id="step3d-btn" title="Импорт тел из STEP-файла (КОМПАС, T-FLEX)" style="width:auto;padding:0 8px;font:700 11px/1 var(--ui)">STEP</button>
           <input type="file" id="step3d-file" accept=".stp,.step" hidden>
         </div>
-      </div>
-      <!-- 3D после расчёта: вместо кнопок тел — что показывать (к геометрии — шаг «Геометрия» в шапке) -->
-      <div class="rtgroup" id="rtools-3dres" style="display:none">
-        <span class="vgrp"><span class="lbl">Величина</span>
-        <select class="select" id="r3-q" title="Какую величину показывать цветом на телах и на разрезе"></select>
-        <label class="tg ic" title="Величина цветом на поверхностях тел; выключено — тела своими цветами, поле видно на разрезе"><input type="checkbox" id="r3-onsurf" checked><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" aria-hidden="true"><rect x="3.75" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".18" stroke="none"/><rect x="7.75" y="4.75" width="4.5" height="10.5" fill="currentColor" fill-opacity=".48" stroke="none"/><rect x="12.25" y="4.75" width="4" height="10.5" fill="currentColor" fill-opacity=".85" stroke="none"/><rect x="3" y="4" width="14" height="12" rx="1.5"/></svg><span>величина цветом на поверхностях</span></label></span>
       </div>
     </div>
     <div class="center-body">
@@ -686,12 +690,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
         <!-- итог расчёта — первым: недостоверность, вердикт по магнитам, сводка -->
         <div id="res-top"><div id="res-verdict"></div>
           <h4>Сводка</h4><ul class="res" id="res"><li><span>—</span><span class="v">рассчитайте</span></li></ul><hr></div>
-        <div id="field-ctrls" style="display:none">
-          <h4>Отображение поля</h4>
-          <div class="field"><label>Компонента</label><select class="select" id="comp"><option value="mag">B — модуль</option><option value="bx">Bx</option><option value="by">By</option><option value="br">Br — радиальная</option><option value="bt">Bθ — тангенциальная</option><option value="demag" disabled>⚠ Риск размагничивания</option></select></div>
-          <div class="field" style="overflow:hidden"><div class="rp-cbar" id="rp-cbar"></div><div class="rp-scale" id="rp-scale"></div></div><div style="clear:both"></div><hr>
-        </div>
-        <div class="rp-tool" data-tool="view"><p class="hint">Выберите инструмент (Точка/Линия/Окружность) или включите «Показать поле».</p></div>
+        <div class="rp-tool" data-tool="view"><p class="hint">Что измерить — над видом: точка, линия или окружность.</p></div>
         <div class="rp-tool" data-tool="point">
           <p class="hint">Задай координаты или кликни по вьюпорту.</p>
           <div class="row2"><div class="field"><label>x, мм</label><input class="num" id="px" value="15"></div><div class="field"><label>y, мм</label><input class="num" id="py" value="8"></div></div>
@@ -735,7 +734,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div id="r3-demag-wrap"><h4>Вердикт по магнитам</h4>
             <div id="r3-demag"></div>
             <details class="why"><summary>Как считается вердикт</summary>
-              <p class="hint">Потеря потока: магнит после расчёта и новый сравниваются при 20 °C без внешнего поля, как флюксметром до и после. В сборке на поток магнита влияют и соседи: если соседний магнит повреждён, поток целого магнита может немного вырасти — тогда вместо потери написано «Поток вырос». Запас до колена в отдельной ячейке у краёв магнита зависит от сетки, поэтому вердиктом не служит; где магнит ближе всего к колену, показывает карта «Запас до колена».</p></details>
+              <p class="hint">Потеря потока: магнит после расчёта и новый сравниваются при 20 °C без внешнего поля, как флюксметром до и после. В сборке на поток магнита влияют и соседи: если соседний магнит повреждён, поток целого магнита может немного вырасти — тогда вместо потери написано «Поток вырос». Запас до колена в отдельной ячейке у краёв магнита зависит от сетки, поэтому вердиктом не служит; где магнит повреждён, показывает карта «Потеря B_r».</p></details>
             <hr></div>
           <div id="r3-restore" style="display:none"><p class="hint" id="r3-restore-note"></p><button class="applybtn" id="r3-restore-btn">Пересчитать поле</button><hr></div>
           <h4>Сводка</h4><ul class="res" id="r3-sum"></ul>
@@ -908,7 +907,9 @@ let VIEWER=false;   // режим просмотра снят; переменн�
 let DIRTY=false;    // есть несохранённые изменения в текущем проекте
 let POST={};   // R5: постобработка снимка {torque, loss, scenario} — пишется в архив расчёта
 let MODE='pmsm',SCENARIO='magneto',OBJECTS=[],SEL=-1,OBJ_HAS_MAGNET=false,MAGNETS=[],STEELS=[],DRAW=null,SNAP=true,SNAPSTEP=1,MOVEEN=true;
-let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='mag',VMAX=2.0,SELREG=null;
+let STAGE='result',TOOL='view',SHOWFIELD=false,COMP='B',VMAX=2.0,SELREG=null;
+// Величины 2D сверх B: H по ячейкам [кА/м] и потеря B_r по ячейкам [Тл] (вне магнитов — NaN) — с сервера.
+let HX=null,HY=null,LOSS2D=null,HMAX=1,LMAX=0;
 // Силовые линии 2D (этап 3D-7, то же в 2D): A_z в узлах из решения; линии — его линии уровня с равным
 // шагом, поэтому между соседними линиями одинаковый поток на единицу длины машины. LINES2D — готовые
 // отрезки в координатах модели (считаются один раз на решение и число линий).
@@ -945,10 +946,21 @@ function defaultView(){const span=60;scale=(Math.min(W,H)*0.9)/span;base=scale;o
 function cellAt(x,y){const V=SCENE.vertices,C=SCENE.cells;for(let i=0;i<C.length;i++){const t=C[i],a=V[t[0]],b=V[t[1]],c=V[t[2]],d=(b[1]-c[1])*(a[0]-c[0])+(c[0]-b[0])*(a[1]-c[1]);if(Math.abs(d)<1e-12)continue;
   const l0=((b[1]-c[1])*(x-c[0])+(c[0]-b[0])*(y-c[1]))/d,l1=((c[1]-a[1])*(x-c[0])+(a[0]-c[0])*(y-c[1]))/d;if(l0>=-1e-9&&l1>=-1e-9&&l0+l1<=1+1e-9)return i;}return -1;}
 function fieldAtPoint(x,y){const i=cellAt(x,y);if(i<0||!BX)return null;const bx=BX[i],by=BY[i],th=Math.atan2(y,x),c=Math.cos(th),s=Math.sin(th);
-  return{bx,by,br:bx*c+by*s,bt:-bx*s+by*c,mag:Math.hypot(bx,by),reg:SCENE.regions[''+SCENE.region[i]].name};}
-function cellVal(i){const bx=BX[i],by=BY[i];if(COMP==='mag')return Math.hypot(bx,by);if(COMP==='bx')return bx;if(COMP==='by')return by;
-  const th=Math.atan2(CENT[i][1],CENT[i][0]),c=Math.cos(th),s=Math.sin(th);return COMP==='br'?bx*c+by*s:-bx*s+by*c;}
-function signedComp(){return SHOWFIELD&&COMP!=='mag';}
+  const hx=HX?HX[i]:NaN,hy=HY?HY[i]:NaN;
+  return{bx,by,br:bx*c+by*s,bt:-bx*s+by*c,mag:Math.hypot(bx,by),hx,hy,hmag:Math.hypot(hx,hy),reg:SCENE.regions[''+SCENE.region[i]].name};}
+// Значение выбранной величины (COMP — ключ из общего списка величин QLBL) в ячейке; NaN — величины тут нет.
+function cellVal(i){const bx=BX[i],by=BY[i];
+  switch(COMP){case 'B':return Math.hypot(bx,by);case 'Bx':return bx;case 'By':return by;
+    case 'H':return HX?Math.hypot(HX[i],HY[i]):NaN;case 'Hx':return HX?HX[i]:NaN;case 'Hy':return HY?HY[i]:NaN;
+    case 'loss':return LOSS2D?LOSS2D[i]:NaN;}
+  const th=Math.atan2(CENT[i][1],CENT[i][0]),c=Math.cos(th),s=Math.sin(th);return COMP==='Br'?bx*c+by*s:-bx*s+by*c;}
+const QSIGNED=new Set(['Bx','By','Br','Bt','Hx','Hy']);                  // знакопеременные — расходящаяся шкала
+function signedComp(){return SHOWFIELD&&QSIGNED.has(COMP);}
+function qMax(){return COMP[0]==='H'?HMAX:COMP==='loss'?Math.max(LMAX,1e-12):VMAX;}   // предел шкалы выбранной величины
+function qUnit(){return COMP[0]==='H'?'кА/м':'Тл';}
+// Подписи шкалы — одно правило в 2D и 3D: три значащие цифры; пустой размах (потери нет) — нулём.
+function sig3(v){return Math.abs(v)<1e-9?'0':String(Number(v.toPrecision(3)));}
+function qFmt(v){return sig3(v);}
 
 function niceStep(){const t=64,c=[1,2,5,10,20,50];let bs=c[0],bd=1e9;c.forEach(s=>{const d=Math.abs(scale*s-t);if(d<bd){bd=d;bs=s;}});return bs;}
 function grid(){const tl=s2w(0,0),br=s2w(W,H),step=niceStep();ctx.lineWidth=1;
@@ -1055,7 +1067,7 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect
     overlays();$('st-zoom').textContent='масштаб '+(scale/base*100|0)+' %';return;}
   grid();
   const V=SCENE.vertices,C=SCENE.cells,REG=SCENE.region,showF=SHOWFIELD&&BX,sgn=signedComp();
-  const risk=showF&&COMP==='demag'&&DEMAG;                 // режим карты риска размагничивания
+  const risk=showF&&COMP==='risk'&&DEMAG;                  // режим карты риска размагничивания
   const temp=SHOWTEMP&&TFIELD;                             // режим карты температуры
   // Каждый треугольник ещё и обводится своим цветом: иначе по стыкам соседних треугольников просвечивает фон
   // (сглаживание краёв) — на светлом фоне это видно как сетка поверх поля.
@@ -1067,7 +1079,9 @@ function draw(){ctx.setTransform(PX,0,0,PX,0,0);ctx.fillStyle=TH.bg;ctx.fillRect
     else if(risk){const s=DEMAG[i];
       if(s===s){const col=riskColor(s);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';} // магнит — цвет риска
       else fill=dimHex(regColor(''+REG[i]),0.42);}                                                // фон приглушён
-    else if(showF){const v=cellVal(i),col=sgn?diverging(v/VMAX):ramp(v/VMAX);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
+    else if(showF){const v=cellVal(i),m=qMax();                                                   // потеря B_r — только в магнитах
+      if(v===v){const col=sgn?diverging(v/m):ramp(v/m);fill='rgb('+(col[0]|0)+','+(col[1]|0)+','+(col[2]|0)+')';}
+      else fill=dimHex(regColor(''+REG[i]),0.42);}
     else fill=regColor(''+REG[i]);
     ctx.fillStyle=fill;ctx.fill();ctx.strokeStyle=fill;ctx.stroke();}
   if(SELREG!=null&&MODE==='pmsm'){for(let i=0;i<C.length;i++){if(REG[i]!==SELREG)continue;
@@ -1167,12 +1181,12 @@ function updateRtools(){const solved=!!BX,d3=MODE==='objects3d';
   // 3D: на шаге «Результат» с готовым расчётом над видом — что показывать, иначе — кнопки тел (как 2D после расчёта)
   const res3=d3&&STAGE==='result'&&!!(window.WS3D&&WS3D.hasResult());
   $('rtools-geom').style.display=(solved||d3)?'none':'flex';
-  $('rtools-res').style.display=(solved&&!d3)?'flex':'none';
+  $('rtools-res').style.display=((solved&&!d3)||res3)?'flex':'none';
+  $('meas-2d').style.display=d3?'none':'';                 // измерения 3D — отдельным шагом (пункт 6 плана)
   $('rtools-3d').style.display=(d3&&!res3)?'flex':'none';
-  $('rtools-3dres').style.display=res3?'flex':'none';
   $('toppalette').style.display=MODE==='objects'?'flex':'none';}
 // изменение геометрии обесценивает решение → сбрасываем поле и возвращаемся в режим геометрии
-function invalidateField(){if(!BX)return;BX=null;BY=null;AZ=null;LINES2D=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';clearSummary();updateRtools();updateResults();updateViewBar();}
+function invalidateField(){if(!BX)return;BX=null;BY=null;HX=null;HY=null;LOSS2D=null;AZ=null;LINES2D=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;syncColor();setConv('','● геометрия изменена — пересчитайте');$('st-iters').textContent='';clearSummary();updateRtools();updateResults();updateViewBar();}
 function objContains(o,x,y){const p=o.params,DEG=Math.PI/180;
   if(o.kind==='rect'){const a=(p.angle||0)*DEG,c=Math.cos(-a),s=Math.sin(-a),dx=x-p.cx,dy=y-p.cy,lx=dx*c-dy*s,ly=dx*s+dy*c;return Math.abs(lx)<=p.w/2&&Math.abs(ly)<=p.h/2;}
   if(o.kind==='circle')return (x-p.cx)**2+(y-p.cy)**2<=p.r*p.r;
@@ -1247,17 +1261,16 @@ function tempBars(){const g=stops(heatColor,0,1);
   $('cmin').textContent=TMIN.toFixed(0);$('cmax').textContent=TMAX.toFixed(0);
   $('cunit').textContent='°C';$('cbar').classList.remove('hide');}
 function bars(){const cbar=$('cbar'),wasHidden=cbar.classList.contains('hide');
-  if(SHOWFIELD&&BX&&COMP==='demag'&&DEMAG){            // легенда карты риска: зелёный→красный
+  if(SHOWFIELD&&BX&&COMP==='risk'&&DEMAG){             // легенда карты риска: зелёный→красный
     const g=stops(riskColor,0,1);
-    $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
+    $('cscale').style.background='linear-gradient(90deg,'+g+')';
     $('cmin').textContent='за коленом';$('cmax').textContent='безопасно';$('cunit').textContent='';
-    $('rp-scale').innerHTML='<span>безопасно</span><span>колено</span><span>за коленом</span>';
     cbar.classList.remove('hide');
   }else{
-    const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1);
-    $('cscale').style.background='linear-gradient(90deg,'+g+')';$('rp-cbar').style.background='linear-gradient(to top,'+g+')';
-    $('cmin').textContent=sgn?('−'+VMAX.toFixed(1)):'0';$('cmax').textContent='+'+VMAX.toFixed(1);$('cunit').textContent='Тл';
-    $('rp-scale').innerHTML=sgn?('<span>+'+VMAX.toFixed(1)+'</span><span>0</span><span>−'+VMAX.toFixed(1)+'</span>'):('<span>'+VMAX.toFixed(1)+'</span><span>'+(VMAX/2).toFixed(1)+'</span><span>0</span>');
+    const sgn=signedComp(),g=sgn?stops(diverging,-1,1):stops(ramp,0,1),m=qMax();
+    $('cscale').style.background='linear-gradient(90deg,'+g+')';
+    // подписи шкалы — одно правило в 2D и 3D: знакопеременная величина «−X … +X», остальные «0 … X»
+    const hi=qFmt(m);$('cmin').textContent=sgn&&hi!=='0'?('−'+hi):'0';$('cmax').textContent=(sgn&&hi!=='0'?'+':'')+hi;$('cunit').textContent=qUnit();
     cbar.classList.toggle('hide',!(SHOWFIELD&&BX));
   }
   // Видимость шкалы меняет высоту вьюпорта → пересчитать холст, сохранив центр обзора (иначе модель «сжимается»).
@@ -1325,7 +1338,7 @@ function setTool(t){TOOL=t;
   document.querySelectorAll('.rp-tool').forEach(s=>s.classList.toggle('on',s.dataset.tool===t));
   cv.classList.toggle('pt',t==='point');
   $('st-mode').textContent='Вид: '+({view:'Геометрия',point:'Точка',line:'Линия',circle:'Окружность'})[t];
-  $('vplbl').innerHTML=(SHOWFIELD&&BX)?(COMP==='demag'?'<b>⚠ Карта риска размагничивания</b>':('<b>Поле '+({mag:'B',bx:'Bx',by:'By',br:'Br',bt:'Bθ'}[COMP])+'</b>')):'<b>Геометрия модели</b>';
+  $('vplbl').innerHTML=(SHOWFIELD&&BX)?('<b>'+(COMP==='risk'?'⚠ ':'')+escH(QLBL[COMP]||COMP)+'</b>'):'<b>Геометрия модели</b>';
   $('needsolve').textContent=(t!=='view'&&!BX)?'⚠ сначала «Рассчитать»':'';
   if(STAGE==='result')runProbe();draw();}
 
@@ -1403,7 +1416,7 @@ async function buildMeshOnce(){const btn=$('buildmesh');btn.disabled=true;btn.te
     if(d.error){$('err').textContent=d.error;$('err').style.display='block';setConv('c','● '+d.error);return;}
     MESH_ID=d.mesh_id;MESH_SIG=sig;SCENE=d.scene;OBJ_HAS_MAGNET=!!d.has_magnet;SELREG=null;$('reg-info').style.display='none';
     CENT=SCENE.cells.map(t=>{const V=SCENE.vertices;return[(V[t[0]][0]+V[t[1]][0]+V[t[2]][0])/3,(V[t[0]][1]+V[t[1]][1]+V[t[2]][1])/3];});
-    BX=null;BY=null;AZ=null;LINES2D=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+    BX=null;BY=null;HX=null;HY=null;LOSS2D=null;AZ=null;LINES2D=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;SHOWFIELD=false;syncColor();
     if(MODE==='objects'){
       $('meshinfo').innerHTML='<span class="tot">'+d.n_cells+'</span> ячеек · '+d.regions.length+' обл.'+(d.has_magnet?' · с магнитом':'')+(d.warning?'<br><span style="color:var(--warn)">⚠ '+d.warning+'</span>':'');
     }else{
@@ -1428,7 +1441,11 @@ const keepTogether=v=>{v=String(v);return v.length<20&&v.indexOf('<')<0?v.replac
 function summary(rows){$('res').innerHTML=rows.map(r=>'<li class="'+(r.cls||'')+'"><span>'+r.k+'</span><span class="v">'+keepTogether(r.v)+'</span></li>').join('');}
 const escH=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function clearSummary(){$('res').innerHTML='<li><span>—</span><span class="v">рассчитайте</span></li>';$('res-verdict').innerHTML='';}   // итог в правой панели → плейсхолдер
-function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;$('showfield').classList.add('on');$('field-ctrls').style.display='block';
+function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;VMAX=Math.max(d.Bmax,0.1);SHOWTEMP=false;SHOWFIELD=true;
+  // H и потеря B_r (с 24.09.2026; в прежних файлах их нет — в списке остаются B и риск)
+  HX=d.Hx||null;HY=d.Hy||null;HMAX=Math.max(d.Hmax_kA||1,1);LOSS2D=null;LMAX=0;
+  if(d.demag_loss_T&&d.demag_cells){LOSS2D=new Float32Array(BX.length).fill(NaN);
+    for(let k=0;k<d.demag_cells.length;k++){const v=d.demag_loss_T[k];LOSS2D[d.demag_cells[k]]=v;if(v>LMAX)LMAX=v;}}
   // Этап 5: собрать поячеечную карту риска (s∈[0,1]) по H_op относительно колена СВОЕЙ марки: в модели могут
   // быть магниты разных марок. В файлах до 24.09.2026 колено одно на модель — demag_knee_kA.
   DEMAG=null;
@@ -1437,8 +1454,8 @@ function applyResult(d){LAST_FIELD=d;BX=d.Bx;BY=d.By;AZ=d.A||null;LINES2D=null;V
     for(let k=0;k<d.demag_cells.length;k++){const knee=kc?kc[k]:d.demag_knee_kA;
       arr[d.demag_cells[k]]=Math.max(0,Math.min(1,(d.demag_hop_kA[k]-knee)/(-knee)));}
     DEMAG=arr;}
-  const demOpt=$('comp').querySelector('option[value="demag"]');if(demOpt)demOpt.disabled=!DEMAG;
-  if(!DEMAG&&COMP==='demag'){COMP='mag';$('comp').value='mag';}
+  if(!qtyList().all.includes(COMP))COMP='B';            // величины нет в этом расчёте — к модулю B
+  buildQtyMenu();syncColor();
   bars();
   const bad=!!(d.checks&&!d.checks.trustworthy);
   setConv(d.converged&&!bad?'g':'c',!d.converged?'● Не сошлось':bad?'● Результат недостоверен — '+d.checks.summary:'● Решение сошлось');
@@ -1837,11 +1854,36 @@ $('v-lines-n').addEventListener('change',()=>{if(MODE==='objects3d')return;const
 function updateViewBar(){const d3=MODE==='objects3d',solved=d3?!!(window.WS3D&&WS3D.hasResult()):!!BX;
   $('vt-lines').hidden=!solved;
   $('vt-seclines').style.display=(d3&&window.WS3D&&WS3D.sectionOn())?'':'none';}
-$('showfield').onclick=()=>{if(SHOWTEMP){setTemp(false);return;}   // из тепловой карты — назад к полю/геометрии
-  SHOWFIELD=!SHOWFIELD;$('showfield').classList.toggle('on',SHOWFIELD);$('field-ctrls').style.display=SHOWFIELD?'block':'none';bars();setTool(TOOL);};
+// «Величина цветом» — общий значок над видом; здесь его 2D-сторона (3D — в ws3d.js): поле по ячейкам или цвета материалов.
+$('v-color').addEventListener('change',e=>{if(MODE==='objects3d')return;
+  if(SHOWTEMP){setTemp(false);}                                        // из тепловой карты — назад к полю/геометрии
+  SHOWFIELD=e.target.checked&&!!BX;bars();setTool(TOOL);});
+function syncColor(){if(MODE!=='objects3d')$('v-color').checked=SHOWFIELD;}
+// СПИСОК ВЕЛИЧИН — один на 2D и 3D (docs/ui_rules.md §1): B ▸ (модуль и составляющие), H ▸, потеря B_r; в 2D ещё карта
+// «Риск размагничивания», у двигателя — B_r и B_θ (радиальная и касательная: поле в зазоре).
+const QLBL={B:'B — модуль',Bx:'Bx',By:'By',Bz:'Bz',Br:'B_r — радиальная',Bt:'B_θ — касательная',
+  H:'H — модуль',Hx:'Hx',Hy:'Hy',Hz:'Hz',loss:'Потеря B_r',risk:'Риск размагничивания'};
+function qtyList(){const d3=MODE==='objects3d';
+  const mag=d3?!!(window.WS3D&&WS3D.hasMagnets()):!!DEMAG,hasH=d3||!!HX,hasLoss=d3?mag:!!LOSS2D;
+  const b=['B','Bx','By'].concat(d3?['Bz']:[]).concat(MODE==='pmsm'?['Br','Bt']:[]);
+  const h=hasH?['H','Hx','Hy'].concat(d3?['Hz']:[]):[];
+  const extra=(hasLoss?['loss']:[]).concat(!d3&&mag?['risk']:[]);
+  return {b,h,extra,all:b.concat(h,extra)};}
+function curQty(){return MODE==='objects3d'?(window.WS3D?WS3D.quantity():'B'):COMP;}
+function buildQtyMenu(){const L=qtyList(),cur=curQty();
+  const item=q=>'<button role="menuitemradio" data-v="'+q+'" aria-checked="'+(q===cur)+'">'+escH(QLBL[q])+'</button>';
+  const chev='<svg class="chev" viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 1.5 5.5 4 3 6.5"/></svg>';
+  const sub=(name,list)=>list.length?'<div class="vmenu-sub"><button class="vmenu-parent" aria-haspopup="menu">'+name+chev+'</button>'
+    +'<div class="vmenu nested" role="menu" aria-label="'+name+'">'+list.map(item).join('')+'</div></div>':'';
+  $('q-menu').innerHTML=sub('B — индукция',L.b)+sub('H — напряжённость',L.h)+L.extra.map(item).join('');
+  Menu.check($('q-menu'),cur);$('q-lbl').textContent=QLBL[cur]||cur;}
+Menu.bind($('q-btn'),$('q-menu'),v=>{
+  if(MODE==='objects3d'){if(window.WS3D)WS3D.setQuantity(v);}
+  else{COMP=v;if(!SHOWFIELD&&BX){SHOWFIELD=true;syncColor();}bars();setTool(TOOL);draw();}
+  buildQtyMenu();});
 // Тепловая карта: включить/выключить. Закрывает окно сценария (модалка перекрывает холст).
 function setTemp(on){SHOWTEMP=on&&!!TFIELD;heatStop();
-  if(SHOWTEMP){SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
+  if(SHOWTEMP){SHOWFIELD=false;syncColor();
     setStage('result');tempBars();$('vplbl').innerHTML='<b>🌡 Тепловое поле, °C</b>';
     if(TFRAMES&&TFRAMES.length>1){$('heat-anim').style.display='flex';$('heat-slider').max=TFRAMES.length-1;heatFrame(TFRAMES.length-1);}
     else{$('heat-anim').style.display='none';draw();}}
@@ -1858,7 +1900,6 @@ function heatPlay(){if(HEAT_TIMER){heatStop();return;}if(!TFRAMES)return;
   HEAT_TIMER=setInterval(()=>{if(TFRAME_I>=TFRAMES.length-1){heatStop();return;}heatFrame(TFRAME_I+1);},180);}
 $('heat-play').onclick=heatPlay;
 $('heat-slider').oninput=e=>{heatStop();heatFrame(+e.target.value);};
-$('comp').onchange=e=>{COMP=e.target.value;bars();setTool(TOOL);};
 $('apply-point').onclick=()=>{P.point={x:+$('px').value,y:+$('py').value};runProbe();draw();};
 $('apply-line').onclick=()=>{P.line={x1:+$('lx1').value,y1:+$('ly1').value,x2:+$('lx2').value,y2:+$('ly2').value,n:+$('ln').value||60};runProbe();draw();};
 $('apply-circle').onclick=()=>{P.circle={cx:+$('ccx').value,cy:+$('ccy').value,r:+$('cr').value||1,n:+$('cn').value||180};runProbe();draw();};
@@ -1993,6 +2034,7 @@ function applyMode(kind){MODE=kind;const free=MODE==='objects',d3=MODE==='object
   $('v-mag').checked=d3?!!(window.WS3D&&WS3D.viewFlags().arrows):SHOWMAG2D;
   $('v-lines').checked=d3?!!(window.WS3D&&WS3D.viewFlags().lines):SHOWLINES2D;
   $('v-lines-n').value=d3?(window.WS3D?WS3D.viewFlags().n:200):NLINES2D;
+  $('v-color').checked=d3?(window.WS3D?WS3D.viewFlags().color:true):SHOWFIELD;
   ['res-hdr','res-tools','exc-hdr','exc-body'].forEach(id=>{const el=$(id);if(el)el.style.display=d3?'none':'';});
   document.querySelectorAll('#dimseg button').forEach(b=>b.classList.toggle('on',(b.dataset.dim==='3')===d3));
   $('st-ver').textContent=(d3?'3D':'2D')+' · v0.8';
@@ -2472,8 +2514,8 @@ function startProject(type,name){$('home-ov').classList.remove('on');
   // Полный сброс состояния ДО applyMode — иначе дерево/поле перерисуются со СТАРЫМИ данными (баг: остатки готового расчёта).
   MESH_ID=null;SCENE=null;CENT=null;BX=null;BY=null;AZ=null;LINES2D=null;LAST_FIELD=null;DEMAG=null;TFIELD=null;SHOWTEMP=false;
   OBJECTS=[];SEL=-1;SELREG=null;DRAFT=null;POST={};DIRTY=false;clearPend();
-  SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';
-  VMAX=2.0;COMP='mag';if($('comp'))$('comp').value='mag';                                    // шкала поля → дефолт
+  SHOWFIELD=false;syncColor();HX=null;HY=null;LOSS2D=null;
+  VMAX=2.0;COMP='B';                                    // шкала поля → дефолт
   ['T','i_peak','gamma_deg','turns','dommargin'].forEach(id=>{const el=$(id);if(el)el.value=el.defaultValue;});  // параметры сценария → дефолты
   $('objlist').innerHTML='';$('reg-info').style.display='none';clearSummary();
   $('meshinfo').textContent='—';$('st-iters').textContent='';$('st-cells').textContent='';setConv('','● постройте геометрию');
@@ -2583,7 +2625,7 @@ function applyCalcBundle(m){
   setScenario(m.scenario||'magneto');
   if(MODE==='objects')renderTree();else if(SCENE)populateModel();
   if(m.field)applyResult(m.field);                  // готовый — поле/сводка
-  else{BX=null;BY=null;AZ=null;LINES2D=null;LAST_FIELD=null;SHOWFIELD=false;$('showfield').classList.remove('on');$('field-ctrls').style.display='none';updateResults();updateExcitations();}
+  else{BX=null;BY=null;HX=null;HY=null;LOSS2D=null;AZ=null;LINES2D=null;LAST_FIELD=null;SHOWFIELD=false;syncColor();updateResults();updateExcitations();}
   restorePost();                                     // R5: перерисовать сохранённый момент/потери/динамику
   setStage('result');setTool('view');resize();if(SCENE)fit();else defaultView();draw();updateCta();DIRTY=false;clearPend();}
 // Открыть client-архив расчёта в РАБОЧЕМ поле (для правки/повторного запуска).

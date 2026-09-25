@@ -34,6 +34,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
 from magcore.cancel import Cancelled, cancel_scope, check as cancel_check
+from magcore.constants import MU0
 from magcore.domain import magnet_catalog
 from webapp import materials_db
 from magcore.domain.magnet_model import (
@@ -458,6 +459,22 @@ _DEF_PARAMS, _DEF_MID = _params_from({})
 _DEFAULT_MESH_ID = _build_mesh(_DEF_PARAMS, _DEF_MID)
 
 
+def _field_extras(sol, op=None, risk=None) -> dict:
+    """
+    Величины для списка «Величина» — одного в 2D и 3D (docs/ui_rules.md §1): H по ячейкам [кА/м] и потеря
+    B_r по ячейкам магнитов [Тл] в порядке `demag_cells` (op.cell_indices). Потеря сопоставляется ячейкам
+    по номерам, а не по порядку массивов: порядок у рабочей точки и карты риска может не совпасть.
+    """
+    Hk = np.asarray(sol.field.H_cells, dtype=float) / MU0 / 1.0e3   # H решателя = μ₀·H [Тл] → кА/м
+    out = {"Hx": np.round(Hk[:, 0], 2).tolist(), "Hy": np.round(Hk[:, 1], 2).tolist(),
+           "Hmax_kA": round(float(np.hypot(Hk[:, 0], Hk[:, 1]).max()), 1)}
+    if op is not None and risk is not None:
+        loss = np.zeros(Hk.shape[0])
+        loss[risk.cell_indices] = risk.loss
+        out["demag_loss_T"] = np.round(loss[op.cell_indices], 4).tolist()
+    return out
+
+
 def _do_solve(body: dict) -> dict:
     """Тяжёлый расчёт в фон-потоке (без gmsh). Может бросить ValueError (перегрев магнита)."""
     mid = str(body.get("mesh_id", "")) or _DEFAULT_MESH_ID
@@ -553,6 +570,7 @@ def _do_solve(body: dict) -> dict:
         "demag_cells": op.cell_indices.astype(int).tolist(),
         "demag_hop_kA": np.round(op.H_op / 1e3, 1).tolist(),
         "demag_knee_kA": round(float(op.knee_field) / 1e3, 1),
+        **_field_extras(sol, op, risk),
     }
 
 
@@ -1157,6 +1175,9 @@ def _do_object_solve(body: dict) -> dict:
             "demag_knee_kA": None if op.knee_field is None else round(float(op.knee_field) / 1e3, 1),
             "magnets": magnets,
         })
+        out.update(_field_extras(sol, op, risk))
+    else:
+        out.update(_field_extras(sol))
     return out
 
 
