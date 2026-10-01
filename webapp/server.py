@@ -2065,9 +2065,14 @@ def api_material_get(mid: str) -> dict:
     spec = materials_db.get(mid)
     if spec is None and mid in magnet_catalog._BY_ID:      # справочная марка — отдаём как есть
         g = magnet_catalog.by_id(mid)
+        # Колено справочной марки — допущение HK_RATIO*H_cJ, а не паспорт (hk_given=False): форма оставит
+        # H_k пустым, и при сохранении колено снова посчитается от H_cJ. ⚠ Раньше форма получала его как
+        # обычное число, и сохранение записывало допущение как «введено из паспорта»; с новым H_cJ колено
+        # оставалось прежним.
         spec = {"kind": "magnet", "name": g.grade, "family": g.family, "Br": g.Br,
-                "Hcb": g.Hcb, "Hk": g.Hk, "Hcj": g.Hcj,
-                "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc, "T0": 20.0}
+                "Hcb": g.Hcb, "Hk": g.Hk, "hk_given": False, "Hcj": g.Hcj,
+                "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc, "T0": 20.0,
+                "BHmax": g.BHmax, "T_max": g.T_max}
     if spec is None:                                       # встроенный пресет
         try:
             m = _magnet_by_id(mid)

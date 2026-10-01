@@ -322,6 +322,8 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .objrow .del{color:var(--dim);border:0;background:none;cursor:pointer;font-size:13px;padding:0 2px}
 .objrow .del:hover{color:var(--crit)}
 .objedit{margin-top:10px;border-top:1px solid var(--line);padding-top:10px}
+/* правка готовой фигуры: списка «Фигура» (он для новой) нет, а с ним и черты под ним — форма как у тела в 3D */
+#geom-objects.editing #figkind-row{display:none}#geom-objects.editing .objedit{margin-top:0;border-top:0;padding-top:0}
 .modal-ov{position:fixed;inset:0;background:rgba(6,10,18,.66);display:none;align-items:center;justify-content:center;z-index:50}
 .modal-ov.on{display:flex}
 .modal{width:768px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;background:var(--panel);border:1px solid var(--line2);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
@@ -586,7 +588,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
           <div id="geomfields"></div>
         </div>
         <div id="geom-objects" style="display:none">
-          <div class="field"><label>Фигура</label><select class="select" id="figkind">
+          <div class="field" id="figkind-row"><label>Фигура</label><select class="select" id="figkind">
             <option value="rect">Прямоугольник</option><option value="circle">Круг</option>
             <option value="ring">Кольцо</option><option value="sector">Сектор</option><option value="polygon">Полигон</option></select></div>
           <div class="objedit" id="objedit"></div>
@@ -932,7 +934,9 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
   <div class="modal-foot"><button class="btn pri" id="mp-ok">Выбрать</button><button class="btn" id="mp-cancel">Отмена</button></div>
 </div></div>
 
-<!-- Новый материал: свой магнит по даташиту или своя кривая B(H) стали -->
+<!-- Новый материал: свой магнит по даташиту или своя кривая B(H) стали.
+     Пример — свой SmCo, поэтому и «Семейство» по умолчанию SmCo: без H_k колено берётся долей H_cJ по семейству
+     (magnet_catalog.HK_RATIO). ⚠ Раньше список стоял на NdFeB, и пример, сохранённый как есть, получал колено NdFeB. -->
 <div class="modal-ov" id="nm-ov" style="z-index:150"><div class="modal" style="width:640px">
   <div class="modal-head"><span id="nm-head">Новый материал</span><button class="modal-x" id="nm-x">✕</button></div>
   <div class="modal-tabs" id="nm-tabs"><button data-k="magnet" class="on">Магнит</button><button data-k="steel">Сталь B(H)</button></div>
@@ -940,7 +944,7 @@ details.why[open]>summary::before{content:'▾ '}details.why .hint{margin:6px 0 
     <div id="nm-magnet">
       <div class="modal-cols">
         <div class="field"><label>Название</label><input class="oedit2" id="mat-name" value="Мой SmCo (измер.)" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>
-        <div class="field"><label>Семейство</label><select class="select" id="mat-fam-sel"><option value="NdFeB">NdFeB</option><option value="SmCo">SmCo</option></select></div>
+        <div class="field"><label>Семейство</label><select class="select" id="mat-fam-sel"><option value="NdFeB">NdFeB</option><option value="SmCo" selected>SmCo</option></select></div>
       </div>
       <div class="modal-cols">
         <div class="field"><label>B_r, Тл *</label><input class="num" id="mat-Br" value="1.05"></div>
@@ -1546,7 +1550,7 @@ function setStage(st){STAGE=st;
     $('pc-start').style.display=pc?'':'none';$('pc-draft').style.display=pc?'':'none';
     $('modal-done').style.display='none';
     if(build){$('buildmesh').textContent = st==='mesh' ? 'Построить сетку'
-      : MODE==='objects3d' ? 'Готово' : MODE==='objects' ? (SEL>=0?'Применить':'Построить фигуру') : 'Построить модель';}
+      : MODE==='objects3d' ? 'Готово' : MODE==='objects' ? figBtnLabel() : 'Построить модель';}
     if(st==='mesh'){$('meshinfo').style.display=(MODE==='pmsm')?'':'none';if(MODE==='objects')renderMeshObjList();}
     if(MODE==='objects3d'&&window.WS3D)WS3D.onStage(st);
     setDocked(DOCK_STAGES.has(st));openModal();$('draw-hint').style.display='none';
@@ -2210,11 +2214,14 @@ function objForm(o,isDraft){
   extra+='<div class="mrow"><label>Размер сетки</label><input class="num oedit" data-f="mesh_size_mm" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>';
   extra+='<div class="mrow"><label>Приоритет слоя</label><input class="num oedit" data-f="priority" value="'+(o.priority||1)+'" style="width:70px"><span class="u">1–50</span></div>';
   $('objedit').innerHTML='<div class="field"><label>Имя объекта <span style="color:var(--crit)">*</span></label><input class="oedit" data-f="name" value="'+(o.name||'')+'" placeholder="обязательно — задайте имя" style="width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:7px 9px;border-radius:6px;font:500 12px/1 var(--ui)"></div>'
+    // вид готовой фигуры не меняется: он строкой «Тип» — там же и так же, как у тела в 3D; у черновика его задаёт список «Фигура»
+    +(isDraft?'':'<div class="field"><label>Тип</label><div class="g3kind">'+escH(KINDRU[o.kind]||o.kind)+'</div></div>')
     // ⚠ Не выпадающий список: в каталоге сотни марок. Кнопка открывает ту же таблицу
     //    с поиском/фильтром/сортировкой, что и вкладка «Материалы».
     +'<div class="field"><label>Материал</label><button class="matbtn" id="obj-mat">'
     +'<span>'+matName(o.material)+'</span><span class="sub">'+matFamOf(o.material)+' ▾</span></button></div>'+par+extra;
   const md=$('objedit').querySelector('[data-f="magnet_dir"]');if(md)md.value=(typeof o.magnet_dir==='string'?o.magnet_dir:'x');
+  syncFigKind();
   $('obj-mat').onclick=()=>openMatPicker(o.material,'Материал объекта «'+((o.name||'').trim()||'без имени')+'»',id=>{
     if(!isDraft){invalidateField();pushHist();}
     o.material=id;objForm(o,isDraft);renderTree();draw();});
@@ -2237,6 +2244,13 @@ function objForm(o,isDraft){
     draw();};});
 }
 function newDraft(){const k=$('figkind').value;DRAFT={name:'',kind:k,params:{...OBJDEF[k]},material:'steel',magnet_dir:'x',current:0,mesh_size_mm:'',priority:10};SEL=-1;objForm(DRAFT,true);renderTree();}
+// Шаг «Геометрия»: список «Фигура» и кнопка «Построить фигуру» — для НОВОЙ фигуры. Выбрана готовая — список скрыт
+// (её вид — строка «Тип» в форме), кнопка применяет правку. Сверяется при каждой отрисовке формы (objForm,
+// renderObjects), а не только при открытии шага: ⚠ иначе у выбранного сектора оставались «Прямоугольник» черновика
+// и «Построить фигуру».
+function figBtnLabel(){return SEL>=0&&OBJECTS[SEL]?'Применить':'Построить фигуру';}
+function syncFigKind(){$('geom-objects').classList.toggle('editing',SEL>=0&&!!OBJECTS[SEL]);
+  if(STAGE==='geom'&&MODE==='objects')$('buildmesh').textContent=figBtnLabel();}
 // Поэлементная сетка в окне «Сетка» (свободная модель): размер по каждой фигуре.
 function renderMeshObjList(){if(MODE!=='objects')return;
   $('mesh-obj-list').innerHTML=OBJECTS.map((o,i)=>'<div class="mrow"><label>'+((o.name||'').trim()||'(без имени)')+'</label><input class="num mobjsz" data-i="'+i+'" value="'+(o.mesh_size_mm||'')+'" placeholder="авто" style="width:70px"><span class="u">мм</span></div>').join('')||'<p class="hint" style="padding:2px 0">Нет фигур — постройте на шаге «Геометрия».</p>';
@@ -2249,7 +2263,7 @@ function renderTree(){if(MODE!=='objects')return;
 function renderObjects(){
   if(SEL>=0&&OBJECTS[SEL])objForm(OBJECTS[SEL],false);
   else if(DRAFT)objForm(DRAFT,true);
-  else $('objedit').innerHTML='';
+  else{$('objedit').innerHTML='';syncFigKind();}
   renderTree();}
 // Дерево «Модель»: клик по фигуре — выделить; ✎ — открыть окно правки; ✕ — удалить (с подтверждением).
 $('objlist').addEventListener('click',async e=>{if(MODE!=='objects')return;
@@ -2258,7 +2272,7 @@ $('objlist').addEventListener('click',async e=>{if(MODE!=='objects')return;
   const ed=e.target.dataset.edit;
   if(ed!==undefined){if(editGuard())return;SEL=+ed;DRAFT=null;setStage('geom');renderObjects();editHint();draw();return;}
   const row=e.target.closest('[data-oi]');if(row){SEL=+row.dataset.oi;DRAFT=null;renderObjects();draw();}});
-$('figkind').onchange=()=>{if(SEL<0)newDraft();else{SEL=-1;newDraft();}};   // сменил тип → черновик новой фигуры
+$('figkind').onchange=()=>newDraft();   // сменил вид → черновик новой фигуры (список виден, только пока фигура не выбрана)
 // «Построить фигуру»: добавить черновик в модель и ЗАКРЫТЬ окно (полигон — только мышью).
 function addFigure(){if(!DRAFT)newDraft();
   if(DRAFT.kind==='polygon'){$('err').textContent='Полигон рисуется мышью — палитра над холстом.';$('err').style.display='block';return;}
@@ -2437,14 +2451,24 @@ function nmTab(k){$('nm-magnet').style.display=(k==='magnet'?'':'none');
   $('mat-save').style.display=(k==='magnet'?'':'none');$('st-save').style.display=(k==='steel'?'':'none');
   $('nm-tabs').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));}
 let NM_ID=null;                                   // не null => РЕДАКТИРУЕМ существующий
-function nmOpen(){NM_ID=null;$('nm-head').textContent='Новый материал';
+// «Новый материал» начинается с примера из разметки. Несохранённый черновик нового материала при повторном
+// открытии остаётся (окно закрывается и щелчком мимо); после правки существующего или после сохранения — снова
+// пример. ⚠ Раньше форма не сбрасывалась вовсе: после правки марки «Новый материал» открывался с её названием и
+// значениями, и сохранение давало копию.
+let NM_DRAFT=false;
+const NM_HINT={mat:$('mat-info').innerHTML,st:$('st-info').innerHTML};   // их затирают сообщения сохранения
+function nmHints(){$('mat-info').innerHTML=NM_HINT.mat;$('st-info').innerHTML=NM_HINT.st;}
+function nmReset(){const ov=$('nm-ov');
+  ov.querySelectorAll('input,textarea').forEach(el=>{el.value=el.defaultValue;});
+  ov.querySelectorAll('select').forEach(s=>{s.selectedIndex=Math.max(0,[...s.options].findIndex(o=>o.defaultSelected));});}
+function nmOpen(){if(!NM_DRAFT)nmReset();NM_DRAFT=true;NM_ID=null;nmHints();$('nm-head').textContent='Новый материал';
   $('nm-ov').classList.add('on');nmTab('magnet');}
 function nmClose(){$('nm-ov').classList.remove('on');NM_ID=null;}
 // Правка своего материала: те же поля, но с id — сервер перезапишет запись, а не создаст дубль.
 async function nmEdit(id){
   const r=await(await fetch('/api/materials/'+encodeURIComponent(id))).json();
   if(r.error){alert(r.error);return;}
-  const sp=r.spec;NM_ID=id;$('nm-head').textContent='Правка материала';
+  const sp=r.spec;NM_ID=id;NM_DRAFT=false;nmHints();$('nm-head').textContent='Правка материала';
   $('nm-ov').classList.add('on');
   if(sp.kind==='steel'){nmTab('steel');$('st-name').value=sp.name;
     $('st-table').value=(sp.H||[]).map((h,i)=>h+' '+sp.B[i]).join('\n');}
@@ -2599,7 +2623,7 @@ async function saveSteel(){const btn=$('st-save');btn.disabled=true;
   const pts=$('st-table').value.trim().split('\n').map(l=>l.trim().split(/[\s,]+/).map(Number)).filter(a=>a.length>=2&&a.every(x=>isFinite(x)));
   try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:NM_ID,kind:'steel',name:$('st-name').value,points:pts})})).json();
     if(d.error)$('st-info').innerHTML='<span style="color:var(--crit)">'+d.error+'</span>';
-    else{$('st-info').innerHTML='<span style="color:var(--good)">Сохранено. точек '+d.n_points+', B_max '+d.B_max+' Тл</span>';await loadMaterials();MAT_SEL=d.id;renderMatList();nmClose();}
+    else{$('st-info').innerHTML='<span style="color:var(--good)">Сохранено. точек '+d.n_points+', B_max '+d.B_max+' Тл</span>';NM_DRAFT=false;await loadMaterials();MAT_SEL=d.id;renderMatList();nmClose();}
   }catch(e){$('st-info').innerHTML='<span style="color:var(--crit)">Ошибка: '+e+'</span>';}
   finally{btn.disabled=false;}}
 $('st-save').onclick=saveSteel;
@@ -2612,7 +2636,7 @@ async function saveMaterial(){const btn=$('mat-save');btn.disabled=true;
     alpha_Br:$('mat-aBr').value,gamma_Hc:$('mat-gHc').value};
   try{const d=await(await fetch('/api/materials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
     if(d.error)$('mat-info').innerHTML='<span style="color:var(--crit)">'+d.error+'</span>';
-    else{$('mat-info').innerHTML='<span style="color:var(--good)">Сохранено. μ_rec = '+d.mu_rec+', предел модели T ≈ '+d.temp_limit+' °C</span>';await loadMaterials();MAT_SEL=d.id;renderMatList();drawCurve();nmClose();}
+    else{$('mat-info').innerHTML='<span style="color:var(--good)">Сохранено. μ_rec = '+d.mu_rec+', предел модели T ≈ '+d.temp_limit+' °C</span>';NM_DRAFT=false;await loadMaterials();MAT_SEL=d.id;renderMatList();drawCurve();nmClose();}
   }catch(e){$('mat-info').innerHTML='<span style="color:var(--crit)">Ошибка: '+e+'</span>';}
   finally{btn.disabled=false;}}
 $('mat-save').onclick=saveMaterial;
