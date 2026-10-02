@@ -1,16 +1,25 @@
 from __future__ import annotations
 
 import numpy as np
+import scipy.sparse as sp
+from scipy.sparse.linalg import splu
 
-from magcore.fem2d.assembly import assemble_current_rhs, assemble_stiffness
-from magcore.fem2d.mesh import triangle_area
+from magcore.fem2d.assembly import (
+    assemble_current_rhs,
+    assemble_mass_sparse,
+    assemble_stiffness_sparse,
+    p1_cell_geometry,
+)
 from magcore.fem2d.solver import apply_dirichlet, solve_scalar
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
 # Стационарная теплопроводность на той же треугольной сетке: −div(k∇T)=q + конвекция
 # (Robin) −k ∂T/∂n = h(T−T_amb) на границе. Структурно = магнитостатика (k↔ν): жёсткость
-# ∫k∇φ·∇φ переиспользует `assemble_stiffness`. Новое здесь — объёмный источник по ячейке
+# ∫k∇φ·∇φ переиспользует `assemble_stiffness_sparse`. Новое здесь — объёмный источник по ячейке
 # и граничный член Robin (краевая масса + нагрузка от T_amb).
+#
+# Все матрицы (n,n) — РАЗРЕЖЁННЫЕ (CSR): у P1 ~7 ненулей в строке, а плотная (n,n) на сетке
+# двигателя (32 522 узла) — 7,9 ГиБ на КАЖДУЮ матрицу, и «Тепловая динамика» падала, не начавшись.
 
 
 def assemble_source_rhs(space: LagrangeP1Space2D, q_cells: np.ndarray) -> np.ndarray:
@@ -19,34 +28,20 @@ def assemble_source_rhs(space: LagrangeP1Space2D, q_cells: np.ndarray) -> np.nda
     q = np.asarray(q_cells, dtype=float)
     if q.shape != (mesh.n_cells,):
         raise ValueError("q_cells must have shape (n_cells,).")
-    f = np.zeros(space.ndofs, dtype=float)
-    for c in range(mesh.n_cells):
-        area = triangle_area(mesh.cell_vertices(c))
-        f[list(mesh.cell_vertex_indices(c))] += q[c] * area / 3.0
-    return f
+    cells, _, area = p1_cell_geometry(mesh)
+    return np.bincount(cells.ravel(), weights=np.repeat(q * area / 3.0, 3),
+                       minlength=space.ndofs)
 
 
 def assemble_robin_boundary(
     space: LagrangeP1Space2D, h: float
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[sp.csr_matrix, np.ndarray]:
     """
     Граничный член конвекции −k∂T/∂n=h(T−T_amb): возвращает (R, amb_load), где
     R_ij=∫_∂Ω h φ_i φ_j ds (добавить к жёсткости), amb_load_i=∫_∂Ω h φ_i ds (RHS=T_amb·amb_load).
     Краевая масса линейного элемента: (L/6)[[2,1],[1,2]]; ∫_ребро φ_i ds = L/2.
     """
-    mesh = space.mesh
-    n = space.ndofs
-    R = np.zeros((n, n), dtype=float)
-    amb = np.zeros(n, dtype=float)
-    for i, j in mesh.boundary_edges():
-        L = float(np.linalg.norm(mesh.vertices[i] - mesh.vertices[j]))
-        R[i, i] += h * L / 3.0
-        R[j, j] += h * L / 3.0
-        R[i, j] += h * L / 6.0
-        R[j, i] += h * L / 6.0
-        amb[i] += h * L / 2.0
-        amb[j] += h * L / 2.0
-    return R, amb
+    return assemble_robin_edges(space, space.mesh.boundary_edges(), h)
 
 
 # --- P-B1: дифференцированные ГУ (h_in≠h_out, разные T_ref) ---
@@ -69,36 +64,35 @@ def classify_boundary_edges(space, r_inner: float, r_outer: float):
 
 def assemble_robin_edges(space: LagrangeP1Space2D, edges, h: float):
     """
-    Robin-вклад по ЗАДАННОМУ списку рёбер: (R, load), где R_ij=∫h φ_i φ_j,
+    Robin-вклад по ЗАДАННОМУ списку рёбер: (R, load), где R_ij=∫h φ_i φ_j (CSR),
     load_i=∫h φ_i (домножить на T_ref для RHS). Краевая масса (L/6)[[2,1],[1,2]].
     """
     mesh = space.mesh
     n = space.ndofs
-    R = np.zeros((n, n), dtype=float)
-    load = np.zeros(n, dtype=float)
-    for i, j in edges:
-        L = float(np.linalg.norm(mesh.vertices[i] - mesh.vertices[j]))
-        R[i, i] += h * L / 3.0
-        R[j, j] += h * L / 3.0
-        R[i, j] += h * L / 6.0
-        R[j, i] += h * L / 6.0
-        load[i] += h * L / 2.0
-        load[j] += h * L / 2.0
+    e = np.asarray(edges, dtype=int).reshape(-1, 2)
+    i, j = e[:, 0], e[:, 1]
+    L = np.linalg.norm(mesh.vertices[i] - mesh.vertices[j], axis=1)
+    diag, off = h * L / 3.0, h * L / 6.0
+    R = sp.coo_matrix((np.concatenate([diag, diag, off, off]),
+                       (np.concatenate([i, j, i, j]), np.concatenate([i, j, j, i]))),
+                      shape=(n, n)).tocsr()
+    half = h * L / 2.0
+    load = np.bincount(np.concatenate([i, j]), weights=np.concatenate([half, half]), minlength=n)
     return R, load
 
 
 def assemble_robin_multi(space: LagrangeP1Space2D, specs):
     """
     Дифференцированное ГУ конвекции: specs = список (edges, h, T_ref).
-    Возвращает (R, rhs_conv), где rhs_conv_i = Σ (h·T_ref)∫φ_i УЖЕ включает T_ref
+    Возвращает (R, rhs_conv), где R — CSR, а rhs_conv_i = Σ (h·T_ref)∫φ_i УЖЕ включает T_ref
     (для шага неявного Эйлера: A = Cdt+K+R, правая часть += rhs_conv).
     """
     n = space.ndofs
-    R = np.zeros((n, n), dtype=float)
+    R = sp.csr_matrix((n, n), dtype=float)
     rhs = np.zeros(n, dtype=float)
     for edges, h, T_ref in specs:
         Re, load = assemble_robin_edges(space, edges, float(h))
-        R += Re
+        R = R + Re
         rhs += float(T_ref) * load
     return R, rhs
 
@@ -119,7 +113,7 @@ def solve_thermal(
     `source` — объёмный тепловыдел q: массив (n_cells,) [потери] ИЛИ callable(x)->q [MMS].
     Конвекция: h (коэфф.) + T_amb на границе (Robin). Опц. Dirichlet на части узлов.
     """
-    K = assemble_stiffness(space, k)
+    K = assemble_stiffness_sparse(space, k)
     if callable(source):
         f = assemble_current_rhs(space, source, quadrature_order=quadrature_order)
     else:
@@ -133,29 +127,16 @@ def solve_thermal(
     return solve_scalar(K, f)
 
 
-def assemble_capacity(space: LagrangeP1Space2D, c_cells) -> np.ndarray:
+def assemble_capacity(space: LagrangeP1Space2D, c_cells) -> sp.csr_matrix:
     """
-    Матрица теплоёмкости C_ij = ∫ c φ_i φ_j, где c = ρ·c_p [Дж/(м³·K)] — объёмная
+    Матрица теплоёмкости C_ij = ∫ c φ_i φ_j (CSR), где c = ρ·c_p [Дж/(м³·K)] — объёмная
     теплоёмкость (скаляр|(n_cells,), разная по регионам: медь/сталь/магнит/воздух).
     Локально (c·A/12)·[[2,1,1],[1,2,1],[1,1,2]]. Структура = матрица масс, взвешенная c.
     """
-    mesh = space.mesh
     c = np.asarray(c_cells, dtype=float)
-    if c.ndim == 0:
-        c = np.full(mesh.n_cells, float(c))
-    elif c.shape != (mesh.n_cells,):
+    if c.ndim != 0 and c.shape != (space.mesh.n_cells,):
         raise ValueError("c_cells must be a scalar or shape (n_cells,).")
-    n = space.ndofs
-    C = np.zeros((n, n), dtype=float)
-    base = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 1.0, 2.0]], dtype=float) / 12.0
-    for cell in range(mesh.n_cells):
-        area = triangle_area(mesh.cell_vertices(cell))
-        idx = mesh.cell_vertex_indices(cell)
-        Ce = c[cell] * area * base
-        for a in range(3):
-            for b in range(3):
-                C[idx[a], idx[b]] += Ce[a, b]
-    return C
+    return assemble_mass_sparse(space, c)
 
 
 class ImplicitEulerThermalStepper:
@@ -167,6 +148,9 @@ class ImplicitEulerThermalStepper:
 
     Схема безусловно устойчива (A = C/dt + K + R симметрична положительно определена
     при h>0), поэтому шаг ограничен только точностью, а не устойчивостью.
+
+    Матрицы разрежённые (CSR); A постоянна, поэтому LU-разложение (SuperLU) делается тоже
+    ОДИН раз, а шаг — только прямая и обратная подстановка.
     """
 
     def __init__(self, space: LagrangeP1Space2D, k, capacity, *, dt: float,
@@ -176,35 +160,38 @@ class ImplicitEulerThermalStepper:
         self.space = space
         self.dt = float(dt)
         self.T_amb = float(T_amb)
-        self.K = assemble_stiffness(space, k)
+        self.K = assemble_stiffness_sparse(space, k)
         self.C = assemble_capacity(space, capacity)
         if robin is not None:
             # Дифференцированные ГУ (P-B1): готовые (R, rhs_conv), rhs_conv уже с T_ref.
             R, robin_rhs = robin
-            self.R = np.asarray(R, dtype=float)
+            self.R = sp.csr_matrix(R, dtype=float)
             self.robin_rhs = np.asarray(robin_rhs, dtype=float)
         else:
             # Скалярное однородное ГУ (обратная совместимость): rhs = T_amb·∫h φ.
             self.R, amb_load = assemble_robin_boundary(space, float(h))
             self.robin_rhs = float(T_amb) * amb_load
-        self.Cdt = self.C / self.dt
-        self.A = self.Cdt + self.K + self.R
+        self.Cdt = (self.C / self.dt).tocsr()
+        self.A = (self.Cdt + self.K + self.R).tocsr()
+        self._lu = splu(self.A.tocsc())
+        # Столбцовые суммы 1ᵀC и 1ᵀR для энергобаланса — тоже один раз.
+        self._c_sum = np.asarray(self.C.sum(axis=0)).ravel()
+        self._r_sum = np.asarray(self.R.sum(axis=0)).ravel()
 
     def step(self, T: np.ndarray, q_cells: np.ndarray) -> np.ndarray:
         """Поле на следующем шаге по текущему T и источнику потерь q [Вт/м³] (по ячейкам)."""
         f = assemble_source_rhs(self.space, np.asarray(q_cells, dtype=float))
-        return solve_scalar(self.A, self.Cdt @ np.asarray(T, dtype=float)
-                            + f + self.robin_rhs)
+        return self._lu.solve(self.Cdt @ np.asarray(T, dtype=float) + f + self.robin_rhs)
 
     # --- диагностика энергобаланса (оракул связки) ---
     def stored_energy(self, T) -> float:
         """Запасённая тепловая энергия ∫ c·T dV = 1ᵀ·C·T [Дж/м] (на единицу длины)."""
-        return float(np.asarray(T, dtype=float) @ self.C.sum(axis=0))
+        return float(np.asarray(T, dtype=float) @ self._c_sum)
 
     def convective_outflow(self, T) -> float:
         """Отвод конвекцией ∫ h(T−T_ref) ds = 1ᵀR·T − 1ᵀ·rhs_conv [Вт/м] (обобщённо на дифф. ГУ)."""
         Tv = np.asarray(T, dtype=float)
-        return float(Tv @ self.R.sum(axis=0)) - float(self.robin_rhs.sum())
+        return float(Tv @ self._r_sum) - float(self.robin_rhs.sum())
 
 
 def solve_thermal_transient(

@@ -142,7 +142,8 @@ def assemble_stiffness_sparse(space: LagrangeP1Space2D, nu) -> sp.csr_matrix:
 def assemble_stiffness(space: LagrangeP1Space2D, nu) -> np.ndarray:
     """
     Матрица жёсткости планарной магнитостатики: K_ij = ∫ ∇φ_i·ν̃·∇φ_j dx (2D-аналог
-    curl-curl). Плотная (масштаб верификации). ν — как в `assemble_stiffness_sparse`.
+    curl-curl). Плотная (масштаб верификации) — эталон для `assemble_stiffness_sparse`;
+    расчётный код зовёт только разрежённую. ν — как в `assemble_stiffness_sparse`.
     """
     mesh = space.mesh
     n = space.ndofs
@@ -166,8 +167,31 @@ def assemble_stiffness(space: LagrangeP1Space2D, nu) -> np.ndarray:
     return K
 
 
+_P1_MASS_LOCAL = np.array([[2.0, 1.0, 1.0], [1.0, 2.0, 1.0], [1.0, 1.0, 2.0]]) / 12.0
+
+
+def assemble_mass_sparse(space: LagrangeP1Space2D, weight=1.0) -> sp.csr_matrix:
+    """
+    РАЗРЕЖЁННАЯ взвешенная матрица масс M_ij = ∫ w φ_i φ_j dx; локально (w·A/12)·[[2,1,1],[1,2,1],[1,1,2]].
+    w — скаляр | (n_cells,): 1 — обычная масса, c = ρ·c_p — теплоёмкость. При w=1 численно
+    идентична `assemble_mass`, но CSR + векторизовано: плотная (n,n) на сетке двигателя
+    (32 522 узла) — 7,9 ГиБ.
+    """
+    mesh = space.mesh
+    w = np.asarray(weight, dtype=float)
+    if w.ndim == 0:
+        w = np.full(mesh.n_cells, float(w))
+    elif w.shape != (mesh.n_cells,):
+        raise ValueError("weight must be a scalar or an array of shape (n_cells,).")
+    cells, _, area = p1_cell_geometry(mesh)
+    return _scatter_local(cells, (w * area)[:, None, None] * _P1_MASS_LOCAL, space.ndofs)
+
+
 def assemble_mass(space: LagrangeP1Space2D) -> np.ndarray:
-    """Матрица масс P1: M_ij = ∫ φ_i φ_j dx. Локально (A/12)·[[2,1,1],[1,2,1],[1,1,2]]."""
+    """
+    Матрица масс P1: M_ij = ∫ φ_i φ_j dx. Локально (A/12)·[[2,1,1],[1,2,1],[1,1,2]].
+    Плотная (масштаб верификации) — эталон для `assemble_mass_sparse`.
+    """
     mesh = space.mesh
     n = space.ndofs
     M = np.zeros((n, n), dtype=float)

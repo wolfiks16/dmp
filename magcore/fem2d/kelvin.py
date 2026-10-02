@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import scipy.sparse as sp
 
 from magcore.fem2d.assembly import (
     assemble_current_rhs,
     assemble_magnetization_rhs,
-    assemble_stiffness,
+    assemble_stiffness_sparse,
 )
 from magcore.fem2d.mesh_generators import DiskMesh
 from magcore.fem2d.post import reconstruct_B_on_cells
@@ -53,6 +54,19 @@ def _image_global_map(disk: DiskMesh) -> tuple[np.ndarray, int]:
     return img, nxt
 
 
+def _glue(Kr, Ki, img: np.ndarray, total: int) -> sp.csr_matrix:
+    """
+    Склейка в одну (total,total) CSR: реальный диск — на своих DOF [0,N), образ — через `img`.
+    Граничные DOF общие и накапливают оба вклада (поток); дубли COO суммируются.
+    """
+    r, i = Kr.tocoo(), Ki.tocoo()
+    return sp.coo_matrix(
+        (np.concatenate([r.data, i.data]),
+         (np.concatenate([r.row, img[i.row]]), np.concatenate([r.col, img[i.col]]))),
+        shape=(total, total),
+    ).tocsr()
+
+
 def solve_kelvin_magnetostatic(
     disk: DiskMesh,
     *,
@@ -80,12 +94,9 @@ def solve_kelvin_magnetostatic(
     n_cells = mesh.n_cells
     img, total = _image_global_map(disk)
 
-    Kr = assemble_stiffness(space, nu_real)                          # физика
-    Ki = assemble_stiffness(space, np.full(n_cells, float(nu0)))     # образ (воздух ν₀)
-
-    K = np.zeros((total, total), dtype=float)
-    K[:N, :N] += Kr
-    K[np.ix_(img, img)] += Ki      # склейка: граничные DOF накапливают оба вклада (поток)
+    Kr = assemble_stiffness_sparse(space, nu_real)                          # физика
+    Ki = assemble_stiffness_sparse(space, np.full(n_cells, float(nu0)))     # образ (воздух ν₀)
+    K = _glue(Kr, Ki, img, total)
 
     f = np.zeros(total, dtype=float)
     if j_fn is not None:
@@ -141,7 +152,7 @@ def solve_nonlinear_kelvin_2d_picard(
         if j_fn is None
         else assemble_current_rhs(space, j_fn, quadrature_order=quadrature_order)
     )
-    Ki = assemble_stiffness(space, np.full(n_cells, float(nu0)))     # образ (воздух ν₀) — const
+    Ki = assemble_stiffness_sparse(space, np.full(n_cells, float(nu0)))     # образ (воздух ν₀) — const
 
     state: dict[str, object] = {
         "a": np.zeros(N, dtype=float),
@@ -154,10 +165,7 @@ def solve_nonlinear_kelvin_2d_picard(
         nu_br = np.asarray(mag_fn(state["B"], state["H"], nu_frozen), dtype=float)
         if nu_br.shape != (n_cells, 2):
             raise ValueError("magnetization callable must return shape (n_cells, 2).")
-        Kr = assemble_stiffness(space, nu_frozen)
-        K = np.zeros((total, total), dtype=float)
-        K[:N, :N] += Kr
-        K[np.ix_(img, img)] += Ki
+        K = _glue(assemble_stiffness_sparse(space, nu_frozen), Ki, img, total)
         f = np.zeros(total, dtype=float)
         f[:N] += f_current + assemble_magnetization_rhs(space, nu_br)
         K_bc, f_bc = apply_dirichlet(K, f, [gc], 0.0)

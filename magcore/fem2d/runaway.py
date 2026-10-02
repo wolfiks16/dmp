@@ -3,9 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.linalg import eigh
+import scipy.sparse as sp
+from scipy.sparse.linalg import eigsh, splu
 
-from magcore.fem2d.assembly import assemble_mass, assemble_stiffness
+from magcore.fem2d.assembly import assemble_mass_sparse, assemble_stiffness_sparse
 from magcore.fem2d.solver import solve_scalar
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.fem2d.thermal import assemble_robin_boundary, assemble_source_rhs
@@ -28,22 +29,25 @@ class RunawayResult:
     norm_history: tuple[float, ...]
 
 
-def thermal_operator(space: LagrangeP1Space2D, k, h: float) -> np.ndarray:
-    """Тепловой оператор с конвекцией: A = K(k) + R_robin(h) (SPD при h>0)."""
-    K = assemble_stiffness(space, k)
+def thermal_operator(space: LagrangeP1Space2D, k, h: float) -> sp.csr_matrix:
+    """Тепловой оператор с конвекцией: A = K(k) + R_robin(h) (SPD при h>0), разрежённый (CSR)."""
+    K = assemble_stiffness_sparse(space, k)
     R, _ = assemble_robin_boundary(space, float(h))
-    return K + R
+    return (K + R).tocsr()
 
 
 def runaway_threshold(space: LagrangeP1Space2D, k, h: float) -> float:
     """
     Критическая чувствительность потерь s_crit = наименьшее обобщённое собств. значение
     (K+R)v = s·M·v (M — матрица масс). При s ≥ s_crit система разгоняется.
+
+    Ищется ОДНО значение сдвигом-обращением около нуля: A SPD ⇒ все s > 0, и ближайшее к
+    нулю — наименьшее. Полный плотный спектр не нужен (на сетке машины это O(n³) и (n,n) в памяти).
     """
     A = thermal_operator(space, k, h)
-    M = assemble_mass(space)
-    w = eigh(A, M, eigvals_only=True)   # A,M симметричны, M SPD
-    return float(np.min(w))
+    M = assemble_mass_sparse(space)
+    w = eigsh(A, k=1, M=M, sigma=0.0, which="LM", return_eigenvectors=False)
+    return float(w[0])
 
 
 def solve_thermal_steady_with_feedback(
@@ -61,7 +65,7 @@ def solve_thermal_steady_with_feedback(
     """
     s = float(loss_sensitivity)
     A = thermal_operator(space, k, h)
-    M = assemble_mass(space)
+    M = assemble_mass_sparse(space)
     _, amb_load = assemble_robin_boundary(space, float(h))
     q0 = np.asarray(q0_cells, dtype=float)
     f = assemble_source_rhs(space, q0 - s * T_amb) + float(T_amb) * amb_load
@@ -87,7 +91,8 @@ def couple_thermal_loss_picard(
     """
     s = float(loss_sensitivity)
     A = thermal_operator(space, k, h)
-    M = assemble_mass(space)
+    lu = splu(A.tocsc())                  # A не меняется по итерациям ⇒ разложение одно
+    M = assemble_mass_sparse(space)
     _, amb_load = assemble_robin_boundary(space, float(h))
     q0 = np.asarray(q0_cells, dtype=float)
     scale = max(abs(float(T_amb)), 1.0)
@@ -101,7 +106,7 @@ def couple_thermal_loss_picard(
     converged = False
     it = 0
     for it in range(1, max_iter + 1):
-        T_new = solve_scalar(A, f0 + s * (M @ T))
+        T_new = lu.solve(f0 + s * (M @ T))
 
         nrm = float(np.linalg.norm(T_new))
         history.append(nrm)
