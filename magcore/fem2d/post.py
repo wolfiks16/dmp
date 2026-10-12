@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from magcore.fem2d.assembly import p1_cell_geometry
 from magcore.fem2d.mesh import p1_gradients, triangle_area
 from magcore.fem2d.quadrature import triangle_quadrature
 from magcore.fem2d.spaces import LagrangeP1Space2D
@@ -11,17 +12,14 @@ def reconstruct_B_on_cells(space: LagrangeP1Space2D, a: np.ndarray) -> np.ndarra
     """
     Поячеечное поле B = (∂_y A_z, −∂_x A_z) из узловых коэффициентов A_z (P1).
     ∇A_z постоянен по ячейке ⇒ B тоже. Возвращает (n_cells, 2).
+
+    Зовётся на КАЖДОЙ итерации Пикара, поэтому векторизовано (геометрия `p1_cell_geometry`):
+    поячеечный цикл стоил на сетке двигателя (64 990 ячеек) 0,6 с на итерацию. От прежнего
+    цикла отличается только порядком сложения трёх слагаемых A_a·∇φ_a — на уровне округления.
     """
-    mesh = space.mesh
-    a = np.asarray(a, dtype=float)
-    B = np.empty((mesh.n_cells, 2), dtype=float)
-    for c in range(mesh.n_cells):
-        grads = p1_gradients(mesh.cell_vertices(c))       # (3,2)
-        idx = mesh.cell_vertex_indices(c)
-        grad_az = a[list(idx)] @ grads                    # (2,) = ∇A_z
-        B[c, 0] = grad_az[1]
-        B[c, 1] = -grad_az[0]
-    return B
+    cells, grad, _ = p1_cell_geometry(space.mesh)
+    grad_az = np.einsum("ca,cad->cd", np.asarray(a, dtype=float)[cells], grad)   # ∇A_z (n_cells,2)
+    return np.stack([grad_az[:, 1], -grad_az[:, 0]], axis=1)
 
 
 def l2_error(

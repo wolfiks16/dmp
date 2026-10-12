@@ -34,7 +34,7 @@ def _rot_basis(space: LagrangeP1Space2D):
 
 
 def _b_on_cells(cells, rot, a) -> np.ndarray:
-    """Поячеечное B = rot A (то же, что `post.reconstruct_B_on_cells`, но векторизовано)."""
+    """Поячеечное B = rot A (то же, что `post.reconstruct_B_on_cells`, но на готовом базисе rot φ)."""
     return np.einsum("ca,cad->cd", np.asarray(a, dtype=float)[cells], rot)
 
 

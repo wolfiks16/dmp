@@ -237,19 +237,17 @@ def assemble_current_rhs_piecewise(
     (точно для P1: ∫_c φ_i = area/3). `jz_cells`:(n_cells,) — плотность тока А/м² по ячейкам
     (0 вне источника). Быстрее и естественнее квадратурного `assemble_current_rhs`, когда
     источник задан поячеечно (P3: обмотка → J_z).
+
+    Векторизовано (геометрия `p1_cell_geometry` + np.bincount): вклады те же, что у прежнего
+    цикла по ячейкам, и складываются в узел в том же порядке — по возрастанию номера ячейки.
     """
     mesh = space.mesh
     jz = np.asarray(jz_cells, dtype=float)
     if jz.shape != (mesh.n_cells,):
         raise ValueError("jz_cells must have shape (n_cells,).")
-    f = np.zeros(space.ndofs, dtype=float)
-    for c in range(mesh.n_cells):
-        if jz[c] == 0.0:
-            continue
-        area = triangle_area(mesh.cell_vertices(c))
-        idx = mesh.cell_vertex_indices(c)
-        f[list(idx)] += jz[c] * area / 3.0
-    return f
+    cells, _, area = p1_cell_geometry(mesh)
+    return np.bincount(cells.ravel(), weights=np.repeat(jz * area / 3.0, 3),
+                       minlength=space.ndofs)
 
 
 def assemble_magnetization_rhs(
@@ -259,19 +257,17 @@ def assemble_magnetization_rhs(
     Вектор источника постоянного магнита: f_i = ∫ ν B_r · (∂_y φ_i, −∂_x φ_i) dx
     (2D-аналог `∫ ν B_r·curl v`). `nu_br_cells`:(n_cells,2) — поячеечный ν·B_r в плоскости
     (ненулевой только в магните). ∇φ_i и ν·B_r постоянны по ячейке ⇒ точно без квадратуры.
+
+    Собирается на КАЖДОЙ итерации Пикара, поэтому векторизовано (геометрия `p1_cell_geometry`
+    + np.bincount): поячеечный цикл с p1_gradients на ячейку стоил на сетке двигателя (64 990
+    ячеек) 0,9 с на итерацию — в 10 раз дольше самого разрежённого решения. Вклады те же, что у
+    прежнего цикла, и складываются в узел в том же порядке — по возрастанию номера ячейки.
     """
     mesh = space.mesh
     nu_br = np.asarray(nu_br_cells, dtype=float)
     if nu_br.shape != (mesh.n_cells, 2):
         raise ValueError("nu_br_cells must have shape (n_cells, 2).")
-    f = np.zeros(space.ndofs, dtype=float)
-    for c in range(mesh.n_cells):
-        verts = mesh.cell_vertices(c)
-        area = triangle_area(verts)
-        grads = p1_gradients(verts)              # (3,2)
-        idx = mesh.cell_vertex_indices(c)
-        bx, by = nu_br[c, 0], nu_br[c, 1]
-        # ν B_r · (∂_yφ_i, −∂_xφ_i) = bx·g_i[1] − by·g_i[0]
-        contrib = area * (bx * grads[:, 1] - by * grads[:, 0])
-        f[list(idx)] += contrib
-    return f
+    cells, grad, area = p1_cell_geometry(mesh)
+    # ν B_r · (∂_yφ_a, −∂_xφ_a) = bx·∂_yφ_a − by·∂_xφ_a; вклад (n_cells,3)
+    local = area[:, None] * (nu_br[:, 0:1] * grad[:, :, 1] - nu_br[:, 1:2] * grad[:, :, 0])
+    return np.bincount(cells.ravel(), weights=local.ravel(), minlength=space.ndofs)
