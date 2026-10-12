@@ -67,6 +67,15 @@ def test_invalid_kind_and_empty_name_are_rejected() -> None:
         db.upsert({"kind": "magnet", "name": "   "})
 
 
+def test_kind_of_a_record_does_not_change_on_edit() -> None:
+    """Л-117: магнит, перезаписанный сталью, пропадал из расчётов — вид записи при правке не меняется."""
+    mid = db.upsert(_magnet())
+    with pytest.raises(ValueError, match="вид материала"):
+        db.upsert({"kind": "steel", "name": "Моя сталь", "H": [0.0, 100.0], "B": [0.0, 1.2]}, mid)
+    assert db.get(mid) == _magnet()                          # запись не тронута
+    assert db.upsert(_magnet(name="Мой SmCo (уточнено)"), mid) == mid     # тот же вид — правка как прежде
+
+
 def test_steel_spec_survives_roundtrip() -> None:
     mid = db.upsert({"kind": "steel", "name": "Моя сталь", "family": "сталь",
                      "H": [0.0, 100.0], "B": [0.0, 1.2]})

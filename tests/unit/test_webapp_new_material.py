@@ -151,9 +151,9 @@ def _edit_form(spec: dict) -> dict:
 
 
 def _catalog_grade(family: str) -> mc.MagnetGrade:
-    """Справочная марка семейства, id которой не занят встроенным пресетом: по такому id (n35) расчёт берёт пресет,
-    а не марку и не её правку (Л-116, открыто)."""
-    return next(g for g in mc.CATALOG if g.family == family and g.id not in server._BUILTIN_MAGNETS)
+    """Первая справочная марка семейства. У NdFeB это Arnold N35: прежде её id 'n35' был занят встроенным пресетом,
+    и правка марки до расчёта не доходила (Л-116)."""
+    return next(g for g in mc.CATALOG if g.family == family)
 
 
 def test_edit_form_leaves_the_knee_field_empty_when_the_knee_is_not_given():

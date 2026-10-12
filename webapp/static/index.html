@@ -332,6 +332,7 @@ body :focus-visible{outline:2px solid var(--accent);outline-offset:1px;border-ra
 .modal-tabs{display:flex;gap:2px;padding:0 12px;border-bottom:1px solid var(--line);overflow-x:auto}
 .modal-tabs button{background:none;border:0;color:var(--muted);padding:11px 15px;font:600 12.5px/1 var(--ui);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
 .modal-tabs button:hover{color:var(--text)}.modal-tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.modal-tabs button:disabled{opacity:.35;cursor:not-allowed;color:var(--muted)}
 .modal-body{padding:16px 20px;overflow:auto}
 .modal-foot{display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid var(--line)}
 .modal-body #geomfields,.modal-body #meshfields{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
@@ -2336,9 +2337,10 @@ function matTableHTML(list,sel,st,acts){
   const head=MAT_COLS.map(c=>'<th data-k="'+c[0]+'"'+(c[2]==='num2'?' style="text-align:right"':'')+'>'+c[1]
     +(st.key===c[0]?'<span class="ar">'+(st.dir>0?'▲':'▼')+'</span>':'')+'</th>').join('')
     +(acts?'<th style="cursor:default"></th>':'');
-  // Свои материалы правятся и удаляются прямо из строки; встроенные и справочные — нет.
+  // ✎ — правка из строки: свой материал и справочная марка — на месте, встроенный — своей копией (Л-116).
+  // ✕ — убрать из библиотеки любую строку.
   const act=m=>!acts?'':'<td style="white-space:nowrap">'
-    +'<span class="mt-act" data-edit="'+m.id+'" title="изменить">✎</span>'
+    +'<span class="mt-act" data-edit="'+m.id+'" title="'+(m.edit==='copy'?'сохранить свою копию':'изменить')+'">✎</span>'
     +'<span class="mt-act" data-del="'+m.id+'" title="удалить">✕</span></td>';
   const body=matSortRows(list,st.key,st.dir).map(m=>'<tr data-id="'+m.id+'"'+(m.id===sel?' class="on"':'')+'>'
     +MAT_COLS.map(c=>'<td'+(c[2]?' class="'+c[2]+'"':'')+'>'+c[3](m)+'</td>').join('')+act(m)+'</tr>').join('');
@@ -2461,18 +2463,25 @@ function nmHints(){$('mat-info').innerHTML=NM_HINT.mat;$('st-info').innerHTML=NM
 function nmReset(){const ov=$('nm-ov');
   ov.querySelectorAll('input,textarea').forEach(el=>{el.value=el.defaultValue;});
   ov.querySelectorAll('select').forEach(s=>{s.selectedIndex=Math.max(0,[...s.options].findIndex(o=>o.defaultSelected));});}
+// Правка и копия открываются со строки таблицы, и вид материала в них не меняется: вторая вкладка недоступна.
+// ⚠ Раньше в правке магнита можно было сохранить со вкладки «Сталь» — запись магнита становилась сталью (Л-117).
+function nmLockTab(k){$('nm-tabs').querySelectorAll('button').forEach(b=>{b.disabled=!!k&&b.dataset.k!==k;});}
 function nmOpen(){if(!NM_DRAFT)nmReset();NM_DRAFT=true;NM_ID=null;nmHints();$('nm-head').textContent='Новый материал';
-  $('nm-ov').classList.add('on');nmTab('magnet');}
+  $('nm-ov').classList.add('on');nmTab('magnet');nmLockTab(null);}
 function nmClose(){$('nm-ov').classList.remove('on');NM_ID=null;}
-// Правка своего материала: те же поля, но с id — сервер перезапишет запись, а не создаст дубль.
+// Правка: те же поля, но с id — сервер перезапишет запись, а не создаст дубль. Встроенный материал на месте не
+// правится (по его id расчёт всегда берёт встроенные данные) — форма сохранит его копию с новым id (Л-116).
 async function nmEdit(id){
   const r=await(await fetch('/api/materials/'+encodeURIComponent(id))).json();
   if(r.error){alert(r.error);return;}
-  const sp=r.spec;NM_ID=id;NM_DRAFT=false;nmHints();$('nm-head').textContent='Правка материала';
-  $('nm-ov').classList.add('on');
-  if(sp.kind==='steel'){nmTab('steel');$('st-name').value=sp.name;
+  const sp=r.spec,copy=r.edit==='copy',k=sp.kind==='steel'?'steel':'magnet',name=copy?sp.name+' — копия':sp.name;
+  NM_ID=copy?null:id;NM_DRAFT=false;nmHints();
+  $('nm-head').textContent=copy?'Новый материал — копия встроенного':'Правка материала';
+  if(copy)$(k==='steel'?'st-info':'mat-info').textContent='Встроенный материал не правится: сохранится ваша копия, встроенный останется как есть.';
+  $('nm-ov').classList.add('on');nmTab(k);nmLockTab(k);
+  if(k==='steel'){$('st-name').value=name;
     $('st-table').value=(sp.H||[]).map((h,i)=>h+' '+sp.B[i]).join('\n');}
-  else{nmTab('magnet');$('mat-name').value=sp.name;$('mat-Br').value=sp.Br;
+  else{$('mat-name').value=name;$('mat-Br').value=sp.Br;
     $('mat-fam-sel').value=(sp.family==='SmCo')?'SmCo':'NdFeB';
     $('mat-Hcb').value=(sp.Hcb/1e3).toFixed(1);
     $('mat-Hk').value=sp.hk_given===false?'':(sp.Hk/1e3).toFixed(1);

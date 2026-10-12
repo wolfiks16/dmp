@@ -1024,6 +1024,10 @@ _BUILTIN_STEELS = {
     "steel": {"name": "M270-35A (datasheet Cogent)"},        # дефолтная электротехническая
     "steel10": {"name": "Сталь 10 (ГОСТ 1050, данные изделия)"},
 }
+# Встроенные материалы не правятся на месте: по их id расчёт всегда берёт встроенные данные — на них стоят
+# значения по умолчанию и пресеты машин, по ним открываются сохранённые расчёты. Правка встроенного
+# сохраняет копию с новым id (Л-116). 'm270' — прежнее имя встроенной M270.
+_BUILTIN_IDS = frozenset(_BUILTIN_MAGNETS) | frozenset(_BUILTIN_STEELS) | {"m270"}
 
 
 def _load_custom_materials() -> dict:
@@ -1899,7 +1903,7 @@ def api_materials() -> dict:
         if k in gone:                              # чтобы строка свойств не была пустой
             continue
         e = {"id": k, "name": v["name"], "builtin": True, "family": v.get("family", ""),
-             "source": "встроенная", "source_title": "встроенная"}
+             "source": "встроенная", "source_title": "встроенная", "edit": "copy"}   # правка — копией (Л-116)
         try:
             mm = _magnet_by_id(k)
             e.update(Br=round(float(mm.Br0), 4), Hcb_kA=round(float(mm.Hcb0) / 1e3, 1),
@@ -1936,7 +1940,7 @@ def api_materials() -> dict:
                         "BHmax": g.BHmax, "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc,
                         "T_max": g.T_max, "hk_given": False, "hk_ratio": g.hk_ratio,
                         "note": g.note})
-    steels = [{"id": k, "name": v["name"], "builtin": True, "source_title": "встроенная"}
+    steels = [{"id": k, "name": v["name"], "builtin": True, "source_title": "встроенная", "edit": "copy"}
               for k, v in _BUILTIN_STEELS.items() if k not in gone]
     for mid, spec in custom.items():
         if mid in magnet_catalog._BY_ID:          # уже отдан выше как «изменённая справочная»
@@ -1965,6 +1969,32 @@ def _save_material_spec(mid: str | None, spec: dict) -> str:
     return materials_db.upsert(spec, mid)
 
 
+_KIND_SWAP = {("steel", "magnet"): "сталь вместо магнита", ("magnet", "steel"): "магнит вместо стали"}
+
+
+def _edit_error(mid: str | None, kind: str) -> str | None:
+    """
+    Можно ли записать материал вида `kind` под id `mid`; None — можно. Новый материал (mid=None) получает
+    id в базе. Правка — только существующей записи того же вида: своей или справочной марки (правка марки
+    ложится записью с её id). Встроенные не правятся (Л-116). Вид при правке не меняется (Л-117): сталь,
+    записанная с id справочной марки, роняла /api/materials, а свой магнит молча становился сталью.
+    """
+    if mid is None:
+        return None
+    if mid in _BUILTIN_IDS:
+        return "встроенный материал не правится — сохраните его копию как новый материал."
+    cur = materials_db.get(mid)
+    if cur is not None:
+        was = str(cur.get("kind", "magnet"))
+    elif mid in magnet_catalog._BY_ID and mid not in materials_db.deleted_ids():
+        was = "magnet"
+    else:
+        return "материал не найден — возможно, он удалён из библиотеки."
+    if was != kind:
+        return "нельзя записать %s: при правке вид материала не меняется." % _KIND_SWAP[(kind, was)]
+    return None
+
+
 @app.post("/api/materials")
 def api_material_save(body: dict = Body(default={})) -> dict:
     """
@@ -1982,6 +2012,9 @@ def api_material_save(body: dict = Body(default={})) -> dict:
             H = np.asarray([float(p[0]) for p in pts], dtype=float)
             B = np.asarray([float(p[1]) for p in pts], dtype=float)
             mid = str(body.get("id") or "") or None          # id есть => РЕДАКТИРОВАНИЕ
+            err = _edit_error(mid, "steel")
+            if err:
+                return {"error": err}
             curve = SteelBHCurve(curve_id=mid or "new", name=name, H_values=H, B_values=B)
             spec = {"kind": "steel", "name": name, "family": "сталь",
                     "H": H.tolist(), "B": B.tolist()}
@@ -2025,12 +2058,18 @@ def api_material_save(body: dict = Body(default={})) -> dict:
             if v is not None and str(v).strip() != "":
                 spec[key] = float(v)
         mid = str(body.get("id") or "") or None              # id есть => РЕДАКТИРОВАНИЕ
+        err = _edit_error(mid, "magnet")
+        if err:
+            return {"error": err}
         mg = magnet_from_datasheet(mid or "new", name, (1, 0, 0), Br=spec["Br"], Hcb=spec["Hcb"],
                                    Hk=spec["Hk"], Hcj=spec["Hcj"], alpha_Br=spec["alpha_Br"],
                                    gamma_Hc=spec["gamma_Hc"], T0=spec["T0"])  # валидирует
     except (KeyError, ValueError, TypeError, IndexError, ZeroDivisionError) as e:
         return {"error": f"некорректные параметры: {e}"}
-    mid = _save_material_spec(mid, spec)
+    try:
+        mid = _save_material_spec(mid, spec)
+    except ValueError as e:                  # запрет базы (вид записи не меняется) — если проверку выше обошли
+        return {"error": str(e)}
     return {"id": mid, "ok": True, "mu_rec": round(float(mg.mu_rec), 4),
             "temp_limit": round(float(mg.temperature_limit()), 1)}
 
@@ -2061,7 +2100,26 @@ def api_magnet_curve(body: dict = Body(default={})) -> dict:
 
 @app.get("/api/materials/{mid}")
 def api_material_get(mid: str) -> dict:
-    """Спецификация одного своего материала — для предзаполнения формы редактирования."""
+    """
+    Спецификация материала — для предзаполнения формы. `edit`: 'in_place' — правка той же записи (свой
+    материал, справочная марка); 'copy' — встроенный: форма сохранит его копию с новым id (Л-116).
+    """
+    if mid in _BUILTIN_IDS:            # встроенный — его собственные данные, у стали — таблица B(H)
+        try:
+            if mid in _BUILTIN_STEELS or mid == "m270":
+                c = _steel_by_id(mid)
+                spec = {"kind": "steel", "name": _BUILTIN_STEELS.get(mid, {}).get("name", mid),
+                        "family": "сталь", "H": np.asarray(c.H_values, dtype=float).tolist(),
+                        "B": np.asarray(c.B_values, dtype=float).tolist()}
+            else:
+                m = _magnet_by_id(mid)
+                spec = {"kind": "magnet", "name": _BUILTIN_MAGNETS[mid]["name"],
+                        "family": _BUILTIN_MAGNETS[mid]["family"],
+                        "Br": m.Br0, "Hcb": m.Hcb0, "Hk": m.Hk0, "Hcj": m.Hcj0,
+                        "alpha_Br": m.alpha_Br, "gamma_Hc": m.gamma_Hc, "T0": 20.0}
+        except Exception as e:  # noqa: BLE001 — сломанный встроенный не должен ронять форму
+            return {"error": f"встроенный материал {mid!r} не читается: {e}"}
+        return {"id": mid, "spec": spec, "edit": "copy"}
     spec = materials_db.get(mid)
     if spec is None and mid in magnet_catalog._BY_ID:      # справочная марка — отдаём как есть
         g = magnet_catalog.by_id(mid)
@@ -2073,16 +2131,7 @@ def api_material_get(mid: str) -> dict:
                 "Hcb": g.Hcb, "Hk": g.Hk, "hk_given": False, "Hcj": g.Hcj,
                 "alpha_Br": g.alpha_Br, "gamma_Hc": g.gamma_Hc, "T0": 20.0,
                 "BHmax": g.BHmax, "T_max": g.T_max}
-    if spec is None:                                       # встроенный пресет
-        try:
-            m = _magnet_by_id(mid)
-            spec = {"kind": "magnet", "name": _BUILTIN_MAGNETS.get(mid, {}).get("name", mid),
-                    "family": _BUILTIN_MAGNETS.get(mid, {}).get("family", ""),
-                    "Br": m.Br0, "Hcb": m.Hcb0, "Hk": m.Hk0, "Hcj": m.Hcj0,
-                    "alpha_Br": m.alpha_Br, "gamma_Hc": m.gamma_Hc, "T0": 20.0}
-        except Exception:  # noqa: BLE001
-            spec = None
-    return {"id": mid, "spec": spec} if spec else {"error": "материал не найден"}
+    return {"id": mid, "spec": spec, "edit": "in_place"} if spec else {"error": "материал не найден"}
 
 
 @app.post("/api/materials/delete")

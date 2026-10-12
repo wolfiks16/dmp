@@ -125,6 +125,13 @@ def upsert(spec: dict, mid: str | None = None) -> str:
     init()
     with _connect() as con:
         if mid:
+            # Вид записи при правке не меняется: магнит, перезаписанный сталью, пропадал из расчётов,
+            # а справочная марка-сталь роняла список материалов (Л-117).
+            was = con.execute("SELECT kind FROM materials WHERE id=?", (mid,)).fetchone()
+            if was is not None and was["kind"] != kind:
+                ru = {"magnet": "магнит", "steel": "сталь"}
+                raise ValueError("вид материала при правке не меняется: запись %r — %s, а сохраняется %s."
+                                 % (mid, ru[was["kind"]], ru[kind]))
             cur = con.execute(
                 "UPDATE materials SET kind=?, name=?, family=?, spec=?, updated_at=? WHERE id=?",
                 (kind, name, str(spec.get("family", "")), payload, _now(), mid))
