@@ -62,3 +62,46 @@ def test_newton_residual_quadratic_drop():
     h = [x for x in res.rel_change_history if x > 0]
     assert res.converged and len(h) >= 3
     assert h[-1] < 1e-6 * h[0]                          # многопорядковое падение невязки
+
+
+# ------------------------------------------------- тёплый старт: критерий от начала не зависит
+
+def _warm(space, mms, a_init, nu0=1.2, c=0.4, **kw):
+    return solve_nonlinear_2d_newton(
+        space, _nu_and_dnu(nu0, c), nu_init=np.full(space.mesh.n_cells, nu0),
+        j_fn=mms.J_fn, max_iter=30, tol=1e-10, a_init=a_init, **kw,
+    )
+
+
+def test_warm_start_measures_the_residual_against_the_cold_start_scale():
+    # Шаг по времени стартует с решения прошлого шага. Отнеси решатель невязку к невязке СВОЕГО старта,
+    # почти готовый старт ужесточал бы допуск в разы (и «сошлось» значило бы разное). Поэтому R₀ — всегда
+    # невязка холодного старта; она идёт первой в истории, и «последнее/первое» сравнимо с холодным решением
+    # и с `evaluate_nonlinear_2d_newton` (та же дискретная задача, Л-80).
+    from magcore.fem2d.newton import evaluate_nonlinear_2d_newton
+
+    space, mms, cold = _solve(16)
+    again = _warm(space, mms, cold.a)
+    assert again.rel_change_history[0] == cold.rel_change_history[0]           # тот же масштаб, бит в бит
+    assert again.converged and again.n_iterations == 1                       # готовое решение — сразу
+    bnd = np.asarray(space.boundary_dofs(), dtype=int)
+    inner = np.setdiff1d(np.arange(space.ndofs), bnd)
+    a_pert = cold.a.copy()
+    a_pert[inner] += 0.05 * np.abs(cold.a).max() * np.random.default_rng(3).standard_normal(inner.size)
+    a_pert[bnd] = 7.0                                                        # мусор в узлах Дирихле
+    warm = _warm(space, mms, a_pert)
+    assert warm.converged and warm.rel_change_history[0] == cold.rel_change_history[0]
+    assert np.all(warm.a[bnd] == 0.0)                                        # граничные значения — заданные
+    ev = evaluate_nonlinear_2d_newton(space, _nu_and_dnu(1.2, 0.4), warm.a, j_fn=mms.J_fn, tol=1e-10)
+    assert ev.converged
+    assert ev.rel_change_history[1] / ev.rel_change_history[0] == warm.rel_change_history[-1] / warm.rel_change_history[0]
+
+
+def test_warm_start_is_refused_with_a_stateful_magnet_source_or_a_wrong_shape():
+    space, mms, cold = _solve(8)
+    with pytest.raises(ValueError, match="a_init"):
+        _warm(space, mms, cold.a, magnetization=lambda B, H, nu: np.zeros((space.mesh.n_cells, 2)))
+    with pytest.raises(ValueError, match="a_init"):
+        _warm(space, mms, cold.a[:-1])
+    with pytest.raises(ValueError, match="a_init"):
+        _warm(space, mms, np.full(space.ndofs, np.nan))

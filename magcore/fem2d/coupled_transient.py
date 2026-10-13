@@ -9,6 +9,8 @@ from magcore.constants import MU0
 from magcore.domain.magnet_model import AnisotropicBHTMagnet
 from magcore.fem2d.assembly import uniaxial_nu_tensor
 from magcore.fem2d.losses import copper_loss_density
+from magcore.fem2d.magnet_law import MagnetLaw2D
+from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.fem2d.thermal import ImplicitEulerThermalStepper
@@ -17,9 +19,9 @@ from magcore.fem2d.thermal import ImplicitEulerThermalStepper
 #
 # На каждом шаге по времени (квазистатическая магнитная задача — электрический период
 # много короче тепловой постоянной времени):
-#   T^n  →  свойства материалов: кривая магнита B(H,T) и ρ(T) меди
-#        →  магнитостатика с магнитом при местной T (Picard)
-#        →  НЕОБРАТИМОЕ размагничивание: рабочая точка за коленом фиксируется (latch)
+#   T^n  →  свойства материалов: кривая магнита B(H,T) при T КАЖДОЙ ячейки и ρ(T) меди
+#        →  магнитостатика с магнитом при местной T (Ньютон с законом магнита в касательной)
+#        →  НЕОБРАТИМОЕ размагничивание: доля r защёлкивается после принятого решения (latch)
 #        →  потери q(T) (медь I²R; крючок для железа/вихревых)
 #        →  шаг неявного Эйлера по теплу  →  T^{n+1}
 #
@@ -28,20 +30,23 @@ from magcore.fem2d.thermal import ImplicitEulerThermalStepper
 # конечное состояние зависит от ПУТИ, а не только от конечной температуры. Это и есть
 # «необратимость в итерации» + разгон/риск в петле.
 #
-# ГРАНИЦА ПРИМЕНИМОСТИ (проверено тестами, см. tests/unit/test_coupled_transient.py).
-# Пока магнит повреждён, но НЕ уничтожен: каждый шаг решается до 1e-6, траектория сходится
-# при измельчении dt — этому режиму можно верить.
-# Глубоко за коленом магнитная итерация (Пикар) может НЕ СОЙТИСЬ ни при каком дроблении шага.
-# Прежде это объявлялось каскадом («квазистатического равновесия не существует физически»), но
-# это не подтвердилось (2026-10-13): во всех наблюдённых остановках решение не сошлось (невязка
-# 1e-3…0,5), а та же задача статическим Ньютоном (`solve_problem2d`) сходится до 1e-18 за 3–5
-# итераций вплоть до 196 °C у N42SH — равновесие есть, рабочая точка садится на −H_cJ. Пикар за
-# коленом просто не сжимает (Л-93, Л-107). Поэтому:
+# МЕТОД МАГНИТНОЙ ЗАДАЧИ (2026-10-13). Шаг решается Ньютоном: вдоль лёгкой оси — рабочая ветвь
+# закона с памятью (главная кривая при новой потере, иначе линия возврата r·B_r(T)), поперёк — μ⊥,
+# касательная — у той же ветви (`MagnetLawState` → `MagnetLaw2D`); сталь — касательной релуктивностью.
+# Прежний хордовый Пикар с источником и релаксацией оставлен эталоном (`method='picard'`): за коленом
+# он не сжимает (Л-93, Л-107) и останавливался там, где равновесие есть, — это и объявлялось
+# «каскадом» (Л-119). На тех же задачах Ньютон решает каждый шаг за единицы итераций до невязки
+# ≤1e-9 (сегмент — до предела модели магнита ~202 °C; спицевой двигатель — 4–10 итераций на шаг
+# там, где Пикар упирался в 300), а где Пикар сходится, его предел — решение Ньютона (тесты).
+#
+# ОСТАНОВКИ (проверено тестами, см. tests/unit/test_coupled_transient.py):
 #   * шаг, не сошедшийся даже с `max_substeps` подшагами (невязка ≥ `em_abort_residual`), НЕ
 #     принимается: расчёт останавливается с `em_failed=True` и честной причиной — вывода о магните
-#     нет (ни «выдержал», ни «каскад»);
-#   * признак «ячейки ниже H_cJ» читается только у ПРИНЯТОГО решения: у несошедшегося
-#     приближения он случаен (на одном шаге двигателя гулял 8 → 1 → 2 между попытками).
+#     нет (ни «выдержал», ни «каскад»). У Ньютона это страховка, у эталона-Пикара — обычное дело;
+#   * признак «ячейки ниже H_cJ» («каскад») читается только у ПРИНЯТОГО решения: у несошедшегося
+#     приближения он случаен (у Пикара на одном шаге двигателя гулял 8 → 1 → 2 между попытками).
+#     Это граница модели магнита (ниже −H_cJ закон доопределён полной потерей), а не доказательство
+#     несуществования равновесия: у Ньютона равновесие найдено, просто часть ячеек — за −H_cJ.
 # В обоих случаях история и состояние магнита обрываются последним принятым шагом.
 #
 # ФИКСАЦИЯ НЕОБРАТИМОСТИ ведётся по ДОЛЕ СОХРАНЁННОЙ ремнантности r = B_r_eff/B_r(T),
@@ -68,18 +73,145 @@ class CoupledTransientResult:
     runaway: bool                 # True ⇒ остановлено по перегреву (тепловой разгон)
     magnet_cascade: bool          # True ⇒ остановлено: у ПРИНЯТОГО магнитного решения ячейки ниже H_cJ
     stop_reason: str
-    em_converged: bool            # все магнитные решения достигли em_tol
-    em_iterations: np.ndarray     # (n+1,) суммарное число Picard-итераций на шаге
-    em_residual: np.ndarray       # (n+1,) ДОСТИГНУТАЯ относительная невязка по B на шаге
+    em_converged: bool            # все магнитные решения (на всех подшагах) достигли em_tol
+    em_iterations: np.ndarray     # (n+1,) суммарное число итераций магнитной задачи на шаге
+    em_residual: np.ndarray       # (n+1,) ДОСТИГНУТАЯ невязка шага (наибольшая по подшагам): у Ньютона ‖R‖/R₀,
+                                  #        у Пикара — относительное изменение B на последней итерации
     em_substeps: np.ndarray       # (n+1,) на сколько подшагов по T пришлось дробить шаг
-    state: "IrreversibleMagnetState | None"   # финальное состояние магнита (латч r)
+    state: "MagnetLawState | IrreversibleMagnetState | None"   # финальное состояние магнита (латч r)
     em_failed: bool = False       # True ⇒ остановлено: магнитная задача не сошлась — вывода о магните нет
+    em_method: str = "newton"     # чем решалась магнитная задача: 'newton' | 'picard'
+    em_tol: float = 1.0e-9        # допуск магнитной задачи (в смысле em_residual своего метода)
 
 
-class IrreversibleMagnetState:
+class _MagnetMemory:
+    """
+    Общее у состояний магнита ядра (Ньютон — `MagnetLawState`, эталон-Пикар — `IrreversibleMagnetState`):
+    ячейки магнита, температура (под)шага с проверкой предела модели, защёлка доли r (только вниз, `commit`),
+    снимок/откат и отчётность — маржа до колена, ячейки за коленом и ниже H_cJ.
+    """
+
+    def __init__(self, magnet: AnisotropicBHTMagnet, magnet_mask, n_cells: int, *, T_bin: float) -> None:
+        mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
+        if mask.shape != (n_cells,):
+            raise ValueError("magnet_mask must have shape (n_cells,).")
+        if float(T_bin) <= 0.0:
+            raise ValueError("T_bin must be positive.")
+        self.magnet = magnet
+        self.mask = mask
+        self.idx = np.where(mask)[0]
+        self.n_cells = int(n_cells)
+        self.T_bin = float(T_bin)
+        self.retention = np.ones(self.idx.size, dtype=float)   # латч необратимости
+        self.T_mag = np.zeros(self.idx.size, dtype=float)      # температура ячеек магнита
+        self.H_par = np.zeros(self.idx.size, dtype=float)      # рабочее поле вдоль e [А/м]
+        self.beyond_hcj = np.zeros(self.idx.size, dtype=bool)  # ячейки ниже H_cJ (каскад)
+        self._pending: np.ndarray | None = None                # r_eff последнего решения
+
+    # --- температура шага ---
+    def law_temperature(self, T) -> np.ndarray:
+        """Температура, при которой берётся кривая: ближайший узел сетки с шагом T_bin (как в законе)."""
+        return np.round(np.asarray(T, dtype=float) / self.T_bin) * self.T_bin
+
+    def set_temperature(self, T_magnet_cells) -> None:
+        """
+        Задать температуру ячеек магнита на текущем (под)шаге. Предел модели проверяется и по самой T, и по
+        узлу сетки температур, где берётся кривая: у самого предела узел бывает уже за ним (кривой там нет).
+        """
+        T = np.asarray(T_magnet_cells, dtype=float).reshape(-1)
+        if T.shape != (self.idx.size,):
+            raise ValueError("T_magnet_cells must have shape (n_magnet_cells,).")
+        limit = self.magnet.temperature_limit()
+        if T.size and max(float(T.max()), float(self.law_temperature(T).max())) >= limit:
+            raise MagnetOverheated(
+                "Магнит перегрет: T=%.1f C >= предел модели %.1f C." % (float(T.max()), limit),
+                T_magnet=float(T.max()), limit=float(limit),
+            )
+        self.T_mag = T
+
+    def commit(self) -> None:
+        """Зафиксировать необратимую потерю шага в истории (латч только вниз)."""
+        if self._pending is not None:
+            self.retention = np.minimum(self.retention, self._pending)
+
+    # --- снимок/откат (для повтора шага с продолжением по температуре) ---
+    def snapshot(self) -> dict:
+        """Полное состояние с историей — чтобы повторить шаг мельче, а не поверх испорченного."""
+        return {
+            "retention": self.retention.copy(),
+            "T_mag": self.T_mag.copy(),
+            "H_par": self.H_par.copy(),
+            "beyond_hcj": self.beyond_hcj.copy(),
+            "pending": None if self._pending is None else self._pending.copy(),
+        }
+
+    def restore(self, snap: dict) -> None:
+        self.retention = snap["retention"].copy()
+        self.T_mag = snap["T_mag"].copy()
+        self.H_par = snap["H_par"].copy()
+        self.beyond_hcj = snap["beyond_hcj"].copy()
+        self._pending = None if snap["pending"] is None else snap["pending"].copy()
+
+    # --- отчётность ---
+    def margins(self) -> np.ndarray:
+        """Маржа до колена m = H_par − H_knee(T) по ячейкам (<0 ⇒ за коленом)."""
+        m = self.magnet
+        knee = -(1.0 - m.gamma_Hc * (self.T_mag - m.T0) / 100.0) * m.Hk0   # = knee_field(T)
+        return self.H_par - knee
+
+    def n_past_knee(self) -> int:
+        return int(np.count_nonzero(self.margins() < 0.0))
+
+    def n_beyond_hcj(self) -> int:
+        """
+        Ячейки, где собственное поле принятого решения загнало магнит ниже собственной коэрцитивности
+        H_cJ: модель магнита там не определена (закон доопределён полной потерей). Расчёт на этом
+        останавливается признаком «каскад» — граница применимости модели, а не вывод о несуществовании
+        равновесия (это не подтвердилось, Л-119).
+        """
+        return int(np.count_nonzero(self.beyond_hcj))
+
+
+class MagnetLawState(_MagnetMemory):
+    """
+    Состояние магнита с ПАМЯТЬЮ для метода НЬЮТОНА (`solve_nonlinear_2d_newton(magnet_law=…)`).
+
+    Закон (под)шага — `MagnetLaw2D` при поячеечной температуре (сетка `T_bin` — та же, что у эталона-Пикара,
+    поэтому оба метода решают один и тот же закон) и защёлкнутой доле r: вдоль лёгкой оси — главная кривая там,
+    где поле даёт новую потерю (r_now(H∥, T) < r), иначе линия возврата r·B_r(T) + μ₀μ_rec·H∥; поперёк —
+    постоянная μ⊥ материала (тензор, Л-20). Новая потеря учтена в САМОМ решении — выбор ветви и есть
+    r_eff = min(r, r_now), — а касательная берётся у той же ветви: ни источника, ни релаксации, ни полосы
+    переключения не нужно (Л-21, Л-93, Л-107). `accept` снимает с решённого поля r_eff, H∥ и признак «ниже H_cJ»,
+    `commit` защёлкивает r_eff в историю — только после того, как решение (под)шага принято. При остывании r не
+    растёт: возвращается обратимая часть через B_r(T).
+    """
+
+    def __init__(self, magnet: AnisotropicBHTMagnet, magnet_mask, n_cells: int, *, axis=(1.0, 0.0),
+                 T_bin: float = 0.5) -> None:
+        super().__init__(magnet, magnet_mask, n_cells, T_bin=T_bin)
+        self.axis = axis
+        self.law()                                  # ось и маска проверяются сразу, а не на первом шаге
+
+    def law(self) -> MagnetLaw2D:
+        """Закон магнита при текущих T ячеек и защёлкнутой доле r (для одного решения Ньютона)."""
+        T = np.zeros(self.n_cells, dtype=float)
+        T[self.idx] = self.T_mag
+        r = np.ones(self.n_cells, dtype=float)
+        r[self.idx] = self.retention
+        return MagnetLaw2D(self.magnet, self.mask, self.n_cells, T=T, axis=self.axis, retention=r,
+                           T_bin=self.T_bin)
+
+    def accept(self, law: MagnetLaw2D) -> None:
+        """Снять с решённого поля (последний вызов закона — на возвращённом A) рабочую точку и r_eff."""
+        self.H_par = law.H_par.copy()
+        self.beyond_hcj = law.beyond_hcj()
+        self._pending = law.retention_now()
+
+
+class IrreversibleMagnetState(_MagnetMemory):
     """
     Состояние магнита с ПАМЯТЬЮ о необратимой потере, пригодное как источник намагниченности
-    для `solve_nonlinear_2d_picard` (callable(B,H,nu) -> (n_cells,2)).
+    для `solve_nonlinear_2d_picard` (callable(B,H,nu) -> (n_cells,2)) — схема эталона-Пикара.
 
     Хранит по ячейкам магнита долю сохранённой ремнантности r ∈ (0,1]; рабочая ремнантность
     на шаге = r·B_r(T_ячейки). Внутри Picard-итерации кандидат r_now = B_r_eff(H_par,T)/B_r(T)
@@ -103,22 +235,13 @@ class IrreversibleMagnetState:
         T_bin: float = 0.5,
         switch_band: float = 0.15,
     ) -> None:
-        mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
-        if mask.shape != (n_cells,):
-            raise ValueError("magnet_mask must have shape (n_cells,).")
+        super().__init__(magnet, magnet_mask, n_cells, T_bin=T_bin)
         if not (0.0 < relaxation <= 1.0):
             raise ValueError("relaxation must be in (0, 1].")
-        if float(T_bin) <= 0.0:
-            raise ValueError("T_bin must be positive.")
         if float(switch_band) <= 0.0:
             raise ValueError("switch_band must be positive.")
-        self.magnet = magnet
-        self.mask = mask
-        self.idx = np.where(mask)[0]
-        self.n_cells = int(n_cells)
         self.mu0 = float(mu0)
         self.omega = float(relaxation)
-        self.T_bin = float(T_bin)
         self.switch_band = float(switch_band)
         self.nu_rec = 1.0 / magnet.mu_rec
         # ПОПЕРЕЧНАЯ реактивность — СВОЙСТВО МАТЕРИАЛА, постоянное. Поперечный отклик
@@ -137,31 +260,11 @@ class IrreversibleMagnetState:
             raise ValueError("axis must be (dim,) or (n_cells, dim).")
         self.dim = int(self.axes.shape[1])
 
-        self.retention = np.ones(self.idx.size, dtype=float)   # латч необратимости
-        self.T_mag = np.zeros(self.idx.size, dtype=float)      # температура ячеек магнита
-        self.H_par = np.zeros(self.idx.size, dtype=float)      # рабочее поле вдоль e [А/м]
         self.nu_rel = np.full(self.idx.size, self.nu_rec, dtype=float)  # касательная ν магнита
-        self.beyond_hcj = np.zeros(self.idx.size, dtype=bool)  # ячейки ниже H_cJ (каскад)
-        self._pending: np.ndarray | None = None                # r_eff последней итерации
+        # Состояние ветви при смене температуры НЕ сбрасывается: между шагами по времени поле меняется
+        # слабо, и прошлое состояние — хорошее начальное приближение; на неподвижную точку оно не влияет.
         self._prev: tuple[np.ndarray, np.ndarray] | None = None
         self._curve_cache: dict[int, tuple[np.ndarray, np.ndarray, float]] = {}
-
-    # --- температура шага ---
-    def set_temperature(self, T_magnet_cells) -> None:
-        """Задать температуру ячеек магнита на текущем шаге и начать новую Picard-итерацию."""
-        T = np.asarray(T_magnet_cells, dtype=float).reshape(-1)
-        if T.shape != (self.idx.size,):
-            raise ValueError("T_magnet_cells must have shape (n_magnet_cells,).")
-        limit = self.magnet.temperature_limit()
-        if float(T.max()) >= limit:
-            raise MagnetOverheated(
-                "Магнит перегрет: T=%.1f C >= предел модели %.1f C." % (float(T.max()), limit),
-                T_magnet=float(T.max()), limit=float(limit),
-            )
-        self.T_mag = T
-        # `_prev` (состояние ветви) НЕ сбрасывается: между шагами по времени поле меняется
-        # слабо, и прошлое состояние — хорошее начальное приближение. На неподвижную точку
-        # начальное приближение не влияет.
 
     # --- кривая при температуре (кэш по бинам) ---
     def _curve(self, b: int) -> tuple[np.ndarray, np.ndarray, float]:
@@ -319,50 +422,18 @@ class IrreversibleMagnetState:
             out[self.idx] = uniaxial_nu_tensor(self.nu_rel, self.nu_perp_rel, self.axes)
         return out
 
-    def commit(self) -> None:
-        """Зафиксировать необратимую потерю шага в истории (латч только вниз)."""
-        if self._pending is not None:
-            self.retention = np.minimum(self.retention, self._pending)
-
-    # --- снимок/откат (для повтора шага с продолжением по температуре) ---
+    # --- снимок/откат: к общему состоянию — состояние ветви Пикара ---
     def snapshot(self) -> dict:
-        """Полное состояние с историей — чтобы повторить шаг мельче, а не поверх испорченного."""
-        return {
-            "retention": self.retention.copy(),
-            "T_mag": self.T_mag.copy(),
-            "H_par": self.H_par.copy(),
-            "nu_rel": self.nu_rel.copy(),
-            "pending": None if self._pending is None else self._pending.copy(),
-            "prev": None if self._prev is None else (self._prev[0].copy(), self._prev[1].copy()),
-        }
+        snap = super().snapshot()
+        snap["nu_rel"] = self.nu_rel.copy()
+        snap["prev"] = None if self._prev is None else (self._prev[0].copy(), self._prev[1].copy())
+        return snap
 
     def restore(self, snap: dict) -> None:
-        self.retention = snap["retention"].copy()
-        self.T_mag = snap["T_mag"].copy()
-        self.H_par = snap["H_par"].copy()
+        super().restore(snap)
         self.nu_rel = snap["nu_rel"].copy()
-        self._pending = None if snap["pending"] is None else snap["pending"].copy()
         self._prev = (None if snap["prev"] is None
                       else (snap["prev"][0].copy(), snap["prev"][1].copy()))
-
-    # --- отчётность ---
-    def margins(self) -> np.ndarray:
-        """Маржа до колена m = H_par − H_knee(T) по ячейкам (<0 ⇒ за коленом)."""
-        m = self.magnet
-        knee = -(1.0 - m.gamma_Hc * (self.T_mag - m.T0) / 100.0) * m.Hk0   # = knee_field(T)
-        return self.H_par - knee
-
-    def n_past_knee(self) -> int:
-        return int(np.count_nonzero(self.margins() < 0.0))
-
-    def n_beyond_hcj(self) -> int:
-        """
-        Ячейки, где собственное поле загнало магнит ниже собственной коэрцитивности H_cJ.
-        Это КАСКАД: остаточная намагниченность уже недостаточна, чтобы устоять против
-        своего же размагничивающего поля, и квазистатического равновесия не существует —
-        решение перестаёт быть определённым не численно, а физически.
-        """
-        return int(np.count_nonzero(self.beyond_hcj))
 
 
 class MagnetOverheated(RuntimeError):
@@ -395,15 +466,17 @@ def solve_coupled_magneto_thermal_transient(
     magnet_mask=None,
     magnet_axis=(1.0, 0.0),
     nu_of_B=None,
+    nu_and_dnu=None,
     nu_init=None,
     dirichlet_dofs=None,
     dirichlet_values=0.0,
     T0=None,
     extra_loss=None,
     T_cap: float | None = None,
+    method: str = "newton",
     em_relaxation: float = 0.5,
-    em_max_iter: int = 150,
-    em_tol: float = 1.0e-6,
+    em_max_iter: int | None = None,
+    em_tol: float | None = None,
     demag_relaxation: float = 0.3,
     switch_band: float = 0.15,
     T_bin: float = 0.5,
@@ -416,9 +489,26 @@ def solve_coupled_magneto_thermal_transient(
     Связанный магнитотепловой расчёт ВО ВРЕМЕНИ с необратимым размагничиванием в петле.
 
     Тепло: C∂T/∂t − div(k∇T) = q + конвекция h(T−T_amb) (неявный Эйлер, безусловно устойчив).
-    Магнит: квазистатическая планарная задача на каждом шаге, магнит при местной температуре,
-    необратимая потеря фиксируется (`IrreversibleMagnetState`).
+    Магнит: квазистатическая планарная задача на каждом шаге, магнит при местной температуре
+    ячеек, необратимая потеря фиксируется после принятого решения шага.
     Потери: медь q=ρ(T)·J² (главная положительная обратная связь) + `extra_loss`.
+
+    method    — как решается магнитная задача шага:
+                'newton' (по умолчанию) — метод Ньютона (`solve_nonlinear_2d_newton`) с законом магнита
+                    в касательной (`MagnetLawState` → `MagnetLaw2D`: поячеечная T, память r, поперёк μ⊥) и
+                    сталью через касательную релуктивность `nu_and_dnu`; «сошлось» — по относительной
+                    невязке (допуск по умолчанию 1e-9), тёплый старт с решения прошлого шага;
+                'picard' — прежний хордовый Пикар с источником магнита и релаксацией (`IrreversibleMagnetState`),
+                    допуск — по относительному изменению B (по умолчанию 1e-6). Оставлен ЭТАЛОНОМ: за коленом
+                    он может не сойтись при существующем равновесии (Л-93, Л-107, Л-119).
+                Закон у обоих один (та же сетка температур `T_bin`, те же ветви), поэтому где Пикар сходится,
+                ответы совпадают с точностью до его остановки.
+    nu_of_B / nu_and_dnu — нелинейная сталь: для Пикара хордовая ν(B) (n_cells,), для Ньютона — пара
+                (ν, dν/d|B|²) с той же ν (например, `model.problem._reluctivity_newton`). Без стали (оба None)
+                ν = nu_init. Ньютону со сталью нужна именно касательная: хорда вместо неё сделала бы метод
+                линейно сходящимся, а подставлять её молча нельзя — поэтому без `nu_and_dnu` отказ.
+    em_max_iter, em_tol — предел итераций и допуск магнитной задачи; None — по методу (Ньютон 40 и 1e-9,
+                Пикар 150 и 1e-6). `em_relaxation`, `demag_relaxation`, `switch_band` — только для Пикара.
 
     j_cells   — ФИЗИЧЕСКАЯ плотность тока [А/м²] (0 вне обмотки) для МАГНИТНОЙ задачи;
                 домножается на μ₀ (относительная конвенция ν).
@@ -446,7 +536,8 @@ def solve_coupled_magneto_thermal_transient(
                 ν рабочей ветви, ПОПЕРЁК — постоянная ν_⊥ = 1/(μ₀μ_perp) материала. False
                 возвращает прежнюю СКАЛЯРНУЮ сборку, где наклон ветви действовал во все
                 стороны и повреждённая ячейка становилась проводником потока вбок; оставлено
-                ТОЛЬКО для абляции — физически этот режим неверен поперёк оси.
+                ТОЛЬКО для абляции и только в схеме Пикара — физически этот режим неверен поперёк оси,
+                а закон Ньютона тензорный по построению.
     steady_tol — если задан [°C/с], расчёт ОСТАНАВЛИВАЕТСЯ по выходу на установившийся режим:
                 как только |ΔT_max|/dt между соседними шагами падает ниже него (после ≥2 шагов
                 нагрева). Это НЕ аварийная остановка (runaway=cascade=False) — поле уже стационарно
@@ -469,8 +560,35 @@ def solve_coupled_magneto_thermal_transient(
     if j_loss.shape != (nc,):
         raise ValueError("j_loss_cells must have shape (n_cells,).")
 
-    state: IrreversibleMagnetState | None = None
-    if magnet is not None:
+    if method not in ("newton", "picard"):
+        raise ValueError("method должен быть 'newton' | 'picard'.")
+    newton = method == "newton"
+    if em_max_iter is None:
+        em_max_iter = 40 if newton else 150
+    if em_tol is None:
+        em_tol = 1.0e-9 if newton else 1.0e-6
+
+    state: MagnetLawState | IrreversibleMagnetState | None = None
+    if magnet is not None and newton:
+        if magnet_mask is None:
+            raise ValueError("magnet задан — нужен magnet_mask (n_cells,).")
+        if nu_init is None:
+            raise ValueError("magnet задан — нужен nu_init (относительная ν по ячейкам).")
+        if not anisotropic_magnet:
+            raise ValueError("скалярная сборка магнита (абляция) — только для method='picard'.")
+        nu_lin = np.asarray(nu_init, dtype=float)
+        if nu_lin.shape != (nc,):
+            raise ValueError("для method='newton' nu_init — относительная ν по ячейкам (n_cells,).")
+        if nu_and_dnu is None:
+            if nu_of_B is not None:
+                raise ValueError("method='newton' со сталью: нужна касательная nu_and_dnu(B) → (ν, dν/d|B|²) "
+                                 "(например, model.problem._reluctivity_newton), а не только хорда nu_of_B.")
+            def nu_and_dnu(B_cells, _v=nu_lin.copy()):
+                """Без стали: ν постоянна (воздух, линейные материалы), касательная — она же."""
+                return _v.copy(), np.zeros(nc, dtype=float)
+        state = MagnetLawState(magnet, magnet_mask, nc, axis=magnet_axis, T_bin=T_bin)
+        ddofs = space.boundary_dofs() if dirichlet_dofs is None else dirichlet_dofs
+    elif magnet is not None:
         if magnet_mask is None:
             raise ValueError("magnet задан — нужен magnet_mask (n_cells,).")
         if nu_init is None:
@@ -573,6 +691,29 @@ def solve_coupled_magneto_thermal_transient(
         state.set_temperature(T_prev_mag)
     record(0.0, T, copper_loss_density(j_loss, _cell_temperature(space, T)))
 
+    def solve_magnetic(em_warm):
+        """
+        Магнитная задача (под)шага при текущих T и r состояния: (решение, сошлось, достигнутая невязка).
+        Невязка у Ньютона — ‖R‖/R₀ (R₀ — невязка холодного старта, история начинается с неё), у Пикара —
+        относительное изменение B на последней итерации.
+        """
+        if newton:
+            law = state.law()
+            em_n = solve_nonlinear_2d_newton(
+                space, nu_and_dnu, nu_init=nu_lin, j_cells=MU0 * j_phys, magnet_law=law,
+                dirichlet_dofs=ddofs, dirichlet_values=dirichlet_values,
+                max_iter=em_max_iter, tol=em_tol, a_init=None if em_warm is None else em_warm.a,
+            )
+            state.accept(law)
+            hist = em_n.rel_change_history
+            return em_n, bool(em_n.converged), (hist[-1] / hist[0] if hist and hist[0] > 0.0 else 0.0)
+        em_p = solve_nonlinear_2d_picard(
+            space, nu_of_B=nu_fn, nu_init=nu0, j_cells=MU0 * j_phys,
+            magnetization=state, dirichlet_dofs=ddofs, dirichlet_values=dirichlet_values,
+            relaxation=em_relaxation, max_iter=em_max_iter, tol=em_tol, warm_start=em_warm,
+        )
+        return em_p, bool(em_p.converged), (em_p.rel_change_history[-1] if em_p.rel_change_history else 0.0)
+
     em_prev = None
     for n in range(1, int(n_steps) + 1):
         cancel_check()                               # отмена расчёта — между шагами по времени
@@ -584,10 +725,13 @@ def solve_coupled_magneto_thermal_transient(
         n_sub = 0
         if state is not None:
             T_target = T_cells[state.idx]
-            if float(T_target.max()) >= T_cap_magnet:
+            T_hot = float(T_target.max()) if T_target.size else -np.inf
+            if max(T_hot, float(state.law_temperature(T_hot))) >= T_cap_magnet:
                 runaway = True
-                reason = ("магнит перегрет: T=%.1f C >= предел модели %.1f C"
-                          % (float(T_target.max()), T_cap_magnet))
+                reason = ("магнит перегрет: T=%.1f C >= предел модели %.1f C" % (T_hot, T_cap_magnet)
+                          if T_hot >= T_cap_magnet else
+                          "магнит перегрет: T=%.2f C — узел сетки температур кривой (шаг %g C) уже за "
+                          "пределом модели %.2f C" % (T_hot, state.T_bin, T_cap_magnet))
                 break
 
             # ПРОДОЛЖЕНИЕ ПО ТЕМПЕРАТУРЕ: шаг повторяется всё мельче, пока не сойдётся.
@@ -599,41 +743,43 @@ def solve_coupled_magneto_thermal_transient(
             while True:
                 state.restore(snap)
                 em = em_start
-                ok = True
+                ok = True                   # все подшаги решены до допуска
+                failed = False              # подшаг не решён и с промахом больше порядка
                 n_it = 0
+                res = 0.0
+                final = attempt >= max_substeps
                 for i in range(1, attempt + 1):
                     cancel_check()
                     frac = i / attempt
                     state.set_temperature(T_prev_mag + frac * (T_target - T_prev_mag))
-                    em = solve_nonlinear_2d_picard(
-                        space, nu_of_B=nu_fn, nu_init=nu0, j_cells=MU0 * j_phys,
-                        magnetization=state, dirichlet_dofs=ddofs,
-                        dirichlet_values=dirichlet_values,
-                        relaxation=em_relaxation, max_iter=em_max_iter, tol=em_tol,
-                        warm_start=em,
-                    )
+                    em, conv, res_i = solve_magnetic(em)
                     state.commit()      # необратимая потеря подшага уходит в историю
                     n_it += em.n_iterations
-                    res = em.rel_change_history[-1] if em.rel_change_history else 0.0
-                    if not em.converged:
+                    res = max(res, res_i)
+                    if not conv:
                         ok = False
-                        break
+                        failed = res_i >= em_abort
+                        # Мельче ещё можно — повторить шаг. На последней попытке промах меньше порядка
+                        # принимается, и путь досчитывается до T шага: оборвать его здесь значило бы
+                        # принять шаг с магнитом при промежуточной температуре и недосчитанной потерей.
+                        if not final or failed:
+                            break
                 n_sub = attempt
-                if ok or attempt >= max_substeps:
+                if ok or final:
                     break
                 attempt *= 2
 
             em_prev = em
             T_prev_mag = T_target
-            em_ok = em_ok and bool(em.converged)
+            em_ok = em_ok and ok
 
             # Шаг принимается, только если магнитная задача сошлась: до em_tol на всех подшагах
             # или с промахом меньше порядка (res < em_abort — виден в em_converged/em_residual).
-            # Иначе решения на шаге нет, и вывода о магните НЕ делается: в наблюдённых случаях та же
-            # задача статическим Ньютоном сходится (см. шапку) — это несходимость Пикара, не физика.
+            # Иначе решения на шаге нет, и вывода о магните НЕ делается (несходимость метода — не
+            # физика: так было с Пикаром за коленом, Л-119; у Ньютона это страховка).
             # История обрывается ПОСЛЕДНИМ ПРИНЯТЫМ шагом, состояние магнита откатывается к нему же:
             # значения, зафиксированные внутри сорвавшегося шага, отражают незавершённую итерацию.
-            if not ok and res >= em_abort:
+            if failed:
                 em_failed = True
                 reason = ("магнитная задача не сошлась при T=%.1f C даже с %d подшагами по "
                           "температуре (невязка %.1e при допуске %.0e) — расчёт остановлен, "
@@ -682,5 +828,5 @@ def solve_coupled_magneto_thermal_transient(
         stop_reason=reason,
         em_converged=em_ok, em_iterations=np.asarray(em_iters),
         em_residual=np.asarray(em_res), em_substeps=np.asarray(em_subs), state=state,
-        em_failed=em_failed,
+        em_failed=em_failed, em_method=method, em_tol=float(em_tol),
     )

@@ -19,15 +19,41 @@ class MagnetLaw2D:
     `axis` — ось лёгкого намагничивания: один вектор (2,) на весь магнит или поячеечный (n_cells, 2)
     (реальная машина: радиальная ось·полярность). `retention` — сохранённая доля ремнантности r ∈ [0, 1]
     после прежних нагружений (массив по ВСЕМ ячейкам; вне магнита не используется); None — новый магнит.
+
+    `T` — температура: одно число на весь магнит или поячеечно (n_cells,) — тогда у каждой ячейки кривая
+    своей температуры (транзиент К6′: магнит прогрет неравномерно). `T_bin` — шаг сетки температур: T ячейки
+    округляется до T_bin·round(T/T_bin), и кривые строятся только в узлах сетки — как в `IrreversibleMagnetState`
+    ядра К6′, поэтому оба метода решают один и тот же закон; погрешность закона ≤ |dB_r/dT|·T_bin/2 и → 0 с
+    T_bin. None — точные значения (своя кривая на каждое различное T). Ветвь при каждой температуре считает
+    модель магнита (`branch_parallel_inverse`) — реализация одна (Л-92, Л-100).
     """
 
-    def __init__(self, magnet, magnet_mask, n_cells: int, *, T: float, axis, retention=None, mu0: float = MU0):
+    def __init__(self, magnet, magnet_mask, n_cells: int, *, T, axis, retention=None, mu0: float = MU0,
+                 T_bin: float | None = None):
         mask = np.asarray(magnet_mask, dtype=bool).reshape(-1)
         if mask.shape != (int(n_cells),):
             raise ValueError("magnet_mask must have shape (n_cells,).")
         self.magnet = magnet
         self.idx = np.where(mask)[0]
-        self.T = float(T)
+        T_arr = np.asarray(T, dtype=float)
+        if T_arr.ndim == 0:
+            self.T = float(T_arr)
+            t = np.full(self.idx.size, self.T, dtype=float)
+        elif T_arr.shape == (int(n_cells),):
+            self.T = T_arr
+            t = T_arr[self.idx].astype(float)
+        else:
+            raise ValueError("T — одно число или по ячейкам (n_cells,).")
+        if not np.all(np.isfinite(t)):
+            raise ValueError("температура магнита должна быть конечной.")
+        if T_bin is not None:
+            if not float(T_bin) > 0.0:
+                raise ValueError("T_bin must be positive.")
+            t = np.round(t / float(T_bin)) * float(T_bin)
+        self.T_cells = t                                       # температура закона по ячейкам магнита
+        # Ячейки одной температуры — одна кривая: группы строятся один раз, T закона за время его жизни постоянна.
+        temps, inv = np.unique(t, return_inverse=True)
+        self._groups = [(float(Tg), np.where(inv == k)[0]) for k, Tg in enumerate(temps)]
         self.mu0 = float(mu0)
         ax = np.asarray(magnet.easy_axis[:2] if axis is None else axis, dtype=float)
         if ax.ndim == 1:
@@ -60,7 +86,10 @@ class MagnetLaw2D:
             return np.zeros((0, 2), dtype=float), np.zeros((0, 2, 2), dtype=float)
         B = np.asarray(B_cells, dtype=float)[self.idx]
         b_par = np.einsum("ij,ij->i", B, self.axes)
-        h_par, slope = self.magnet.branch_parallel_inverse(b_par, self.T, self.retention)
+        h_par = np.empty_like(b_par)
+        slope = np.empty_like(b_par)
+        for Tg, sel in self._by_temperature():
+            h_par[sel], slope[sel] = self.magnet.branch_parallel_inverse(b_par[sel], Tg, self.retention[sel])
         self.H_par, self.slope = h_par, slope
         b_perp = B - b_par[:, None] * self.axes
         H = (self.mu0 * h_par)[:, None] * self.axes + self.nu_perp * b_perp
@@ -72,10 +101,35 @@ class MagnetLaw2D:
             D[~self.defined] = self.nu_rec * eye[~self.defined]
         return H, D
 
+    def _by_temperature(self):
+        """
+        Группы ячеек одной температуры: (T, выборка). Одна группа — выборка `slice(None)`: вызов на полном массиве,
+        ровно как при одной T на весь магнит (бит в бит).
+        """
+        if len(self._groups) == 1:
+            return [(self._groups[0][0], slice(None))]
+        return self._groups
+
     def retention_now(self) -> np.ndarray:
-        """Доля ремнантности, которую оставило текущее поле (для истории нагружения): min(r, r_now)."""
-        r_now = np.asarray(self.magnet.retention_now(self.H_par, self.T), dtype=float)
+        """
+        Доля ремнантности, которую оставило текущее поле (для истории нагружения): min(r, r_now). У ячейки без
+        направления оси намагниченности нет — терять нечего, доля остаётся прежней.
+        """
+        r_now = np.empty_like(self.H_par)
+        for Tg, sel in self._by_temperature():
+            r_now[sel] = self.magnet.retention_now(self.H_par[sel], Tg)
+        r_now = np.where(self.defined, r_now, 1.0)
         return np.minimum(self.retention, r_now)
+
+    def beyond_hcj(self) -> np.ndarray:
+        """
+        Ячейки, где текущее поле ниже −H_cJ своей температуры (H∥ < −H_cJ): модель магнита там не определена,
+        закон доопределён консервативно — полная потеря (r = 0). Ячейки без оси — нет.
+        """
+        below = np.zeros(self.H_par.shape, dtype=bool)
+        for Tg, sel in self._by_temperature():
+            below[sel] = self.H_par[sel] < -self.magnet.Hcj(Tg)
+        return below & self.defined
 
 
 class MagnetLaws2D:

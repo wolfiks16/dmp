@@ -167,6 +167,7 @@ def solve_nonlinear_2d_newton(
     max_iter: int = 40,
     tol: float = 1.0e-9,
     quadrature_order: int = 5,
+    a_init=None,
 ) -> Fem2DPicardResult:
     """
     Ньютон для −div(ν(|B|)∇A_z) = J_z + curl₂(νB_r). `nu_and_dnu(B_cells:(n,2))` → (ν:(n,),
@@ -179,11 +180,20 @@ def solve_nonlinear_2d_newton(
       * `magnetization` — источник ν·B_r, обновляемый на каждом шаге (совместимость; за коленом
         итерация по источнику может не сходиться — см. Л-93).
 
+    `a_init` — начальное приближение A (тёплый старт: например, решение прошлого шага по времени); в узлах
+    Дирихле берутся заданные значения. Критерий «сошлось» от старта не зависит: невязка относится к R₀ —
+    невязке ХОЛОДНОГО старта (внутри A = 0), то есть к масштабу задачи. С тёплым стартом R₀ идёт первым
+    числом истории, как у `evaluate_nonlinear_2d_newton`, поэтому «последнее/первое» — по-прежнему та
+    относительная невязка, по которой ставится «сошлось». Магнит при этом — законом или постоянным источником:
+    источник-функцию с состоянием пришлось бы вызвать лишний раз ради R₀.
+
     Возвращает тот же результат, что Пикар (совместим с картой риска и пост-процессингом);
     `converged` ставится только по относительной невязке.
     """
     if magnetization is not None and magnet_law is not None:
         raise ValueError("магнит задаётся ЛИБО законом (magnet_law), ЛИБО источником (magnetization).")
+    if a_init is not None and callable(magnetization):
+        raise ValueError("тёплый старт (a_init) — с законом магнита или постоянным источником, не с функцией.")
     nc = space.mesh.n_cells
     mag_fn = resolve_magnetization(magnetization, nc, dim=2)
     ddofs, a, b_of, state = _newton_system(space, nu_and_dnu, j_fn=j_fn, j_cells=j_cells, magnet_law=magnet_law,
@@ -195,6 +205,17 @@ def solve_nonlinear_2d_newton(
     converged = False
     n_it = 0
     r0 = None
+    if a_init is not None:
+        a_start = np.array(a_init, dtype=float).reshape(-1)
+        if a_start.shape != a.shape or not np.isfinite(a_start).all():
+            raise ValueError("a_init — по конечному числу на узел сетки.")
+        if magnetization is not None:                # постоянный источник: от поля не зависит
+            nu_br = np.asarray(mag_fn(None, None, None), dtype=float)
+        *_, R0 = state(a, nu_br)                     # масштаб задачи — невязка холодного старта
+        r0 = max(float(np.linalg.norm(R0)), 1e-30)
+        history.append(float(np.linalg.norm(R0)))
+        a_start[ddofs] = a[ddofs]
+        a = a_start
     B = b_of(a)
     for k in range(max_iter):
         cancel_check()                               # отмена расчёта — между итерациями

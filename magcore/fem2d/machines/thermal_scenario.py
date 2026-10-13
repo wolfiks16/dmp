@@ -17,7 +17,9 @@ from magcore.fem2d.machines.iron_loss import stator_iron_loss_density
 from magcore.fem2d.machines.magnet_loss import magnet_rotor_loss_density
 from magcore.fem2d.machines.pmsm_outrunner import REGION_NAMES, MachineGeometry, Region
 from magcore.fem2d.machines.scenario import MachineScenario
+from magcore.fem2d.machines.bridge import pmsm_to_problem
 from magcore.fem2d.machines.static_solver import machine_reluctivity
+from magcore.fem2d.model.problem import _reluctivity_newton
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.fem2d.thermal import assemble_robin_multi, classify_boundary_edges
 
@@ -243,9 +245,10 @@ def run_machine_thermal_demag(
     n_steps: int,
     thermal: MachineThermalProperties | None = None,
     T0: float | None = None,
+    method: str = "newton",
     em_relaxation: float = 0.1,
-    em_max_iter: int = 300,
-    em_tol: float = 1.0e-6,
+    em_max_iter: int | None = None,
+    em_tol: float | None = None,
     core_losses: bool = False,
     speed_rpm: float | None = None,
     sigma_pm: float | None = None,
@@ -270,8 +273,13 @@ def run_machine_thermal_demag(
     i_peak, gamma_elec, turns_per_slot — режим обмотки; `slot_fill` — коэффициент заполнения
     паза медью (входит в потери, см. шапку модуля). `h`, `T_amb` — конвекция на границах сетки
     (внутренняя расточка + наружная поверхность ротора). `dt`, `n_steps` — горизонт.
+    `method` — магнитная задача шага: 'newton' (по умолчанию; сталь касательной `_reluctivity_newton` —
+    та же ν, что `machine_reluctivity`, бит в бит; магнит законом в касательной) или эталон 'picard'
+    (хордовый Пикар с релаксацией `em_relaxation`, по умолчанию 300 итераций и допуск 1e-6 по изменению B).
+    `em_max_iter`, `em_tol` — None: по методу (у Ньютона — умолчания ядра, 40 итераций и 1e-9 по невязке).
     Прочие именованные аргументы уходят в `solve_coupled_magneto_thermal_transient`
-    (max_substeps, T_cap, T_bin, demag_relaxation, …).
+    (max_substeps, T_cap, T_bin, demag_relaxation, …). Свипы потерь ядра (`core_losses`) решает Пикар —
+    `em_relaxation` и `em_max_iter` (по умолчанию 300) относятся и к ним.
 
     ⚠ Границы модели: тепло 2D в сечении (осевой отвод не учитывается — оценка КОНСЕРВАТИВНА
     для короткой машины и оптимистична для длинной), потери в железе пока не входят (нужна
@@ -281,7 +289,18 @@ def run_machine_thermal_demag(
     props = thermal or MachineThermalProperties.representative()
     k_cells, c_cells = props.cell_fields(geometry)
 
+    if method not in ("newton", "picard"):
+        raise ValueError("method должен быть 'newton' | 'picard'.")
     nu_of_B, nu_init, magnet_mask, _ = machine_reluctivity(geometry, scenario.magnet, scenario.steel)
+    if method == "newton":
+        # Касательная стали — та же поячеечная ν, что у `machine_reluctivity`, бит в бит (общая постановка
+        # машины, как у характеристик); хорда Пикару при этом не нужна.
+        nu_and_dnu, _ = _reluctivity_newton(pmsm_to_problem(geometry, scenario.magnet, scenario.steel))
+        em_kw = dict(nu_and_dnu=nu_and_dnu, em_max_iter=em_max_iter, em_tol=em_tol)
+    else:
+        em_kw = dict(nu_of_B=nu_of_B, em_relaxation=em_relaxation,
+                     em_max_iter=300 if em_max_iter is None else em_max_iter,
+                     em_tol=1.0e-6 if em_tol is None else em_tol)
 
     # Магнитная задача — МГНОВЕННЫЙ ток при γ; тепловая — СКЗ с поправкой на заполнение паза.
     j_mag = winding_current_density(
@@ -314,7 +333,7 @@ def run_machine_thermal_demag(
             turns_per_slot=turns_per_slot, T=(T_amb if T0 is None else T0),
             sigma_pm=sigma_pm, magnet_seg_width=magnet_seg_width, steinmetz=steinmetz,
             mech_span=loss_mech_span, n_positions=loss_n_positions,
-            relaxation=em_relaxation, max_iter=em_max_iter,
+            relaxation=em_relaxation, max_iter=300 if em_max_iter is None else em_max_iter,
             rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
             rotor_thickness=rotor_thickness, rotor_mu_r=rotor_mu_r,
         )
@@ -329,9 +348,8 @@ def run_machine_thermal_demag(
         space, k_cells=k_cells, capacity_cells=c_cells, h=h, T_amb=T_amb, robin=robin,
         dt=dt, n_steps=n_steps, j_cells=j_mag, j_loss_cells=j_loss,
         magnet=scenario.magnet, magnet_mask=magnet_mask,
-        magnet_axis=geometry.magnet_easy_axis, nu_of_B=nu_of_B, nu_init=nu_init,
-        T0=T_start, em_relaxation=em_relaxation, em_max_iter=em_max_iter, em_tol=em_tol,
-        **transient_kwargs,
+        magnet_axis=geometry.magnet_easy_axis, nu_init=nu_init,
+        T0=T_start, method=method, **em_kw, **transient_kwargs,
     )
 
     retention = (transient.state.retention.copy() if transient.state is not None

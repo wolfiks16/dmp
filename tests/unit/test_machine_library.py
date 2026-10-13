@@ -3,6 +3,7 @@ import math
 import numpy as np
 import pytest
 
+from magcore.constants import MU0
 from magcore.fem2d.machines.catalog import (
     DP25_NAMEPLATE_KE,
     MAGNETS,
@@ -60,6 +61,26 @@ def test_per_region_materials_are_distinct():
     yok = geo.mask(Region.ROTOR_YOKE)
     assert arm.any() and yok.any()
     assert not np.isclose(nu_init[arm].mean(), nu_init[yok].mean())   # РАЗНЫЕ стали
+
+
+def test_newton_reluctivity_is_the_same_nu_with_each_steel_tangent():
+    # Ядро К6′ решает шаг Ньютоном: ему нужна касательная КАЖДОЙ стали, а ν — та же, что у Пикара, бит в бит
+    # (иначе методы решали бы разные задачи). Поле проходит обе кривые от нуля до насыщения.
+    d = dp25_brushed_dc()
+    geo = d.build_geometry()
+    nu_of_B, nu_init, mask = d.reluctivity(geo)
+    nu_and_dnu, nu0, mask_n = d.reluctivity_newton(geo)
+    B = np.random.default_rng(2).uniform(-2.6, 2.6, (geo.mesh.n_cells, 2))
+    nu, dnu = nu_and_dnu(B)
+    assert np.array_equal(nu, nu_of_B(B)) and np.array_equal(nu0, nu_init) and np.array_equal(mask_n, mask)
+    steel = geo.mask(Region.TOOTH) | geo.mask(Region.STATOR_YOKE) | geo.mask(Region.ROTOR_YOKE)
+    assert np.all(dnu[~steel] == 0.0)
+    # касательная — у своей кривой: dν/d|B|² = (ν_d − ν_chord)/(2|B|²) по кривой региона
+    for region, curve in ((Region.TOOTH, d.materials.steel_armature), (Region.ROTOR_YOKE, d.materials.yoke_curve)):
+        c = int(np.flatnonzero(geo.mask(region))[0])
+        b = float(np.hypot(*B[c]))
+        expect = MU0 * (curve.nu_differential(b) - curve.nu_chord(b)) / (2.0 * b * b)
+        assert dnu[c] == pytest.approx(expect, rel=1e-12)
 
 
 def test_pmsm_uses_same_steel_when_yoke_not_given():
@@ -293,6 +314,7 @@ def test_thermal_demag_runs_for_both_machine_types():
     for definition, i_peak in ((outrunner_pmsm_uav(mesh_size=5.0e-3), 40.0),
                                (dp25_brushed_dc(mesh_size=0.8e-3), 1.35)):
         res = run_thermal_demag(definition, i_peak=i_peak, **common)
+        assert res.transient.em_method == "newton" and res.transient.em_converged
         assert res.T_magnet_max >= common["T_amb"] - 1.0     # магнит не холоднее среды
         assert 0.0 <= res.torque_constant_drop <= 1.0
         assert np.all(res.retention <= 1.0) and np.all(res.retention > 0.0)

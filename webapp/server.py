@@ -756,7 +756,7 @@ def _do_scenario(body: dict) -> dict:
     em_it = int(tr.em_iterations[-1]) if getattr(tr, "em_iterations", None) is not None and len(
         tr.em_iterations) else 0
     checks = [
-        check_convergence(bool(tr.em_converged), em_it, em_res),
+        check_convergence(bool(tr.em_converged), em_it, em_res, tol=float(tr.em_tol)),   # допуск своего метода
         check_energy_balance(tr.stored_energy, tr.loss_power, tr.outflow, dt),
         check_time_step(dt),
         check_airgap_resolution(g.mesh, g.mask(Region.AIR_GAP), _gap_thickness(g.params)),

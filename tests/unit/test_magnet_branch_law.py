@@ -1,3 +1,5 @@
+import dataclasses
+
 import numpy as np
 import pytest
 
@@ -77,7 +79,10 @@ def test_slope_matches_the_numeric_derivative_of_the_same_branch(magnet):
 
 def test_planar_law_gives_axial_branch_and_constant_perpendicular_permeability():
     """MagnetLaw2D: вдоль оси — ветвь закона, поперёк — μ⊥ материала (касательная одноосная)."""
-    magnet = n42sh_magnet((1.0, 0.0, 0.0))
+    # μ⊥ — физическая (NdFeB ≈ 1,17, см. ablation_nu_tensor.py), не равная μ_rec: иначе подмена μ⊥ на μ_rec
+    # поперёк оси тестом не различалась бы (по умолчанию у марок μ⊥ = μ_rec).
+    magnet = dataclasses.replace(n42sh_magnet((1.0, 0.0, 0.0)), mu_perp=1.17)
+    assert abs(magnet.mu_perp - magnet.mu_rec) > 0.03
     T = 150.0
     law = MagnetLaw2D(magnet, np.array([True, False]), 2, T=T, axis=(0.0, 1.0))
     b_par = 0.2                                                    # Тл, глубоко за коленом
@@ -109,6 +114,75 @@ def test_planar_law_refuses_mask_of_wrong_length():
     magnet = n42sh_magnet((1.0, 0.0, 0.0))
     with pytest.raises(ValueError):
         MagnetLaw2D(magnet, np.array([True, False, True]), 2, T=20.0, axis=(0.0, 1.0))
+
+
+# ------------------------------------------------ поячеечная температура (транзиент К6′)
+
+def _cells_through_both_branches(magnet, n=9):
+    """Поле, доли и температуры ячеек: за коленом, на возврате, ниже −H_cJ, подмагничивание; T — от 20 до 175 °C."""
+    T = np.array([20.0, 60.0, 120.0, 150.0, 150.0, 162.7, 175.3, 175.3, 101.1])
+    r = np.array([1.0, 0.9, 1.0, 0.7, 1.0, 0.5, 0.3, 1.0, 0.95])
+    B = np.random.default_rng(1).uniform(-0.7, 1.4, (n, 2))
+    return T, r, B
+
+
+def test_planar_law_with_cell_temperatures_is_the_one_temperature_law_cell_by_cell():
+    """Поячеечная T: каждая ячейка подчиняется ровно тому закону, что весь магнит при её температуре (бит в бит)."""
+    magnet = n42sh_magnet((1.0, 0.0, 0.0))
+    T, r, B = _cells_through_both_branches(magnet)
+    n = T.size
+    law = MagnetLaw2D(magnet, np.ones(n, dtype=bool), n, T=T, axis=(0.0, 1.0), retention=r)
+    H, D = law(B)
+    r_now, beyond = law.retention_now(), law.beyond_hcj()
+    for c in range(n):
+        one = MagnetLaw2D(magnet, np.array([True]), 1, T=float(T[c]), axis=(0.0, 1.0), retention=r[c:c + 1])
+        Hc, Dc = one(B[c:c + 1])
+        assert np.array_equal(H[c], Hc[0]) and np.array_equal(D[c], Dc[0])
+        assert r_now[c] == one.retention_now()[0] and beyond[c] == one.beyond_hcj()[0]
+    # предпосылки: обе ветви, новая потеря и ячейка ниже −H_cJ в выборке есть
+    assert np.any(r_now < r) and np.any(r_now == r) and beyond.any()
+
+
+def test_uniform_cell_temperature_is_the_scalar_temperature_bit_for_bit():
+    magnet = n42sh_magnet((1.0, 0.0, 0.0))
+    T, r, B = _cells_through_both_branches(magnet)
+    n = T.size
+    kw = dict(axis=(0.0, 1.0), retention=r)
+    scalar = MagnetLaw2D(magnet, np.ones(n, dtype=bool), n, T=150.0, **kw)
+    cells = MagnetLaw2D(magnet, np.ones(n, dtype=bool), n, T=np.full(n, 150.0), **kw)
+    for a, b in zip(scalar(B), cells(B)):
+        assert np.array_equal(a, b)
+    assert np.array_equal(scalar.retention_now(), cells.retention_now())
+
+
+def test_temperature_grid_takes_the_nearest_node_and_bounds_the_error():
+    """
+    T_bin: кривая берётся в ближайшем узле сетки температур — как в ядре К6′. На линии возврата H(B) = (B − B_r(T))/
+    (μ₀μ_rec) линейна по B_r, поэтому ошибка закона от сетки — ровно |dB_r/dT|·|T − T_узла| ≤ |dB_r/dT|·T_bin/2.
+    """
+    magnet = n42sh_magnet((1.0, 0.0, 0.0))
+    mask = np.array([True])
+    B = np.array([[0.0, 1.0]])                                    # линия возврата целого магнита
+    T_bin = 0.5
+    for T in (150.2, 150.3, 150.25 + 1e-9):
+        node = round(T / T_bin) * T_bin
+        binned = MagnetLaw2D(magnet, mask, 1, T=np.array([T]), axis=(0.0, 1.0), T_bin=T_bin)
+        at_node = MagnetLaw2D(magnet, mask, 1, T=node, axis=(0.0, 1.0))
+        assert np.array_equal(binned(B)[0], at_node(B)[0])
+        exact = MagnetLaw2D(magnet, mask, 1, T=T, axis=(0.0, 1.0))
+        dBr = magnet.mu_rec * abs(binned(B)[0][0, 1] - exact(B)[0][0, 1])   # H решателя = (B − B_r)/μ_rec
+        dBr_dT = magnet.alpha_Br / 100.0 * magnet.Br0
+        assert dBr == pytest.approx(dBr_dT * abs(T - node), rel=1e-6)
+        assert dBr <= dBr_dT * T_bin / 2 * (1 + 1e-9)
+
+
+def test_cell_temperature_and_grid_are_validated():
+    magnet = n42sh_magnet((1.0, 0.0, 0.0))
+    mask = np.array([True, False])
+    for bad in ({"T": np.array([20.0, 30.0, 40.0])}, {"T": np.array([np.nan, 20.0])},
+                {"T": 20.0, "T_bin": 0.0}, {"T": 20.0, "T_bin": -0.5}):
+        with pytest.raises(ValueError):
+            MagnetLaw2D(magnet, mask, 2, axis=(0.0, 1.0), **bad)
 def test_cell_without_a_magnetization_direction_behaves_as_linear_recoil():
     """Поячеечная ось бывает не определена (радиальное намагничивание в центре): там нет намагниченности,
     тело ведёт себя как линейное с μ_rec — как и в прежней схеме, без исключения."""
@@ -120,3 +194,9 @@ def test_cell_without_a_magnetization_direction_behaves_as_linear_recoil():
     assert np.allclose(H[1], B[1] / magnet.mu_rec, rtol=1e-12)
     assert np.allclose(D[1], np.eye(2) / magnet.mu_rec, rtol=1e-12)
     assert H[0, 1] != pytest.approx(B[0, 1] / magnet.mu_rec)   # у ячейки с осью — закон магнита
+    # Намагниченности у такой ячейки нет — и терять нечего: доля r прежняя, «ниже −H_cJ» нет. При 150 °C
+    # формальное H∥ ячейки (−H_cB при B∥ = 0) лежит за коленом, и без этой оговорки защёлка записала бы потерю.
+    hot = MagnetLaw2D(magnet, np.array([True, True]), 2, T=150.0, axis=axis, retention=np.array([1.0, 0.8]))
+    hot(B)
+    assert float(magnet.retention_now(hot.H_par[1], 150.0)) < 1.0      # предпосылка: было бы «повреждение»
+    assert hot.retention_now()[1] == 0.8 and not hot.beyond_hcj()[1]

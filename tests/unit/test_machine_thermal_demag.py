@@ -147,12 +147,12 @@ def test_smco_survives_the_load_that_damages_ndfeb():
     # (та же геометрия, тот же ток, та же температура) NdFeB необратимо теряет часть полюса,
     # а SmCo колено не переходит вовсе. Это и есть довод в пользу SmCo для теплонагруженного
     # привода, показанный связанным полевым расчётом, а не таблицей коэффициентов.
-    # Горизонт — 2 шага: оба материала там решены до допуска. Третий шаг NdFeB Пикар не решает
-    # (32 подшага, невязка 9e-5 при допуске 1e-6) — раньше он входил в итог нерешённым (Л-93/Л-107).
-    hot = dict(HOT, n_steps=2)
-    nd = run_machine_thermal_demag(_scenario(n42sh_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **hot)
-    sm = run_machine_thermal_demag(_scenario(sm2co17_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **hot)
+    # Горизонт — 3 шага, все решены до допуска: третий шаг NdFeB прежний Пикар не решал (32 подшага,
+    # невязка 9e-5 при допуске 1e-6), и горизонт был урезан до двух; Ньютон решает его за единицы итераций.
+    nd = run_machine_thermal_demag(_scenario(n42sh_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **HOT)
+    sm = run_machine_thermal_demag(_scenario(sm2co17_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **HOT)
     assert nd.transient.em_converged and sm.transient.em_converged
+    assert len(nd.transient.times) == len(sm.transient.times) == HOT["n_steps"] + 1
 
     assert abs(nd.T_magnet_max - sm.T_magnet_max) < 1.0     # тепловая нагрузка одинакова
     assert nd.transient.n_past_knee[-1] > 0 and nd.retention.min() < 1.0
@@ -168,11 +168,104 @@ def test_damage_grows_with_current():
     # Физическая монотонность: сильнее ток — глубже необратимая потеря и больше падение
     # моментной постоянной. Ловит перепутанные знаки/масштабы в цепочке обмотка→поле→демаг.
     sc = _scenario()
-    hot = dict(HOT, n_steps=2)                      # горизонт, на котором оба режима решены (см. выше)
-    mild = run_machine_thermal_demag(sc, i_peak=30.0, **hot)
-    hard = run_machine_thermal_demag(sc, i_peak=60.0, **hot)
+    mild = run_machine_thermal_demag(sc, i_peak=30.0, **HOT)
+    hard = run_machine_thermal_demag(sc, i_peak=60.0, **HOT)
     assert mild.transient.em_converged and hard.transient.em_converged
     assert hard.retention.min() < mild.retention.min()
     assert hard.torque_constant_drop > mild.torque_constant_drop > 0.0
     # Потери растут по ходу нагрева: ρ(T) — та самая положительная обратная связь.
     assert hard.loss_power_final > hard.loss_power_initial
+
+
+# ------------------------------------------- метод магнитной задачи: Ньютон против эталона-Пикара
+
+def test_newton_steel_tangent_keeps_the_machine_reluctivity_bit_for_bit():
+    # Ньютону нужна касательная стали, но ν должна остаться той же, что у Пикара (`machine_reluctivity`): иначе
+    # методы решали бы разные задачи. Сверка на поле, проходящем всю кривую стали — от нуля до насыщения.
+    from magcore.fem2d.machines.bridge import pmsm_to_problem
+    from magcore.fem2d.machines.static_solver import machine_reluctivity
+    from magcore.fem2d.model.problem import _reluctivity_newton
+
+    sc = _scenario()
+    g = sc.geometry
+    nu_of_B, nu_init, _, steel_mask = machine_reluctivity(g, sc.magnet, sc.steel)
+    nu_and_dnu, nu0 = _reluctivity_newton(pmsm_to_problem(g, sc.magnet, sc.steel))
+    B = np.random.default_rng(5).uniform(-2.6, 2.6, (g.mesh.n_cells, 2))
+    nu, dnu = nu_and_dnu(B)
+    assert np.array_equal(nu, nu_of_B(B)) and np.array_equal(nu0, nu_init)
+    assert np.all(dnu[~steel_mask] == 0.0) and np.any(dnu[steel_mask] != 0.0)
+
+
+def test_newton_solves_the_step_picard_could_not_on_the_machine():
+    # Третий шаг NdFeB в горячем режиме эталон-Пикар не решает и с 32 подшагами — расчёт останавливается без
+    # вердикта. Ньютон решает все три шага до допуска, без дробления. Тепло от метода не зависит: потери меди
+    # от поля не зависят, поэтому история T совпадает бит в бит, пока Пикар шёл.
+    sc = _scenario()
+    pic = run_machine_thermal_demag(sc, i_peak=60.0, method="picard", **HOT).transient
+    new = run_machine_thermal_demag(sc, i_peak=60.0, **HOT).transient
+    assert pic.em_failed and len(pic.times) == HOT["n_steps"]          # предпосылка: шаг 3 Пикару не по силам
+    assert not new.em_failed and new.em_converged and new.em_method == "newton"
+    assert len(new.times) == HOT["n_steps"] + 1
+    assert np.all(new.em_substeps[1:] == 1) and new.em_residual.max() <= 1.0e-9
+    assert np.array_equal(new.T_hist[:len(pic.times)], pic.T_hist)
+
+
+def test_unknown_magnetic_method_is_rejected():
+    with pytest.raises(ValueError, match="newton"):
+        run_machine_thermal_demag(_scenario(), i_peak=10.0, method="что-то", **HOT)
+
+
+def test_newton_and_picard_solve_the_same_step_on_the_machine():
+    # ОРАКУЛ «предел Пикара — решение Ньютона» на машине 12/14 (сталь M270 нелинейна, ось магнита поячеечная):
+    # то же, что на сегменте (test_coupled_transient::test_newton_and_picard_solve_the_same_magnetic_step) —
+    # из одного состояния ужесточение допуска Пикара в 10⁴ раз уменьшает расхождение с Ньютоном пропорционально
+    # (граница 1e-2 — среднее геометрическое исходов «та же точка» 1e-4 и «другая» 1). Состояния: новый магнит
+    # при однородных 150 °C, затем нагрев с радиальным перепадом 10 °C (новая потеря) и остывание.
+    # Эталон — как в машинном сценарии (ν-релаксация 0,1), ω ветви 0,15 (при 0,3 он здесь дожимается хуже).
+    from magcore.constants import MU0
+    from magcore.fem2d.coupled_transient import IrreversibleMagnetState, MagnetLawState
+    from magcore.fem2d.machines.bridge import pmsm_to_problem
+    from magcore.fem2d.machines.static_solver import machine_reluctivity
+    from magcore.fem2d.model.problem import _reluctivity_newton
+    from magcore.fem2d.newton import solve_nonlinear_2d_newton
+    from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
+    from magcore.fem2d.spaces import LagrangeP1Space2D
+
+    sc = _scenario()
+    g = sc.geometry
+    space = LagrangeP1Space2D(g.mesh)
+    nc = g.mesh.n_cells
+    nu_of_B, nu_init, mask, _ = machine_reluctivity(g, sc.magnet, sc.steel)
+    nu_and_dnu, _ = _reluctivity_newton(pmsm_to_problem(g, sc.magnet, sc.steel))
+    j = MU0 * winding_current_density(g, sc.layout, i_peak=60.0, gamma_elec=0.0, turns_per_slot=20.0)
+    ddofs = space.boundary_dofs()
+    idx = np.where(mask)[0]
+    rad = np.array([np.hypot(*g.mesh.cell_vertices(int(c)).mean(axis=0)) for c in idx])
+    gradient = 10.0 * (rad - rad.min()) / (rad.max() - rad.min())
+    newton = MagnetLawState(sc.magnet, mask, nc, axis=g.magnet_easy_axis)
+    a_prev = None
+    new_loss = []
+    for T_mag in (np.full(idx.size, 150.0), 160.0 + gradient, 170.0 + gradient, 120.0 + gradient):
+        newton.set_temperature(T_mag)
+        law = newton.law()
+        em_n = solve_nonlinear_2d_newton(space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnet_law=law,
+                                         dirichlet_dofs=ddofs, max_iter=60, tol=1e-13, a_init=a_prev)
+        newton.accept(law)
+        assert em_n.converged
+        errs = []
+        for tol in (1e-8, 1e-12):
+            pic = IrreversibleMagnetState(sc.magnet, mask, nc, axis=g.magnet_easy_axis, relaxation=0.15)
+            pic.retention = newton.retention.copy()
+            pic.set_temperature(T_mag)
+            em_p = solve_nonlinear_2d_picard(
+                space, nu_of_B=lambda B, _s=pic: _s.nu_field(nu_of_B(B)), nu_init=pic.nu_field(nu_init.copy()),
+                j_cells=j, magnetization=pic, dirichlet_dofs=ddofs, relaxation=0.1, max_iter=20000, tol=tol,
+            )
+            assert em_p.converged
+            errs.append(np.linalg.norm(em_n.B_cells - em_p.B_cells) / np.linalg.norm(em_p.B_cells))
+        assert errs[1] < 1e-2 * errs[0], errs
+        before = newton.retention.copy()
+        newton.commit()
+        new_loss.append(bool(np.any(newton.retention < before)))
+        a_prev = em_n.a
+    assert all(new_loss[:3]) and not new_loss[3]           # потеря при нагреве, при остывании — нет

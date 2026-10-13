@@ -158,15 +158,22 @@ def _reluctivity_newton(problem: Problem2D):
         nu = nu_base.copy()
         dnu = np.zeros(nc, dtype=float)
         for cells, curve in steel_groups:
-            Bmag = np.hypot(B_cells[cells, 0], B_cells[cells, 1])
-            nu_c = MU0 * np.array([curve.nu_chord(float(b)) for b in Bmag])
-            nu_d = MU0 * np.array([curve.nu_differential(float(b)) for b in Bmag])
-            nu[cells] = nu_c
-            b2 = np.maximum(Bmag ** 2, 1e-12)
-            dnu[cells] = np.where(Bmag > 1e-6, (nu_d - nu_c) / (2.0 * b2), 0.0)
+            nu[cells], dnu[cells] = steel_nu_and_dnu(curve, np.hypot(B_cells[cells, 0], B_cells[cells, 1]))
         return nu, dnu
 
     return nu_and_dnu, nu_and_dnu(np.zeros((nc, 2), dtype=float))[0]
+
+
+def steel_nu_and_dnu(curve, Bmag: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Сталь для Ньютона по модулю индукции ячеек: относительная хордовая ν = μ₀·ν_chord(|B|) — та же, что у
+    Пикара (`_reluctivity`, `machine_reluctivity`), бит в бит, — и dν/d|B|² = (ν_d − ν_chord)/(2|B|²), вклад
+    насыщения в касательную (при |B| → 0 — ноль: там хорда и есть касательная).
+    """
+    nu_c = MU0 * np.array([curve.nu_chord(float(b)) for b in Bmag])
+    nu_d = MU0 * np.array([curve.nu_differential(float(b)) for b in Bmag])
+    b2 = np.maximum(Bmag ** 2, 1e-12)
+    return nu_c, np.where(Bmag > 1e-6, (nu_d - nu_c) / (2.0 * b2), 0.0)
 
 
 @dataclass(frozen=True, slots=True)

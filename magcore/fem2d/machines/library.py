@@ -39,6 +39,7 @@ from magcore.fem2d.machines.pmsm_outrunner import (
 )
 from magcore.fem2d.machines.winding import WindingLayout, star_of_slots_layout
 from magcore.fem2d.model.postproc import torque_arkkio
+from magcore.fem2d.model.problem import steel_nu_and_dnu
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
@@ -321,6 +322,31 @@ class MachineDefinition:
 
         return nu_of_B, nu_of_B(np.zeros((nc, 2), dtype=float)), magnet_mask
 
+    def reluctivity_newton(self, geo: MachineGeometry):
+        """
+        Как `reluctivity`, но для метода Ньютона: nu_and_dnu(B) → (ν, dν/d|B|²) — ν та же, бит в бит, у каждой
+        стали своя кривая и своя касательная (`model.problem.steel_nu_and_dnu`); вне стали dν = 0.
+        Возвращает (nu_and_dnu, nu_init, magnet_mask).
+        """
+        region = geo.region
+        nc = geo.mesh.n_cells
+        magnet_mask = region == int(Region.MAGNET)
+        arm = np.where(np.isin(region, (int(Region.STATOR_YOKE), int(Region.TOOTH))))[0]
+        yok = np.where(region == int(Region.ROTOR_YOKE))[0]
+        c_arm, c_yok = self.materials.steel_armature, self.materials.yoke_curve
+        nu_mag = 1.0 / self.materials.magnet.mu_rec
+
+        def nu_and_dnu(B_cells: np.ndarray):
+            nu = np.ones(nc, dtype=float)
+            nu[magnet_mask] = nu_mag
+            dnu = np.zeros(nc, dtype=float)
+            for idx, curve in ((arm, c_arm), (yok, c_yok)):
+                if idx.size:
+                    nu[idx], dnu[idx] = steel_nu_and_dnu(curve, np.hypot(B_cells[idx, 0], B_cells[idx, 1]))
+            return nu, dnu
+
+        return nu_and_dnu, nu_and_dnu(np.zeros((nc, 2), dtype=float))[0], magnet_mask
+
 
 @dataclass(frozen=True, slots=True)
 class MachineSolution:
@@ -591,8 +617,8 @@ def run_thermal_demag(
     h_in: float | None = None, T_frame: float | None = None, T0: float | None = None,
     T_cap: float | None = None, steady_tol: float | None = None,
     core_loss_density=None, auto_core_losses: bool = False, speed_rpm: float | None = None,
-    em_relaxation: float = 0.05, em_max_iter: int = 400,
-    em_tol: float = 1.0e-6, max_substeps: int = 8, **transient_kwargs,
+    method: str = "newton", em_relaxation: float = 0.05, em_max_iter: int | None = None,
+    em_tol: float | None = None, max_substeps: int = 8, **transient_kwargs,
 ) -> ThermalDemagResult:
     """
     Уровень Р3 (ЯДРО К6′) для ЛЮБОГО типа из библиотеки: связанный магнитотепловой расчёт
@@ -600,6 +626,10 @@ def run_thermal_demag(
 
     Тип машины подхватывается автоматически: распределение тока и ток для нагрева берутся
     у обмотки, ν — с РАЗНЫМИ сталями по регионам.
+
+    `method` — магнитная задача шага: 'newton' (по умолчанию; стали — касательной `reluctivity_newton`,
+    та же ν бит в бит; `em_max_iter`/`em_tol` по умолчанию — ядра, 40 и 1e-9 по невязке) или эталон
+    'picard' (релаксация `em_relaxation`, по умолчанию 400 итераций и 1e-6 по изменению B).
 
     `gamma_elec=0` — worst-case ось d (чисто размагничивающий ток), как принято для
     демаг-анализа. `core_loss_density` — карта потерь ядра [Вт/м³] (сталь + вихревые
@@ -618,7 +648,16 @@ def run_thermal_demag(
     space = LagrangeP1Space2D(geo.mesh)
     props = thermal or MachineThermalProperties.representative()
     k_cells, c_cells = props.cell_fields(geo)
-    nu_of_B, nu_init, magnet_mask = definition.reluctivity(geo)
+    if method == "newton":
+        nu_and_dnu, nu_init, magnet_mask = definition.reluctivity_newton(geo)
+        em_kw = dict(nu_and_dnu=nu_and_dnu, em_max_iter=em_max_iter, em_tol=em_tol)
+    elif method == "picard":
+        nu_of_B, nu_init, magnet_mask = definition.reluctivity(geo)
+        em_kw = dict(nu_of_B=nu_of_B, em_relaxation=em_relaxation,
+                     em_max_iter=400 if em_max_iter is None else em_max_iter,
+                     em_tol=1.0e-6 if em_tol is None else em_tol)
+    else:
+        raise ValueError("method должен быть 'newton' | 'picard'.")
 
     j_mag = definition.winding.current_density(geo, i_peak=i_peak, gamma_elec=gamma_elec)
     j_loss = definition.winding.loss_current_density(geo, i_peak=i_peak)
@@ -647,9 +686,9 @@ def run_thermal_demag(
         space, k_cells=k_cells, capacity_cells=c_cells, h=h_out, T_amb=T_amb, robin=robin,
         dt=dt, n_steps=n_steps, j_cells=j_mag, j_loss_cells=j_loss,
         magnet=definition.materials.magnet, magnet_mask=magnet_mask,
-        magnet_axis=geo.magnet_easy_axis, nu_of_B=nu_of_B, nu_init=nu_init, T0=T_start,
-        T_cap=T_cap, steady_tol=steady_tol, em_relaxation=em_relaxation,
-        em_max_iter=em_max_iter, em_tol=em_tol, max_substeps=max_substeps, **transient_kwargs,
+        magnet_axis=geo.magnet_easy_axis, nu_init=nu_init, T0=T_start,
+        T_cap=T_cap, steady_tol=steady_tol, method=method, max_substeps=max_substeps,
+        **em_kw, **transient_kwargs,
     )
 
     retention = (tr.state.retention.copy() if tr.state is not None
