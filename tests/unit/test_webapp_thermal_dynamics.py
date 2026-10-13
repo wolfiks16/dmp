@@ -66,7 +66,8 @@ mid = server._build_spoke_mesh(params, mid)
 mesh = server._GEOM[mid][0].mesh
 out = server._do_scenario({"mesh_id": mid, **json.loads(sys.argv[1])})
 print(json.dumps({"n_nodes": mesh.n_vertices, "n_cells": mesh.n_cells, "peak": peak_bytes(),
-                  "stop_reason": out["stop_reason"], "T_cells": len(out["T_cells"]),
+                  "stop_reason": out["stop_reason"], "em_failed": out["em_failed"],
+                  "T_cells": len(out["T_cells"]),
                   "frames": [len(f) for f in out["temp_frames"]], "frame_t": out["temp_frame_t"],
                   "T_amb": out["T_amb"], "T_max": out["T_max"],
                   "checks": {c["name"]: c["status"] for c in out["checks"]["checks"]}}))
@@ -87,7 +88,7 @@ def test_thermal_dynamics_runs_on_the_default_spoke_motor_with_bounded_memory():
     bound = 0.5 * 8 * n * n                               # 8n² байт — одна плотная (n,n)
     assert r["peak"] < bound, f"пик {r['peak'] / 2**30:.2f} ГиБ при границе {bound / 2**30:.2f} ГиБ"
     # Сценарий дошёл до конца, и интерфейсу есть что показать: поле по ячейкам и кадры нагрева.
-    assert r["stop_reason"] == "завершено"
+    assert r["stop_reason"] == "завершено" and r["em_failed"] is False
     assert r["T_cells"] == r["n_cells"] and r["frames"] == [r["n_cells"]] * 3
     assert r["frame_t"] == [0.0, 2.0, 4.0]
     assert r["T_max"] > r["T_amb"]                        # обмотка греет

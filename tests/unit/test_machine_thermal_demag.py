@@ -147,8 +147,12 @@ def test_smco_survives_the_load_that_damages_ndfeb():
     # (та же геометрия, тот же ток, та же температура) NdFeB необратимо теряет часть полюса,
     # а SmCo колено не переходит вовсе. Это и есть довод в пользу SmCo для теплонагруженного
     # привода, показанный связанным полевым расчётом, а не таблицей коэффициентов.
-    nd = run_machine_thermal_demag(_scenario(n42sh_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **HOT)
-    sm = run_machine_thermal_demag(_scenario(sm2co17_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **HOT)
+    # Горизонт — 2 шага: оба материала там решены до допуска. Третий шаг NdFeB Пикар не решает
+    # (32 подшага, невязка 9e-5 при допуске 1e-6) — раньше он входил в итог нерешённым (Л-93/Л-107).
+    hot = dict(HOT, n_steps=2)
+    nd = run_machine_thermal_demag(_scenario(n42sh_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **hot)
+    sm = run_machine_thermal_demag(_scenario(sm2co17_magnet((1.0, 0.0, 0.0))), i_peak=60.0, **hot)
+    assert nd.transient.em_converged and sm.transient.em_converged
 
     assert abs(nd.T_magnet_max - sm.T_magnet_max) < 1.0     # тепловая нагрузка одинакова
     assert nd.transient.n_past_knee[-1] > 0 and nd.retention.min() < 1.0
@@ -164,8 +168,10 @@ def test_damage_grows_with_current():
     # Физическая монотонность: сильнее ток — глубже необратимая потеря и больше падение
     # моментной постоянной. Ловит перепутанные знаки/масштабы в цепочке обмотка→поле→демаг.
     sc = _scenario()
-    mild = run_machine_thermal_demag(sc, i_peak=30.0, **HOT)
-    hard = run_machine_thermal_demag(sc, i_peak=60.0, **HOT)
+    hot = dict(HOT, n_steps=2)                      # горизонт, на котором оба режима решены (см. выше)
+    mild = run_machine_thermal_demag(sc, i_peak=30.0, **hot)
+    hard = run_machine_thermal_demag(sc, i_peak=60.0, **hot)
+    assert mild.transient.em_converged and hard.transient.em_converged
     assert hard.retention.min() < mild.retention.min()
     assert hard.torque_constant_drop > mild.torque_constant_drop > 0.0
     # Потери растут по ходу нагрева: ρ(T) — та самая положительная обратная связь.

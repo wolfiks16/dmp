@@ -23,7 +23,9 @@ from magcore.fem2d.spaces import LagrangeP1Space2D
 #   (4) НЕЗАВИСИМОСТЬ ОТ ДЕМПФИРОВАНИЯ: сошедшийся ответ не зависит от ω (иначе это не
 #       решение, а артефакт итерации — так и была поймана неустойчивость за коленом);
 #   (5) СХОДИМОСТЬ ПО ШАГУ: измельчение dt даёт монотонно сходящуюся траекторию;
-#   (6) НЕГАТИВНЫЕ: без нагрева/за пределом колена потерь нет (ровно r=1).
+#   (6) НЕГАТИВНЫЕ: без нагрева/за пределом колена потерь нет (ровно r=1);
+#   (7) НЕСХОДИМОСТЬ ≠ ВЕРДИКТ: где Пикар не сошёлся, равновесие есть — его находит статический
+#       Ньютон (`solve_problem2d`) на том же состоянии; расчёт останавливается без вывода о магните.
 
 
 def _segment(nx=16, ny=12):
@@ -266,30 +268,64 @@ def test_magnetic_residual_reported_and_small_in_design_regime():
     assert res.retention_mean[-1] < 0.99          # повреждение реально произошло
 
 
-def test_cascade_stops_the_run_and_history_stays_trustworthy():
-    # Каскад: нагрев роняет H_cJ(T), остаточной намагниченности не хватает против СВОЕГО ЖЕ
-    # поля ⇒ квазистатического равновесия не существует физически. Требование к решателю —
-    # ОСТАНОВИТЬСЯ с явной причиной, а не продолжать выдавать числа: продолжение расчёта за
-    # этой границей давало бы правдоподобную, но бессмысленную траекторию.
+def _deep_damage_run(J=1.6e7):
     space, magnet_mask, copper_mask = _segment()
     magnet = n42sh_magnet((1.0, 0.0, 0.0))
     nu, k, cap = _materials(magnet, magnet_mask, copper_mask)
     res = solve_coupled_magneto_thermal_transient(
         space, k_cells=k, capacity_cells=cap, h=25.0, T_amb=20.0, dt=10.0, n_steps=60,
-        j_cells=np.where(copper_mask, 1.6e7, 0.0),
+        j_cells=np.where(copper_mask, J, 0.0),
         magnet=magnet, magnet_mask=magnet_mask, nu_init=nu,
     )
-    assert res.magnet_cascade                              # остановлено, и сказано почему
+    return space, magnet_mask, copper_mask, magnet, res
+
+
+def test_unconverged_magnetic_step_stops_the_run_without_a_verdict():
+    # Глубоко за коленом Пикар на шаге не сходится ни при каком дроблении. Прежде это объявлялось
+    # каскадом («равновесия не существует»), но равновесие есть (следующий тест) — это несходимость
+    # метода (Л-93, Л-107). Требование: ОСТАНОВИТЬСЯ с честной причиной, не выносить вердикт о
+    # магните и не пускать несошедшийся шаг в историю.
+    space, _, _, _, res = _deep_damage_run()
+    assert res.em_failed and not res.magnet_cascade and not res.runaway
     assert len(res.times) - 1 < 60                         # раньше запрошенного горизонта
-    assert "H_cJ" in res.stop_reason or "разошлась" in res.stop_reason
-    # Возвращённая история — ДОСТОВЕРНЫЙ ПРЕФИКС: сорвавшийся шаг в неё не попал.
-    assert res.em_residual.max() <= 1.0e-2
-    assert res.retention_mean[-1] < 0.99                   # повреждение до срыва реально
-    # Состояние магнита откачено к последнему достоверному шагу (не к мусору внутри срыва).
+    assert "не сошлась" in res.stop_reason and "вывода о магните нет" in res.stop_reason
+    # Возвращённая история — ДОСТОВЕРНЫЙ ПРЕФИКС: каждый принятый шаг решён с промахом меньше
+    # порядка (порог по умолчанию 10·em_tol), сорвавшийся шаг в неё не попал.
+    assert res.em_residual.max() < 10 * 1.0e-6
+    assert res.retention_mean[-1] < 0.99                   # повреждение до остановки реально
+    # Состояние магнита откачено к последнему принятому шагу (не к мусору внутри срыва).
     # Средняя доля — с весом площади ячеек: поштучное среднее зависит от сетки (Л-104).
     a = np.array([space.mesh.cell_area(int(c)) for c in res.state.idx])
     assert abs(float(np.average(res.state.retention, weights=a)) - res.retention_mean[-1]) < 1e-12
     assert 0.0 < res.past_knee_fraction.max() <= 1.0
+
+
+def test_where_picard_stopped_the_equilibrium_exists():
+    # ОРАКУЛ к остановке: то же состояние — ток, накопленная доля r и температура магнита на
+    # остановке (однородно по самой горячей ячейке, т. е. жёстче, чем в расчёте) — статическим
+    # Ньютоном с законом магнита в касательной. Он сходится за единицы итераций, и ни одна ячейка
+    # не уходит ниже H_cJ: равновесие существует, «каскада» нет — остановка была численной.
+    from magcore.fem2d.model.materials import Air, MagnetMaterial
+    from magcore.fem2d.model.problem import Problem2D, Region2D, solve_problem2d
+
+    space, magnet_mask, copper_mask, magnet, res = _deep_damage_run()
+    assert res.em_failed                                   # предпосылка: Пикар остановился
+    mesh = space.mesh
+    T_cells = res.T_hist[-1][mesh.cells].mean(axis=1)
+    T_stop = float(T_cells[magnet_mask].max())             # та же T, что в причине остановки
+    assert ("T=%.1f C" % T_stop) in res.stop_reason
+    retention = np.ones(mesh.n_cells)
+    retention[res.state.idx] = res.state.retention
+    axis = np.zeros((mesh.n_cells, 2))
+    axis[magnet_mask] = (1.0, 0.0)
+    prob = Problem2D(mesh=mesh, cell_region=magnet_mask.astype(int),
+                     regions={0: Region2D(0, "air", Air()), 1: Region2D(1, "magnet", MagnetMaterial(magnet))},
+                     magnet_axis=axis, j_cells=np.where(copper_mask, 1.6e7, 0.0), T=T_stop)
+    sol = solve_problem2d(prob, method="newton", retention=retention, tol=1e-10, max_iter=30)
+    assert sol.field.converged and sol.field.n_iterations <= 10
+    assert sol.field.rel_change_history[-1] <= 1e-10
+    assert not np.any(sol.risk.beyond_hcj)                 # ниже H_cJ — ни одной ячейки
+    assert np.any(sol.risk.demagnetized)                   # и это именно за коленом, а не «легко»
 
 
 def test_substepping_is_engaged_but_idle_when_not_needed():
@@ -306,15 +342,13 @@ def test_substepping_is_engaged_but_idle_when_not_needed():
     assert calm.em_converged
     assert calm.em_substeps.max() == 1
 
-    # А в тяжёлом режиме — включается (и тем самым отодвигает границу применимости).
-    magnet_nd = n42sh_magnet((1.0, 0.0, 0.0))
-    nu_nd, k_nd, cap_nd = _materials(magnet_nd, magnet_mask, copper_mask)
-    hard = solve_coupled_magneto_thermal_transient(
-        space, k_cells=k_nd, capacity_cells=cap_nd, h=25.0, T_amb=20.0, dt=10.0, n_steps=60,
-        j_cells=np.where(copper_mask, 1.6e7, 0.0),
-        magnet=magnet_nd, magnet_mask=magnet_mask, nu_init=nu_nd,
-    )
-    assert hard.em_substeps.max() > 1
+    # А в тяжёлом режиме — включается и СПАСАЕТ шаг: в историю он попадает решённым до допуска
+    # (шаг, принятый с невязкой выше допуска, этим тестом не считается — при 1,6e7 таким был
+    # единственный «спасённый» шаг, и он был не решён).
+    _, _, _, _, hard = _deep_damage_run(J=1.5e7)
+    rescued = hard.em_substeps > 1
+    assert rescued.any()
+    assert np.all(hard.em_residual[rescued] < 1.0e-6)
 
 
 # -------------------------------------------------------------- (6) прочие негативные

@@ -1778,13 +1778,14 @@ function checksHtml(c,noHead){if(!c||!c.checks)return'';
 function s3rows(pairs){return'<ul class="res">'+pairs.map(p=>'<li><span>'+p[0]+'</span><span class="v'+(p[2]?' '+p[2]:'')+'">'+keepTogether(p[1])+'</span></li>').join('')+'</ul>';}
 function renderScenario(d){const o=$('s3-out');
   let st,cls;if(d.runaway){st='⚠ Тепловой разгон';cls='crit';}else if(d.cascade){st='⚠ Каскадное размагничивание';cls='crit';}
+    else if(d.em_failed){st='⚠ Расчёт остановлен: магнитная задача не сошлась — вывода о магните нет';cls='warn';}
     else{st='✓ Машина выдержала нагрузку';cls='ok';}
   const kt=d.kt_drop_est,ktcls=kt>1?'crit':(kt>0.01?'warn':'ok');
   // Вердикт — первым; проверки достоверности — после него, а если не пройдены — раньше вердикта.
   const trusted=!d.checks||d.checks.trustworthy;
   let html=trusted?'':checksHtml(d.checks);
-  html+='<div class="reshead" style="color:var(--'+(cls==='crit'?'crit':'good')+')">'+st+'</div>';
-  if(d.runaway||d.cascade)html+='<p class="hint">'+d.stop_reason+'</p>';
+  html+='<div class="reshead" style="color:var(--'+({crit:'crit',warn:'warn'}[cls]||'good')+')">'+st+'</div>';
+  if(d.runaway||d.cascade||d.em_failed)html+='<p class="hint">'+d.stop_reason+'</p>';
   html+='<div class="reshead">Магнит после нагрева</div>'+s3rows([
     ['Макс. температура магнита',d.T_magnet_max+' °C'],
     ['За коленом (доля площади)',(d.past_knee_fraction*100).toFixed(d.past_knee_fraction>0&&d.past_knee_fraction<0.01?2:1)+' %'],

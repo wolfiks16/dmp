@@ -117,8 +117,12 @@ class MachineThermalDemagResult:
 
     @property
     def survived(self) -> bool:
-        """Расчёт дошёл до конца горизонта (не сорвался в разгон/каскад)."""
-        return not (self.transient.runaway or self.transient.magnet_cascade)
+        """
+        Расчёт дошёл до конца горизонта: не сорвался в разгон/каскад и не остановился из-за
+        несходимости магнитной задачи (`em_failed` — тогда о магните ничего не утверждается).
+        """
+        return not (self.transient.runaway or self.transient.magnet_cascade
+                    or self.transient.em_failed)
 
 
 def _slot_rms_loss_current(

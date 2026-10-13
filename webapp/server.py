@@ -772,6 +772,7 @@ def _do_scenario(body: dict) -> dict:
         "survived": bool(res.survived),
         "runaway": bool(tr.runaway),
         "cascade": bool(tr.magnet_cascade),
+        "em_failed": bool(tr.em_failed),      # магнитная задача не сошлась — вывода о магните нет
         "stop_reason": tr.stop_reason,
         "T_magnet_max": round(float(res.T_magnet_max), 1),
         "fundamental_ratio": round(ratio, 4),

@@ -260,6 +260,7 @@ def test_thermal_demag_result_reports_damage_plainly():
     class _T:
         runaway = False
         magnet_cascade = False
+        em_failed = False
         stop_reason = "завершено"
 
     r = ThermalDemagResult(machine="x", transient=_T(), retention=np.array([0.9, 1.0]),
@@ -272,6 +273,12 @@ def test_thermal_demag_result_reports_damage_plainly():
     assert not ThermalDemagResult(machine="x", transient=_F(), retention=np.array([0.5]),
                                   fundamental_ratio=0.5, T_magnet_max=200.0,
                                   T_max=210.0).survived
+
+    class _E(_T):                                   # магнитная задача не сошлась — до конца не дошли
+        em_failed = True
+    assert not ThermalDemagResult(machine="x", transient=_E(), retention=np.array([1.0]),
+                                  fundamental_ratio=1.0, T_magnet_max=150.0,
+                                  T_max=170.0).survived
 
 
 @pytest.mark.slow
