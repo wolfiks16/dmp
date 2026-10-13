@@ -114,6 +114,44 @@ def test_damaged_magnet_produces_less_torque_and_flux():
     assert cmp.asymmetry_indicator < 1e-3
 
 
+# ------------------------------------------------- метод решения: Ньютон против эталона-Пикара
+
+def test_newton_matches_the_tightly_converged_picard():
+    # Сталь нелинейна, магнит заморожен на линии возврата (B_r = r·B_r(T)) — у обоих методов
+    # одна и та же неподвижная точка. Пикар с ω=0,1 сходится линейно с множителем ρ, и при
+    # остановке по ‖ΔB‖/‖B‖ < tol его ошибка ≈ tol·ρ/(1−ρ); ρ берём из его же истории — максимум
+    # по хвосту, с запасом 2 на дрейф (отношения поправок к концу растут на ~0,02, ρ/(1−ρ) — на
+    # ~35 %). Ньютона дожимаем до невязки ~1e-17: при допуске 1e-9 его собственная ошибка в поле
+    # (невязка × обусловленность ~2e4) была бы ~7e-9 — больше, чем у эталона.
+    from magcore.fem2d.machines.characteristics import _solve_with_retention
+    from magcore.fem2d.machines.excitation import winding_current_density
+
+    sc = _scenario()
+    n = int(sc.geometry.mask(Region.MAGNET).sum())
+    r = np.random.default_rng(0).uniform(0.5, 1.0, n)        # несимметричное повреждение
+    jz = winding_current_density(sc.geometry, sc.layout, i_peak=60.0, gamma_elec=0.0,
+                                 turns_per_slot=NPS)
+    kw = dict(T=150.0, retention=r, j_cells=jz, relaxation=0.1)
+    newton = _solve_with_retention(sc, method="newton", max_iter=300, tol=1e-13, **kw)
+    picard = _solve_with_retention(sc, method="picard", max_iter=5000, tol=1e-10, **kw)
+    assert newton.converged and picard.converged
+    h = np.asarray(picard.rel_change_history)
+    rho = float(np.max(h[-30:] / h[-31:-1]))
+    assert 0.0 < rho < 1.0                                   # линейное сжатие — предпосылка границы
+    bound = 2.0 * 1e-10 * rho / (1.0 - rho)
+    err = np.linalg.norm(newton.B_cells - picard.B_cells) / np.linalg.norm(picard.B_cells)
+    assert err < bound
+    # Ньютон сходится квадратично: единицы итераций против ≈100 у прежнего Пикара с ω=0,1
+    # (граница 30 разделяет одно и другое с запасом в обе стороны).
+    assert newton.n_iterations <= 30 and picard.n_iterations > 100
+
+
+def test_unknown_solution_method_is_rejected():
+    with pytest.raises(ValueError, match="newton"):
+        machine_characteristics(_scenario(), i_peak=10.0, turns_per_slot=NPS, T=150.0,
+                                method="что-то")
+
+
 def test_retention_shape_is_validated():
     sc = _scenario()
     n = int(sc.geometry.mask(Region.MAGNET).sum())

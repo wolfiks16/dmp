@@ -18,7 +18,8 @@ from magcore.fem2d.machines.pmsm_outrunner import MachineGeometry, Region
 from magcore.fem2d.machines.scenario import MachineScenario
 from magcore.fem2d.machines.static_solver import machine_reluctivity
 from magcore.fem2d.model.postproc import torque_arkkio
-from magcore.fem2d.model.problem import Solution2D
+from magcore.fem2d.model.problem import Solution2D, _reluctivity_newton
+from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
@@ -75,7 +76,7 @@ def magnet_mass(
 
 def _solve_with_retention(
     scenario: MachineScenario, *, T: float, retention: np.ndarray | None,
-    j_cells: np.ndarray | None, relaxation: float, max_iter: int, tol: float,
+    j_cells: np.ndarray | None, method: str, relaxation: float, max_iter: int, tol: float | None,
 ):
     """
     Магнитостатика при ЗАМОРОЖЕННОМ состоянии магнита: источник ν·B_r с B_r = r·B_r(T).
@@ -83,6 +84,11 @@ def _solve_with_retention(
     Обратная связь по полю здесь намеренно ОТКЛЮЧЕНА (источник статический): состояние уже
     определено историей нагрева, магнит живёт на линии возврата, и повторный запуск
     demag-политики только внёс бы новые потери от снимаемого режима.
+
+    Нелинейна только сталь. `method='newton'` (по умолчанию) — касательная Ньютона по стали,
+    «сошлось» по невязке (допуск по умолчанию 1e-9); `method='picard'` — прежний хордовый Пикар
+    с релаксацией (эталон; допуск — по изменению B, по умолчанию 1e-6). Физика у них одна: та же
+    поячеечная ν (`_reluctivity_newton` = `machine_reluctivity` бит в бит) и тот же источник.
     """
     geometry = scenario.geometry
     space = LagrangeP1Space2D(geometry.mesh)
@@ -98,12 +104,21 @@ def _solve_with_retention(
 
     nu_br = np.zeros((geometry.mesh.n_cells, 2), dtype=float)
     nu_br[idx] = (br / scenario.magnet.mu_rec)[:, None] * geometry.magnet_easy_axis[idx]
+    j = None if j_cells is None else MU0 * j_cells
 
-    return solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init,
-        j_cells=(None if j_cells is None else MU0 * j_cells),
-        magnetization=nu_br, relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
+    if method == "newton":
+        problem = pmsm_to_problem(geometry, scenario.magnet, scenario.steel, T=T)
+        nu_and_dnu, nu0 = _reluctivity_newton(problem)
+        return solve_nonlinear_2d_newton(
+            space, nu_and_dnu, nu_init=nu0, j_cells=j, magnetization=nu_br,
+            max_iter=max_iter, tol=1.0e-9 if tol is None else tol,
+        )
+    if method == "picard":
+        return solve_nonlinear_2d_picard(
+            space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j, magnetization=nu_br,
+            relaxation=relaxation, max_iter=max_iter, tol=1.0e-6 if tol is None else tol,
+        )
+    raise ValueError("method должен быть 'newton' | 'picard'.")
 
 
 def machine_characteristics(
@@ -115,9 +130,10 @@ def machine_characteristics(
     T: float = 20.0,
     retention: np.ndarray | None = None,
     magnet_density: float = MAGNET_DENSITY_DEFAULT,
+    method: str = "newton",
     relaxation: float = 0.1,
     max_iter: int = 300,
-    tol: float = 1.0e-6,
+    tol: float | None = None,
 ) -> MachineCharacteristics:
     """
     Снять характеристики машины при заданном режиме и состоянии магнита.
@@ -127,7 +143,8 @@ def machine_characteristics(
     при насыщении и реакции якоря второе от тока зависит и постоянной не является).
 
     `retention=None` — целый магнит; иначе доля сохранённой ремнантности по его ячейкам
-    (например `MachineThermalDemagResult.retention`).
+    (например `MachineThermalDemagResult.retention`). `method`, `relaxation`, `tol` — см.
+    `_solve_with_retention` (`relaxation` — только для эталонного `method='picard'`).
     """
     geometry = scenario.geometry
     p = geometry.params
@@ -136,7 +153,7 @@ def machine_characteristics(
         geometry, scenario.layout, i_peak=i_peak, gamma_elec=gamma_elec,
         turns_per_slot=turns_per_slot,
     )
-    kw = dict(T=T, retention=retention, relaxation=relaxation, max_iter=max_iter, tol=tol)
+    kw = dict(T=T, retention=retention, method=method, relaxation=relaxation, max_iter=max_iter, tol=tol)
     em_load = _solve_with_retention(scenario, j_cells=jz, **kw)
     em_open = _solve_with_retention(scenario, j_cells=None, **kw)
 
