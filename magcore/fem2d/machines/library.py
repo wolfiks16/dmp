@@ -718,7 +718,7 @@ class CoreLosses:
 def compute_core_losses(
     definition: MachineDefinition, *, speed_rpm: float, i_peak: float = 0.0,
     T: float = 20.0, gamma_elec: float = 0.0, n_positions: int = 12,
-    tooth_pitch_span: bool = True, relaxation: float = 0.05, max_iter: int = 300,
+    short_span: bool = True, relaxation: float = 0.05, max_iter: int = 300,
 ) -> CoreLosses:
     """
     Потери ядра ТРЁХФАЗНОЙ машины (обе топологии — магниты на роторе/статоре):
@@ -741,11 +741,18 @@ def compute_core_losses(
 
     ⚠ ОГРАНИЧЕНИЕ: свип по положению решается с ОДНОЙ сталью (якоря) — влияние второй стали
     на ПОЛЕ второго порядка; на сами КОЭФФИЦИЕНТЫ потерь разбивка по регионам сохраняется.
+
+    ПРОЛЁТ СВИПА РОТОРА (Л-34). `short_span=True` — наименьший период поля в системе ротора: зубцовое
+    деление на холостом ходу, период обмотки 2π/НОД(Z, 2p) под нагрузкой (прежде брали зубцовое деление при
+    любом токе — под нагрузкой волна на нём не периодична). `n_positions` — положений статорного свипа на
+    электрический период и роторного — на зубцовое деление: на длинном пролёте их пропорционально больше.
+    `short_span=False` — полный оборот на `n_positions` положений.
     """
     from magcore.fem2d.machines.iron_loss import electrical_frequency, stator_iron_loss_density
     from magcore.fem2d.machines.magnet_loss import (
         magnet_rotor_loss_density,
         magnet_segment_width,
+        minimal_rotor_sweep,
     )
 
     if getattr(definition.winding, "kind", None) == "commutator":
@@ -762,7 +769,9 @@ def compute_core_losses(
 
     p = definition.params
     turns = getattr(definition.winding, "turns_per_slot", 0.0)
-    span = (2.0 * math.pi / p.n_slots) if tooth_pitch_span else 2.0 * math.pi
+    loaded = i_peak != 0.0 and turns != 0.0
+    span, n_rotor = (minimal_rotor_sweep(p, loaded=loaded, positions_per_tooth_pitch=n_positions) if short_span
+                     else (2.0 * math.pi, n_positions))
 
     q_stator, _ = stator_iron_loss_density(
         p, m.magnet, m.steel_armature, speed_rpm=speed_rpm, i_peak=i_peak,
@@ -774,7 +783,7 @@ def compute_core_losses(
         p, m.magnet, m.steel_armature, speed_rpm=speed_rpm, sigma_pm=sigma,
         magnet_seg_width=magnet_segment_width(p, m.magnet_segments), i_peak=i_peak,
         gamma_elec=gamma_elec, turns_per_slot=turns, T=T, steinmetz=m.yoke_steinmetz,
-        mech_span=span, n_positions=n_positions, relaxation=relaxation, max_iter=max_iter,
+        mech_span=span, n_positions=n_rotor, relaxation=relaxation, max_iter=max_iter,
         rotor_solid=m.yoke_solid,
         sigma_rotor=(None if not m.yoke_solid else
                      (1.0 / m.yoke_resistivity if m.yoke_resistivity else None)),

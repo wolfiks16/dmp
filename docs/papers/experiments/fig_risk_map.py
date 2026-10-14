@@ -48,7 +48,7 @@ sys.path.insert(0, str(HERE))                          # scenario_paper1 леж�
 sys.path.insert(0, str(HERE.parents[2]))
 import scenario_paper1 as cfg                                              # noqa: E402
 from magcore.domain.magnet_model import n42sh_magnet                       # noqa: E402
-from magcore.fem2d.machines.magnet_loss import magnet_segment_width        # noqa: E402
+from magcore.fem2d.machines.magnet_loss import magnet_segment_width, minimal_rotor_sweep        # noqa: E402
 from magcore.fem2d.machines.pmsm_outrunner import OutrunnerPMSMParams, Region  # noqa: E402
 from magcore.fem2d.machines.scenario import machine_scenario               # noqa: E402
 from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag  # noqa: E402
@@ -101,6 +101,8 @@ def build_scenario():
 
 
 def solve(params, sc):
+    # Л-34: под нагрузкой пролёт свипа ротора — период картины токов пазов (у 12/14 — 60°), 12 положений на зубцовое деление
+    span, n_rotor = minimal_rotor_sweep(params, loaded=True, positions_per_tooth_pitch=LOSS_NP)
     return run_machine_thermal_demag(
         sc, i_peak=I_PEAK, turns_per_slot=cfg.TURNS_PER_SLOT, gamma_elec=GAMMA,
         slot_fill=cfg.SLOT_FILL, h=cfg.H_OUT, T_amb=T_AMB, h_in=cfg.H_IN, T_frame=T_AMB,
@@ -110,7 +112,7 @@ def solve(params, sc):
         core_losses=True, speed_rpm=cfg.N_OPER,
         sigma_pm=cfg.magnet_conductivity(MATERIAL, T_AMB),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
-        loss_mech_span=2.0 * math.pi / N_SLOTS, loss_n_positions=LOSS_NP,
+        loss_mech_span=span, loss_n_positions=LOSS_NP, loss_rotor_n_positions=n_rotor,
         method=METHOD, **cfg.steel_loss_kwargs(STEEL_KIND),
     )
 

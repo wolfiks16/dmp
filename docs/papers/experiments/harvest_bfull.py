@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))   # scenario_paper1 л�
 import scenario_paper1 as cfg  # noqa: E402
 from magcore.domain.magnet_model import n42sh_magnet, sm2co17_magnet
 from magcore.domain.steel_curves import m270_35a_bh_curve
-from magcore.fem2d.machines.magnet_loss import magnet_segment_width
+from magcore.fem2d.machines.magnet_loss import magnet_segment_width, minimal_rotor_sweep
 from magcore.fem2d.machines.pmsm_outrunner import OutrunnerPMSMParams
 from magcore.fem2d.machines.scenario import machine_scenario
 from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag
@@ -54,9 +54,9 @@ MAP_CURRENTS = [round(cfg.current_for_density(j), 1) for j in (12.0, 18.0, 24.0,
 CONF = {
     "smoke": dict(mesh=0.004, currents=[round(cfg.current_for_density(24.0), 1)],
                   ambients=[cfg.T_AMB_HOT], dt=0.5, n_steps=60,
-                  loss_np=12, mech_span=2.0 * math.pi / 12, substeps=8),
+                  loss_np=12, mech_span=None, substeps=8),
     "map": dict(mesh=0.004, currents=MAP_CURRENTS, ambients=AMBIENTS, dt=0.5, n_steps=90,
-                loss_np=12, mech_span=2.0 * math.pi / 12, substeps=8),
+                loss_np=12, mech_span=None, substeps=8),
     "full": dict(mesh=0.003, currents=cfg.sweep_currents(), ambients=[cfg.T_AMB_HOT], dt=cfg.DT,
                  n_steps=cfg.N_STEPS, loss_np=48, mech_span=2.0 * math.pi, substeps=8),
 }[MODE]
@@ -71,6 +71,10 @@ def run_point(material, i_peak, T_amb, gamma_elec):
     params = OutrunnerPMSMParams(n_slots=12, n_poles=14, mesh_size=CONF["mesh"],
                                  mesh_size_by_region=cfg.critical_mesh())
     sc = machine_scenario(params, _magnet(material), cfg.STEEL_KINDS[STEEL_KIND]["curve"]())
+    # Л-34: mech_span=None — наименьший верный пролёт ротора под нагрузкой (у 12/14 — 60°) с той же плотностью
+    # выборки, loss_np положений на зубцовое деление; в режиме full — полный оборот
+    span, n_rotor = ((CONF["mech_span"], CONF["loss_np"]) if CONF["mech_span"] is not None else
+                     minimal_rotor_sweep(params, loaded=True, positions_per_tooth_pitch=CONF["loss_np"]))
     return run_machine_thermal_demag(
         sc, i_peak=i_peak, turns_per_slot=cfg.TURNS_PER_SLOT, gamma_elec=gamma_elec,
         slot_fill=cfg.SLOT_FILL, h=cfg.H_OUT, T_amb=T_amb, h_in=cfg.H_IN, T_frame=T_amb,
@@ -79,7 +83,7 @@ def run_point(material, i_peak, T_amb, gamma_elec):
         T0=T_amb, T_cap=cfg.T_CAP, steady_tol=cfg.STEADY_TOL, max_substeps=CONF["substeps"],
         core_losses=True, speed_rpm=cfg.N_OPER, sigma_pm=cfg.magnet_conductivity(material, T_amb),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
-        loss_mech_span=CONF["mech_span"], loss_n_positions=CONF["loss_np"],
+        loss_mech_span=span, loss_n_positions=CONF["loss_np"], loss_rotor_n_positions=n_rotor,
         method=METHOD, **cfg.steel_loss_kwargs(STEEL_KIND),
     )
 

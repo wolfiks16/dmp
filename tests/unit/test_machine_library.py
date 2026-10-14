@@ -376,6 +376,41 @@ def test_core_losses_computed_for_three_phase():
     assert np.all(cl.density >= 0.0) and np.any(cl.density > 0.0)
 
 
+def test_core_losses_rotor_sweep_span_follows_the_load(monkeypatch):
+    """
+    Л-34: короткий пролёт свипа ротора — наименьший период поля в системе ротора: на холостом ходу зубцовое
+    деление, под нагрузкой — период картины токов пазов (у 12/14 — 60°); плотность выборки та же
+    (`n_positions` на зубцовое деление), статорный свип не меняется. Свипы подменены — проверяются аргументы.
+    """
+    import magcore.fem2d.machines.iron_loss as iron_loss
+    import magcore.fem2d.machines.magnet_loss as magnet_loss
+    from magcore.fem2d.machines.library import compute_core_losses
+
+    d = outrunner_pmsm_uav(mesh_size=8.0e-3)
+    nc = d.build_geometry().mesh.n_cells
+    calls = {}
+
+    def stator(*a, **k):
+        calls["stator"] = k
+        return np.zeros(nc), None
+
+    def rotor(*a, **k):
+        calls["rotor"] = k
+        return np.zeros(nc), 1.0
+
+    monkeypatch.setattr(iron_loss, "stator_iron_loss_density", stator)
+    monkeypatch.setattr(magnet_loss, "magnet_rotor_loss_density", rotor)
+    tooth = 2.0 * math.pi / d.params.n_slots
+    for i_peak, span in ((0.0, tooth), (40.0, math.pi / 3)):
+        compute_core_losses(d, speed_rpm=7000.0, i_peak=i_peak, n_positions=6)
+        assert calls["rotor"]["mech_span"] == pytest.approx(span)
+        assert calls["rotor"]["n_positions"] == 6 * round(span / tooth)
+        assert calls["stator"]["n_positions"] == 6
+    assert magnet_loss.rotor_field_period(d.params, loaded=True) == pytest.approx(math.pi / 3)
+    compute_core_losses(d, speed_rpm=7000.0, i_peak=40.0, n_positions=6, short_span=False)
+    assert calls["rotor"]["mech_span"] == pytest.approx(2.0 * math.pi) and calls["rotor"]["n_positions"] == 6
+
+
 def test_core_losses_refused_for_commutator():
     """
     Потери в железе для КОЛЛЕКТОРНОЙ машины (щёточный ДПТ) не поддержаны и отклоняются с

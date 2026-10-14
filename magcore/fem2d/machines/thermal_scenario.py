@@ -203,7 +203,7 @@ def precompute_core_loss_density(
     params, magnet: AnisotropicBHTMagnet, steel, *,
     speed_rpm: float, i_peak: float, gamma_elec: float, turns_per_slot: float, T: float,
     sigma_pm: float, magnet_seg_width: float, steinmetz=None,
-    mech_span: float | None = None, n_positions: int = 48,
+    mech_span: float | None = None, n_positions: int = 48, rotor_n_positions: int | None = None,
     relaxation: float = 0.1, max_iter: int = 300,
     rotor_solid: bool = False, sigma_rotor: float | None = None,
     rotor_thickness: float | None = None, rotor_mu_r: float = 500.0,
@@ -213,6 +213,10 @@ def precompute_core_loss_density(
     сталь СТАТОРА (P-B3) + ротор-сторона (вихревые магнита + сталь ротора, P-B4).
     Медь считается ВНУТРИ связки (ρ(T)·J²) отдельно. Карта предвычисляется один раз и
     подаётся как замороженный за тепловой шаг источник (разделение масштабов, §6).
+
+    `n_positions` — положений статорного свипа (на электрический период); `mech_span` и
+    `rotor_n_positions` — пролёт и положения свипа ротора (по умолчанию полный оборот и `n_positions`).
+    Под нагрузкой пролёт ротора — кратный периоду обмотки (Л-34; `magnet_loss.minimal_rotor_sweep`).
     """
     q_stator, _ = stator_iron_loss_density(
         params, magnet, steel, speed_rpm=speed_rpm, i_peak=i_peak, gamma_elec=gamma_elec,
@@ -223,8 +227,8 @@ def precompute_core_loss_density(
         params, magnet, steel, speed_rpm=speed_rpm, sigma_pm=sigma_pm,
         magnet_seg_width=magnet_seg_width, i_peak=i_peak, gamma_elec=gamma_elec,
         turns_per_slot=turns_per_slot, T=T, steinmetz=steinmetz, mech_span=mech_span,
-        n_positions=n_positions, relaxation=relaxation, max_iter=max_iter,
-        rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
+        n_positions=n_positions if rotor_n_positions is None else rotor_n_positions,
+        relaxation=relaxation, max_iter=max_iter, rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
         rotor_thickness=rotor_thickness, rotor_mu_r=rotor_mu_r,
     )
     return q_stator + q_rotor
@@ -256,6 +260,7 @@ def run_machine_thermal_demag(
     steinmetz=None,
     loss_mech_span: float | None = None,
     loss_n_positions: int = 48,
+    loss_rotor_n_positions: int | None = None,
     rotor_solid: bool = False,
     sigma_rotor: float | None = None,
     rotor_thickness: float | None = None,
@@ -279,7 +284,9 @@ def run_machine_thermal_demag(
     `em_max_iter`, `em_tol` — None: по методу (у Ньютона — умолчания ядра, 40 итераций и 1e-9 по невязке).
     Прочие именованные аргументы уходят в `solve_coupled_magneto_thermal_transient`
     (max_substeps, T_cap, T_bin, demag_relaxation, …). Свипы потерь ядра (`core_losses`) решает Пикар —
-    `em_relaxation` и `em_max_iter` (по умолчанию 300) относятся и к ним.
+    `em_relaxation` и `em_max_iter` (по умолчанию 300) относятся и к ним. `loss_n_positions` — положений
+    статорного свипа; `loss_mech_span` и `loss_rotor_n_positions` — пролёт и положения свипа ротора (под
+    нагрузкой пролёт кратен периоду обмотки, Л-34; верная пара — `magnet_loss.minimal_rotor_sweep`).
 
     ⚠ Границы модели: тепло 2D в сечении (осевой отвод не учитывается — оценка КОНСЕРВАТИВНА
     для короткой машины и оптимистична для длинной), потери в железе пока не входят (нужна
@@ -333,6 +340,7 @@ def run_machine_thermal_demag(
             turns_per_slot=turns_per_slot, T=(T_amb if T0 is None else T0),
             sigma_pm=sigma_pm, magnet_seg_width=magnet_seg_width, steinmetz=steinmetz,
             mech_span=loss_mech_span, n_positions=loss_n_positions,
+            rotor_n_positions=loss_rotor_n_positions,
             relaxation=em_relaxation, max_iter=300 if em_max_iter is None else em_max_iter,
             rotor_solid=rotor_solid, sigma_rotor=sigma_rotor,
             rotor_thickness=rotor_thickness, rotor_mu_r=rotor_mu_r,

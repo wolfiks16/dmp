@@ -15,7 +15,6 @@ ret_min, исход. Плюс контроль SmCo в самом жёстком
 from __future__ import annotations
 
 import json
-import math
 import sys
 import time
 from pathlib import Path
@@ -35,7 +34,7 @@ from magcore.fem2d.machines.iron_loss import (  # noqa: E402
     STEEL10_DENSITY,
     SteinmetzCoefficients,
 )
-from magcore.fem2d.machines.magnet_loss import magnet_segment_width  # noqa: E402
+from magcore.fem2d.machines.magnet_loss import magnet_segment_width, minimal_rotor_sweep  # noqa: E402
 from magcore.fem2d.machines.pmsm_outrunner import OutrunnerPMSMParams  # noqa: E402
 from magcore.fem2d.machines.scenario import machine_scenario  # noqa: E402
 from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag  # noqa: E402
@@ -49,7 +48,6 @@ SUFFIX = "_picard" if METHOD == "picard" else ""
 # База (критическая точка решения)
 BASE = dict(T_amb=70.0, i_peak=40.0, material="ndfeb")
 MESH, DT, N_STEPS, LOSS_NP, SUBSTEPS = 0.004, 0.5, 90, 12, 8
-MECH_SPAN = 2.0 * math.pi / 12
 
 # Базовые значения варьируемых параметров
 B_KH, B_MUR, B_HOUT, B_RHO, B_SIGSC, B_NSEG = 0.10, 500.0, 20.0, 0.14e-6, 1.0, 1
@@ -72,6 +70,8 @@ def run_case(material="ndfeb", *, k_hyst=B_KH, mu_r=B_MUR, h_out=B_HOUT, rho=B_R
     params = OutrunnerPMSMParams(n_slots=12, n_poles=14, mesh_size=MESH)
     magnet = (n42sh_magnet if material == "ndfeb" else sm2co17_magnet)((1.0, 0.0, 0.0))
     sc = machine_scenario(params, magnet, cfg.STEEL_KINDS["steel10"]["curve"]())
+    # Л-34: под нагрузкой пролёт свипа ротора — период картины токов пазов (у 12/14 — 60°), 12 положений на зубцовое деление
+    span, n_rotor = minimal_rotor_sweep(params, loaded=True, positions_per_tooth_pitch=LOSS_NP)
     # коэффициенты Штейнмеца: k_eddy ВЫВОДИТСЯ из ρ и толщины листа (физика), k_hyst — варьируем
     cf = SteinmetzCoefficients.from_lamination(
         k_hyst=k_hyst, alpha=STEEL10_ALPHA_LIT, thickness=cfg.LAMINATION_THICKNESS,
@@ -84,7 +84,7 @@ def run_case(material="ndfeb", *, k_hyst=B_KH, mu_r=B_MUR, h_out=B_HOUT, rho=B_R
         core_losses=True, speed_rpm=cfg.N_OPER,
         sigma_pm=cfg.magnet_conductivity(material, T_amb) * sigma_scale,
         magnet_seg_width=magnet_segment_width(params, n_seg),
-        loss_mech_span=MECH_SPAN, loss_n_positions=LOSS_NP,
+        loss_mech_span=span, loss_n_positions=LOSS_NP, loss_rotor_n_positions=n_rotor,
         steinmetz=cf, rotor_solid=True, sigma_rotor=1.0 / rho, rotor_mu_r=mu_r, method=METHOD,
     )
     tr = res.transient

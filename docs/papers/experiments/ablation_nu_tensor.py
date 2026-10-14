@@ -52,7 +52,7 @@ import numpy as np                                                        # noqa
 
 import scenario_paper1 as cfg                                             # noqa: E402
 from magcore.domain.magnet_model import n42sh_magnet, sm2co17_magnet      # noqa: E402
-from magcore.fem2d.machines.magnet_loss import magnet_segment_width       # noqa: E402
+from magcore.fem2d.machines.magnet_loss import magnet_segment_width, minimal_rotor_sweep       # noqa: E402
 from magcore.fem2d.machines.pmsm_outrunner import OutrunnerPMSMParams     # noqa: E402
 from magcore.fem2d.machines.scenario import machine_scenario              # noqa: E402
 from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag  # noqa: E402
@@ -92,6 +92,8 @@ def run(material: str, *, anisotropic: bool, physical_perp: bool):
     if physical_perp:
         mag = dataclasses.replace(mag, mu_perp=MU_PERP[material])
     sc = machine_scenario(params, mag, cfg.STEEL_KINDS["steel10"]["curve"]())
+    # Л-34: под нагрузкой пролёт свипа ротора — период картины токов пазов (у 12/14 — 60°), 12 положений на зубцовое деление
+    span, n_rotor = minimal_rotor_sweep(params, loaded=True, positions_per_tooth_pitch=12)
     return run_machine_thermal_demag(
         sc, i_peak=I_PEAK, turns_per_slot=cfg.TURNS_PER_SLOT, gamma_elec=GAMMA,
         slot_fill=cfg.SLOT_FILL, h=cfg.H_OUT, T_amb=AMBIENT, h_in=cfg.H_IN, T_frame=AMBIENT,
@@ -101,7 +103,7 @@ def run(material: str, *, anisotropic: bool, physical_perp: bool):
         core_losses=True, speed_rpm=cfg.N_OPER,
         sigma_pm=cfg.magnet_conductivity(material, AMBIENT),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
-        loss_mech_span=2.0 * math.pi / 12, loss_n_positions=12,
+        loss_mech_span=span, loss_n_positions=12, loss_rotor_n_positions=n_rotor,
         anisotropic_magnet=anisotropic, method=_arm_method(anisotropic),
         **cfg.steel_loss_kwargs("steel10"),
     )

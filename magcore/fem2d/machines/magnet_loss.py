@@ -51,6 +51,47 @@ from magcore.fem2d.machines.winding import star_of_slots_layout
 # те же потери.
 
 
+def rotor_field_period(params: OutrunnerPMSMParams, *, loaded: bool, layout=None) -> float:
+    """
+    Наименьший механический угол [рад], через который поле в СИСТЕМЕ РОТОРА повторяется (Л-34).
+
+    На холостом ходу ротор видит одинаковые зубцы — период зубцовое деление 2π/Z. Под нагрузкой к ним
+    добавляются токи пазов, и период — наименьший сдвиг на m зубцовых делений, после которого картина токов,
+    увиденная с ротора, та же: ток паза k + m при электрическом угле, сдвинутом на p·m·(2π/Z), равен току паза
+    k до сдвига (`star_of_slots_layout` — та же раскладка, что у свипа; ротор и МДС вращаются синхронно, как в
+    `rotor_frame_B_series`). Считается по самой раскладке, а не по формуле: у симметричных обмоток выходит
+    2π/НОД(Z, 6p) (12/14 — 60°, 36/40 — 30°), а несимметричная раскладка (у звезды пазов 24/28 «ничьи»
+    разрешаются неравномерно) повторяется только через полный оборот.
+
+    Пролёт свипа ротора обязан быть кратен этому углу: волну дифференцируют периодической разностью, и на
+    непериодическом отрезке стык даёт ложный скачок, который входит в потери как настоящая гармоника.
+    """
+    n_slots = int(params.n_slots)
+    pitch = 2.0 * math.pi / n_slots
+    if not loaded:
+        return pitch
+    lay = star_of_slots_layout(n_slots, params.n_poles) if layout is None else layout
+    p = int(params.n_poles) // 2
+    # ток паза k при электрическом угле θ: Re(c_k·e^{jθ}), c_k = знак·e^{−j·2π·фаза/3}
+    c = np.asarray(lay.sign_of_slot, dtype=float) * np.exp(-2j * math.pi / 3.0 * np.asarray(lay.phase_of_slot))
+    for m in range(1, n_slots + 1):
+        if np.allclose(np.roll(c, -m) * np.exp(1j * p * m * pitch), c, rtol=0.0, atol=1e-12):
+            return m * pitch
+    raise AssertionError("полный оборот — всегда период")      # m = Z: сдвиг на 2π·p ≡ 0
+
+
+def minimal_rotor_sweep(params: OutrunnerPMSMParams, *, loaded: bool,
+                        positions_per_tooth_pitch: int) -> tuple[float, int]:
+    """
+    Наименьший верный пролёт свипа ротора и число положений на нём при заданной плотности выборки — столько
+    положений на зубцовое деление (Л-34): под нагрузкой пролёт длиннее зубцового деления, а шаг по углу тот же,
+    иначе центральная разность занизила бы dB/dt зубцовой гармоники. Возвращает (пролёт [рад], положений).
+    """
+    span = rotor_field_period(params, loaded=loaded)
+    pitches = int(round(span / (2.0 * math.pi / params.n_slots)))
+    return span, int(positions_per_tooth_pitch) * pitches
+
+
 def skin_depth(freq: float, sigma: float, mu_r: float) -> float:
     """Глубина проникновения δ=√(2/(ω·μ·σ)) [м] (ω=2πf, μ=μ_r·μ₀)."""
     omega = 2.0 * math.pi * float(freq)
@@ -192,14 +233,24 @@ def rotor_frame_B_series(
     геометрия перестраивается, поле решается, B снимается в лаб-точках Rot(a)·p_ротор и
     поворачивается в систему ротора Rot(−a)·B_лаб. Возвращает (B_series (N,P,2), f_ref).
     mech_span по умолчанию 2π (полный оборот, все гармоники). f_ref = (2π·n/60)/mech_span.
+    Пролёт обязан быть кратен периоду поля в системе ротора (`rotor_field_period`): под нагрузкой — периоду
+    обмотки, на холостом ходу — зубцовому делению; иначе — ошибка (Л-34), а не тихо искажённые потери.
     """
     span = 2.0 * math.pi if mech_span is None else float(mech_span)
+    have_current = i_peak != 0.0 and turns_per_slot != 0.0
+    layout = star_of_slots_layout(params.n_slots, params.n_poles)
+    period = rotor_field_period(params, loaded=have_current, layout=layout)
+    k = span / period
+    if round(k) < 1 or abs(k - round(k)) > 1e-9 * max(1.0, k):
+        raise ValueError(
+            "пролёт свипа ротора %.6g рад не кратен периоду поля в системе ротора %.6g рад (%s): волна на нём "
+            "не периодична, и производная на стыке дала бы ложную гармонику (Л-34). Верный пролёт — "
+            "`minimal_rotor_sweep` или полный оборот."
+            % (span, period, "под нагрузкой — по картине токов пазов" if have_current else "зубцовое деление"))
     geo0 = build_outrunner_spm_pmsm(params)
     idx = np.asarray(cell_idx, dtype=int).reshape(-1)
     p_rotor = np.array([geo0.mesh.cell_centroid(int(c)) for c in idx], dtype=float)
     p_pairs = params.n_poles // 2
-    layout = star_of_slots_layout(params.n_slots, params.n_poles)
-    have_current = i_peak != 0.0 and turns_per_slot != 0.0
 
     angles = np.arange(int(n_positions)) * span / int(n_positions)
     B_series = np.empty((int(n_positions), idx.size, 2), dtype=float)

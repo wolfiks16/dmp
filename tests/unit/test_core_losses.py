@@ -1,10 +1,8 @@
-import math
-
 import numpy as np
 
 from magcore.domain.magnet_model import n42sh_magnet
 from magcore.domain.steel_curves import m270_35a_bh_curve
-from magcore.fem2d.machines.magnet_loss import magnet_segment_width
+from magcore.fem2d.machines.magnet_loss import magnet_segment_width, minimal_rotor_sweep
 from magcore.fem2d.machines.pmsm_outrunner import (
     OutrunnerPMSMParams,
     Region,
@@ -31,10 +29,12 @@ def _params():
 def test_core_loss_density_in_correct_regions():
     p = _params()
     magnet, steel = n42sh_magnet((1.0, 0.0, 0.0)), m270_35a_bh_curve()
+    # под нагрузкой пролёт свипа ротора — период картины токов пазов (Л-34), 6 положений на зубцовое деление
+    span, n_rotor = minimal_rotor_sweep(p, loaded=True, positions_per_tooth_pitch=6)
     q = precompute_core_loss_density(
         p, magnet, steel, speed_rpm=7000.0, i_peak=40.0, gamma_elec=0.0, turns_per_slot=20.0,
         T=60.0, sigma_pm=0.79e6, magnet_seg_width=magnet_segment_width(p, 1),
-        mech_span=2.0 * math.pi / p.n_slots, n_positions=6, relaxation=0.1, max_iter=200,
+        mech_span=span, n_positions=6, rotor_n_positions=n_rotor, relaxation=0.1, max_iter=200,
     )
     geo = build_outrunner_spm_pmsm(p)
     assert q.shape == (geo.mesh.n_cells,)
@@ -51,6 +51,7 @@ def test_core_losses_heat_the_magnet():
     # выше среды; без них (только медь + изолирующий зазор) магнит остаётся у ambient.
     p = _params()
     sc = machine_scenario(p, n42sh_magnet((1.0, 0.0, 0.0)), m270_35a_bh_curve())
+    span, n_rotor = minimal_rotor_sweep(p, loaded=True, positions_per_tooth_pitch=6)   # Л-34
     common = dict(i_peak=40.0, turns_per_slot=20.0, gamma_elec=0.0, slot_fill=0.45,
                   h=20.0, h_in=800.0, T_frame=60.0, T_amb=60.0, T0=60.0,
                   dt=2.0, n_steps=6, max_substeps=8)
@@ -58,7 +59,7 @@ def test_core_losses_heat_the_magnet():
     with_core = run_machine_thermal_demag(
         sc, core_losses=True, speed_rpm=7000.0, sigma_pm=0.79e6,
         magnet_seg_width=magnet_segment_width(p, 1),
-        loss_mech_span=2.0 * math.pi / p.n_slots, loss_n_positions=6, **common,
+        loss_mech_span=span, loss_n_positions=6, loss_rotor_n_positions=n_rotor, **common,
     )
     # ядро добавляет потери (сталь+магнит к меди) ⇒ суммарное тепловыделение выше
     assert with_core.loss_power_final > no_core.loss_power_final * 1.05
