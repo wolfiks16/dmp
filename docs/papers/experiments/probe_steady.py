@@ -16,7 +16,7 @@
 (T магнита 163.8 / 164.1 / 162.3 °C на трёх уровнях, см. fig_risk_map.py). Демагу на грубой
 сетке верить нельзя — итоговый свип пойдёт на сетке cfg.critical_mesh().
 
-Запуск: PYTHONPATH=<repo> python docs/papers/experiments/probe_steady.py
+Запуск: PYTHONPATH=<repo> python docs/papers/experiments/probe_steady.py [среды] [токи] [материал] [fine] [--picard]
 """
 from __future__ import annotations
 
@@ -43,6 +43,9 @@ from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag  #
 MESH = 0.004                 # ГРУБАЯ — см. шапку
 DT, N_STEPS = 0.5, 1400      # горизонт 700 с вместо прежних 45 с
 GAMMA = math.pi / 2.0
+# Магнитная задача шага: Ньютон (по умолчанию с 2026-10-13); `--picard` — эталон-Пикар для сверки (Л-119).
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+sys.argv = [a for a in sys.argv if a != "--picard"]
 AMBIENTS = [float(x) for x in (sys.argv[1].split(",") if len(sys.argv) > 1 else [70, 100, 130])]
 CURRENTS = [float(x) for x in (sys.argv[2].split(",") if len(sys.argv) > 2 else [10, 15, 20, 25, 30])]
 MATERIAL = sys.argv[3] if len(sys.argv) > 3 else "ndfeb"
@@ -64,13 +67,13 @@ def run(i_peak: float, T_amb: float):
         sigma_pm=cfg.magnet_conductivity(MATERIAL, T_amb),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
         loss_mech_span=2.0 * math.pi / 12, loss_n_positions=12,
-        **cfg.steel_loss_kwargs("steel10"),
+        method=METHOD, **cfg.steel_loss_kwargs("steel10"),
     )
 
 
 def main():
-    print("ПОДБОР УСТАНОВИВШЕГОСЯ РЕЖИМА (%s, сталь 10, q-ось, сетка %s)"
-          % (MATERIAL, "СХОДИВШАЯСЯ магнит+зазор 0.5 мм" if FINE else "грубая %.3f м" % MESH))
+    print("ПОДБОР УСТАНОВИВШЕГОСЯ РЕЖИМА (%s, сталь 10, q-ось, сетка %s, магн. задача: %s)"
+          % (MATERIAL, "СХОДИВШАЯСЯ магнит+зазор 0.5 мм" if FINE else "грубая %.3f м" % MESH, METHOD))
     print("горизонт %.0f с, T_cap = %.0f °C, допуск установления %.3g °C/с"
           % (DT * N_STEPS, cfg.T_CAP, cfg.STEADY_TOL))
     print("%-6s %-5s %9s %9s %8s  %s" % ("среда", "ток", "T_магн", "T_max", "t_кон", "исход"))
@@ -83,10 +86,10 @@ def main():
                 tr = r.transient
                 # ⚠ печатаем СЫРУЮ причину останова: своя классификация уже один раз
                 #   скрыла настоящий механизм (см. историю правок).
-                print("%-6.0f %-5.0f %9.1f %9.1f %8.0f  разгон=%s каскад=%s заколен=%d "
+                print("%-6.0f %-5.0f %9.1f %9.1f %8.0f  разгон=%s каскад=%s не_сошлась=%s заколен=%d "
                       "ret_min=%.3f" % (Ta, ip, r.T_magnet_max, max(tr.T_max), tr.times[-1],
-                                        tr.runaway, tr.magnet_cascade, tr.n_past_knee[-1],
-                                        r.retention.min()), flush=True)
+                                        tr.runaway, tr.magnet_cascade, tr.em_failed,
+                                        tr.n_past_knee[-1], r.retention.min()), flush=True)
                 print("        причина: %s  [%.0f с]" % (tr.stop_reason, time.time() - t),
                       flush=True)
             except Exception as e:      # noqa: BLE001 — перегрев за предел модели = результат

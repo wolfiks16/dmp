@@ -10,11 +10,14 @@
 
 Режим совпадает с B-full харвестом (`harvest_bfull.py`, MODE=map, steel10), точка
 T_среды = 130 °C, ток 40 А, рабочая точка q-оси — та, где харвест дал необратимую
-потерю (ret_min ≈ 0.665, падение ЭДС-постоянной ≈ 6.3 %).
+потерю (до аудита: ret_min ≈ 0.665, падение ЭДС-постоянной ≈ 6.3 % — это и стоит в
+fig_risk_map.png / _slide.png). Пересчёт 2026-10-13 на текущем коде (Ньютон = эталон-Пикар,
+`recompute_newton_2026-10-13.md`): сходится по сетке, уровни finer / gap4 / mag4 —
+падение 0.32 / 0.33 / 0.42 %, повреждено 7–8 % объёма магнитов.
 
 ЧТО ПОКАЗАЛ РАЗБОР (числа печатаются, заголовок ставится ПО НИМ):
-главный эффект — разброс МЕЖДУ полюсами (повреждённый объём полюса от 0 до 91 %),
-а не внутри полюса. Причина — сочетание 12 пазов / 14 полюсов: каждый полюс стоит
+главный эффект — разброс МЕЖДУ полюсами (повреждённый объём полюса от 0 до 91 %
+до аудита, от 0 до 35 % после пересчёта 2026-10-13), а не внутри полюса. Причина — сочетание 12 пазов / 14 полюсов: каждый полюс стоит
 в своём положении относительно поля обмотки. Контроль: картина обязана иметь
 2-кратную симметрию (gcd(12,14) = 2) — проверяется автоматически.
 
@@ -23,6 +26,7 @@ T_среды = 130 °C, ток 40 А, рабочая точка q-оси — т�
        figs/risk_map_data.npz (данные расчёта).
 Запуск: python docs/papers/experiments/fig_risk_map.py            (~4 мин, полный счёт)
         python docs/papers/experiments/fig_risk_map.py --cached   (мгновенно, из npz)
+        ... --picard   — магнитная задача эталоном-Пикаром (сверка, выходы с суффиксом _picard)
 """
 from __future__ import annotations
 
@@ -76,12 +80,16 @@ LEVELS = {
 }
 LEVEL = next((a for a in sys.argv[1:] if a in LEVELS), "fine")
 MESH_BY_REGION = LEVELS[LEVEL]
+# Магнитная задача шага: Ньютон (по умолчанию с 2026-10-13); `--picard` — эталон-Пикар, для сверки
+# (Л-119: за коленом он останавливался там, где равновесие есть). Выходы эталона — с суффиксом _picard.
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+SUFFIX = "_picard" if METHOD == "picard" else ""
 
 BG = {int(Region.AIR_GAP): "#FAFCFD", int(Region.STATOR_YOKE): "#DBE3EA",
       int(Region.TOOTH): "#DBE3EA", int(Region.SLOT): "#EDF1F6",
       int(Region.ROTOR_YOKE): "#D2DAE3"}
 RISK_CMAP = mcolors.LinearSegmentedColormap.from_list("risk", [HEAT, AMBER, GREEN])
-NPZ = HERE / "figs" / ("risk_map_data_%s.npz" % LEVEL)
+NPZ = HERE / "figs" / ("risk_map_data_%s%s.npz" % (LEVEL, SUFFIX))
 
 
 def build_scenario():
@@ -103,7 +111,7 @@ def solve(params, sc):
         sigma_pm=cfg.magnet_conductivity(MATERIAL, T_AMB),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
         loss_mech_span=2.0 * math.pi / N_SLOTS, loss_n_positions=LOSS_NP,
-        **cfg.steel_loss_kwargs(STEEL_KIND),
+        method=METHOD, **cfg.steel_loss_kwargs(STEEL_KIND),
     )
 
 
@@ -251,16 +259,21 @@ def main():
         res = solve(params, sc)
         ret = np.asarray(res.retention, dtype=float)
         T_mag, ke_drop = float(res.T_magnet_max), float(res.torque_constant_drop)
-        print("посчитано за %.0f с: T_магнита=%.1f °C, падение ЭДС-пост.=%.2f %%"
-              % (time.time() - t0, T_mag, 100 * ke_drop), flush=True)
+        tr = res.transient
+        print("посчитано за %.0f с (%s): T_магнита=%.1f °C, падение ЭДС-пост.=%.2f %%; останов: %s; "
+              "итераций на шаг до %d, невязка до %.1e"
+              % (time.time() - t0, METHOD, T_mag, 100 * ke_drop, tr.stop_reason,
+                 int(tr.em_iterations.max()), float(tr.em_residual.max())), flush=True)
         np.savez(NPZ, retention=ret, T_mag=T_mag, ke_drop=ke_drop,
-                 T_amb=T_AMB, i_peak=I_PEAK, gamma=GAMMA)
+                 T_amb=T_AMB, i_peak=I_PEAK, gamma=GAMMA, method=METHOD,
+                 stop=np.array([tr.stop_reason], dtype=object), em_failed=bool(tr.em_failed),
+                 cascade=bool(tr.magnet_cascade), t_end=float(tr.times[-1]))
 
     an = analyse(sc, ret)
     out_dir = NPZ.parent
 
     # СХОДИМОСТЬ: сравнить вывод с другими уровнями сетки, если они посчитаны
-    others = [(lv, out_dir / ("risk_map_data_%s.npz" % lv)) for lv in LEVELS if lv != LEVEL]
+    others = [(lv, out_dir / ("risk_map_data_%s%s.npz" % (lv, SUFFIX))) for lv in LEVELS if lv != LEVEL]
     done = [(lv, p) for lv, p in others if p.exists()]
     if done:
         print("  сходимость по сетке (вывод не должен зависеть от уровня):")
@@ -307,7 +320,7 @@ def main():
              linespacing=1.6)
     # Имя с уровнем сетки: уровни можно считать параллельно, не затирая друг друга.
     # В деку/статью уровень продвигается отдельно (--promote), осознанно.
-    out = out_dir / ("fig_risk_map_%s.png" % LEVEL)
+    out = out_dir / ("fig_risk_map_%s%s.png" % (LEVEL, SUFFIX))
     fig.savefig(out, dpi=200, facecolor="white", bbox_inches="tight")
     plt.close(fig)
 
@@ -318,7 +331,7 @@ def main():
     cb_s.set_label("Доля сохранённой ремнантности", fontsize=15, color=DARK)
     cb_s.ax.tick_params(labelsize=13)
     fig_s.tight_layout()
-    out_slide = out_dir / ("fig_risk_map_%s_slide.png" % LEVEL)
+    out_slide = out_dir / ("fig_risk_map_%s%s_slide.png" % (LEVEL, SUFFIX))
     fig_s.savefig(out_slide, dpi=200, facecolor="white", bbox_inches="tight")
     plt.close(fig_s)
 
@@ -326,6 +339,8 @@ def main():
     print("saved", out_slide)
 
     if "--promote" in sys.argv:      # сделать этот уровень тем, что идёт в статью и деку
+        if METHOD != "newton":
+            raise SystemExit("в статью и деку идёт только расчёт Ньютоном — эталон-Пикар не продвигается")
         import shutil
         for src, dst in ((out, "fig_risk_map.png"), (out_slide, "fig_risk_map_slide.png")):
             shutil.copyfile(src, out_dir / dst)

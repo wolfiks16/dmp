@@ -9,7 +9,7 @@
 Метод: по одному параметру за раз (OAT) вокруг базы. Для каждого — T магнита, падение K_e,
 ret_min, исход. Плюс контроль SmCo в самом жёстком варианте (должен остаться цел).
 
-Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/sensitivity_paper1.py
+Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/sensitivity_paper1.py [--picard]
 Выход:   docs/papers/experiments/output_bfull/sensitivity.json
 """
 from __future__ import annotations
@@ -41,6 +41,10 @@ from magcore.fem2d.machines.scenario import machine_scenario  # noqa: E402
 from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag  # noqa: E402
 
 OUT = Path(__file__).resolve().parent / "output_bfull"
+# Магнитная задача шага: Ньютон (по умолчанию с 2026-10-13); `--picard` — эталон-Пикар для сверки (Л-119),
+# сводка — sensitivity_picard.json.
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+SUFFIX = "_picard" if METHOD == "picard" else ""
 
 # База (критическая точка решения)
 BASE = dict(T_amb=70.0, i_peak=40.0, material="ndfeb")
@@ -81,12 +85,13 @@ def run_case(material="ndfeb", *, k_hyst=B_KH, mu_r=B_MUR, h_out=B_HOUT, rho=B_R
         sigma_pm=cfg.magnet_conductivity(material, T_amb) * sigma_scale,
         magnet_seg_width=magnet_segment_width(params, n_seg),
         loss_mech_span=MECH_SPAN, loss_n_positions=LOSS_NP,
-        steinmetz=cf, rotor_solid=True, sigma_rotor=1.0 / rho, rotor_mu_r=mu_r,
+        steinmetz=cf, rotor_solid=True, sigma_rotor=1.0 / rho, rotor_mu_r=mu_r, method=METHOD,
     )
     tr = res.transient
     return dict(T_magnet=float(res.T_magnet_max), ke_drop=float(res.torque_constant_drop),
                 ret_min=float(res.retention.min()), survived=bool(res.survived),
-                runaway=bool(tr.runaway), cascade=bool(tr.magnet_cascade))
+                runaway=bool(tr.runaway), cascade=bool(tr.magnet_cascade),
+                em_failed=bool(tr.em_failed), stop=str(tr.stop_reason))
 
 
 def log(*a):
@@ -102,13 +107,13 @@ def main():
     log("ВОПРОС: устойчив ли вывод «на Стали 10 NdFeB размагничивается при среде 70 °C»?")
     log("=" * 84)
 
-    report = {"base": BASE, "runs": {}}
+    report = {"base": BASE, "method": METHOD, "runs": {}}
     t = time.time()
     base = run_case()
     report["base_result"] = base
-    log("БАЗА: T_маг=%.1f  K_e-drop=%.2f%%  ret_min=%.3f  выжила=%s каскад=%s  [%.0fs]"
+    log("БАЗА: T_маг=%.1f  K_e-drop=%.2f%%  ret_min=%.3f  выжила=%s каскад=%s не_сошлась=%s  [%.0fs]  %s"
         % (base["T_magnet"], 100 * base["ke_drop"], base["ret_min"],
-           base["survived"], base["cascade"], time.time() - t))
+           base["survived"], base["cascade"], base["em_failed"], time.time() - t, base["stop"][:70]))
 
     for title, key, values in VARIATIONS:
         log("\n--- %s ---" % title)
@@ -121,9 +126,9 @@ def main():
             mark = " <- база" if abs(v - {"k_hyst": B_KH, "mu_r": B_MUR, "h_out": B_HOUT,
                                           "rho": B_RHO, "sigma_scale": B_SIGSC,
                                           "n_seg": B_NSEG}[key]) < 1e-12 else ""
-            log("  %-12s=%-9.3g T_маг=%6.1f  K_e-drop=%6.2f%%  ret_min=%.3f  выж=%s кск=%s [%.0fs]%s"
+            log("  %-12s=%-9.3g T_маг=%6.1f  K_e-drop=%6.2f%%  ret_min=%.3f  выж=%s кск=%s нсх=%s [%.0fs]%s"
                 % (key, v, r["T_magnet"], 100 * r["ke_drop"], r["ret_min"],
-                   r["survived"], r["cascade"], time.time() - t, mark))
+                   r["survived"], r["cascade"], r["em_failed"], time.time() - t, mark))
         report["runs"][key] = rows
 
     # контроль SmCo в самом жёстком варианте (макс. потери: k_hyst высокий, слабый обдув, ШИМ)
@@ -150,9 +155,9 @@ def main():
         % ("ЦЕЛ (вывод устойчив)" if sm["ke_drop"] <= 1e-9 else "ПОВРЕЖДЁН (вывод НЕ устойчив!)"))
     log("=" * 84)
 
-    (OUT / "sensitivity.json").write_text(
+    (OUT / ("sensitivity%s.json" % SUFFIX)).write_text(
         json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-    log("[sensitivity.json сохранён; всего %.0f с]" % (time.time() - t0))
+    log("[sensitivity%s.json сохранён; всего %.0f с]" % (SUFFIX, time.time() - t0))
 
 
 if __name__ == "__main__":

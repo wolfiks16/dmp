@@ -4,222 +4,267 @@
     "i_peak": 40.0,
     "material": "ndfeb"
   },
+  "method": "newton",
   "runs": {
     "k_hyst": [
       {
-        "T_magnet": 160.05627257771764,
-        "ke_drop": 0.02372241476147985,
-        "ret_min": 0.7539137757021996,
+        "T_magnet": 116.72104588170316,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "k_hyst": 0.06
       },
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "k_hyst": 0.1
       },
       {
-        "T_magnet": 168.94294347033141,
-        "ke_drop": 0.07754110916822443,
-        "ret_min": 0.5977889137185215,
-        "survived": false,
+        "T_magnet": 120.78468642771303,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
+        "survived": true,
         "runaway": false,
-        "cascade": true,
+        "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "k_hyst": 0.15
       }
     ],
     "mu_r": [
       {
-        "T_magnet": 170.82761498285748,
-        "ke_drop": 0.08933480267967431,
-        "ret_min": 0.4410837628240593,
-        "survived": false,
+        "T_magnet": 125.9211526183902,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
+        "survived": true,
         "runaway": false,
-        "cascade": true,
+        "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "mu_r": 200.0
       },
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "mu_r": 500.0
       },
       {
-        "T_magnet": 155.50681832052157,
-        "ke_drop": 0.010286477226317148,
-        "ret_min": 0.8362159433557592,
+        "T_magnet": 116.06242692266507,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "mu_r": 1000.0
       }
     ],
     "h_out": [
       {
-        "T_magnet": 165.97777511000402,
-        "ke_drop": 0.05831210595022829,
-        "ret_min": 0.6451256003367277,
+        "T_magnet": 119.03499870029293,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "h_out": 10.0
       },
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "h_out": 20.0
       },
       {
-        "T_magnet": 162.8857997694504,
-        "ke_drop": 0.03652524619493536,
-        "ret_min": 0.7144065827429722,
+        "T_magnet": 117.05457918018931,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "h_out": 50.0
       }
     ],
     "rho": [
       {
-        "T_magnet": 166.01619763126348,
-        "ke_drop": 0.05553060395003018,
-        "ret_min": 0.6607491816885517,
+        "T_magnet": 118.64950496142579,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "rho": 1.3e-07
       },
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "rho": 1.4e-07
       },
       {
-        "T_magnet": 165.55520241060006,
-        "ke_drop": 0.05233917455208115,
-        "ret_min": 0.6590669892677712,
+        "T_magnet": 118.32821384749865,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "rho": 1.6e-07
       }
     ],
     "sigma_scale": [
       {
-        "T_magnet": 157.73602112069418,
-        "ke_drop": 0.01737676817087741,
-        "ret_min": 0.7966553919805239,
+        "T_magnet": 112.97021313489357,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "sigma_scale": 0.85
       },
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "sigma_scale": 1.0
       },
       {
-        "T_magnet": 171.9537237544653,
-        "ke_drop": 0.09667985344084029,
-        "ret_min": 0.40032272182727163,
-        "survived": false,
+        "T_magnet": 124.08400355829913,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
+        "survived": true,
         "runaway": false,
-        "cascade": true,
+        "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "sigma_scale": 1.15
       },
       {
-        "T_magnet": 176.62192794171236,
-        "ke_drop": 0.10269581738659206,
-        "ret_min": 0.5396313958067508,
-        "survived": false,
+        "T_magnet": 155.57307642461498,
+        "ke_drop": 0.003185486739913812,
+        "ret_min": 0.9114396750100604,
+        "survived": true,
         "runaway": false,
-        "cascade": true,
+        "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "sigma_scale": 2.0
       }
     ],
     "n_seg": [
       {
-        "T_magnet": 164.97822913905333,
-        "ke_drop": 0.0516475979578751,
-        "ret_min": 0.6731258174141281,
+        "T_magnet": 118.52710834659634,
+        "ke_drop": 0.0,
+        "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "n_seg": 1
       },
       {
-        "T_magnet": 125.31778398609474,
+        "T_magnet": 90.74263228808246,
         "ke_drop": 0.0,
         "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "n_seg": 2
       },
       {
-        "T_magnet": 115.8558283174384,
+        "T_magnet": 84.03727398687057,
         "ke_drop": 0.0,
         "ret_min": 1.0,
         "survived": true,
         "runaway": false,
         "cascade": false,
+        "em_failed": false,
+        "stop": "завершено",
         "n_seg": 4
       }
     ]
   },
   "base_result": {
-    "T_magnet": 164.97822913905333,
-    "ke_drop": 0.0516475979578751,
-    "ret_min": 0.6731258174141281,
+    "T_magnet": 118.52710834659634,
+    "ke_drop": 0.0,
+    "ret_min": 1.0,
     "survived": true,
     "runaway": false,
-    "cascade": false
+    "cascade": false,
+    "em_failed": false,
+    "stop": "завершено"
   },
   "worst_case": {
     "smco": {
-      "T_magnet": 196.27277465107161,
+      "T_magnet": 171.242750323666,
       "ke_drop": 0.0,
       "ret_min": 1.0,
-      "survived": false,
-      "runaway": true,
-      "cascade": false
+      "survived": true,
+      "runaway": false,
+      "cascade": false,
+      "em_failed": false,
+      "stop": "завершено"
     },
     "ndfeb": {
-      "T_magnet": 173.90114042642972,
-      "ke_drop": 0.08284581512459843,
-      "ret_min": 0.40192234190184467,
-      "survived": false,
+      "T_magnet": 158.74678011993817,
+      "ke_drop": 0.008146364423938124,
+      "ret_min": 0.8739435817250175,
+      "survived": true,
       "runaway": false,
-      "cascade": true
+      "cascade": false,
+      "em_failed": false,
+      "stop": "завершено"
     }
   },
   "verdict": {
     "n_runs": 19,
-    "n_with_demag": 17,
+    "n_with_demag": 1,
     "ke_drop_min": 0.0,
-    "ke_drop_max": 0.10269581738659206,
+    "ke_drop_max": 0.003185486739913812,
     "smco_intact_worst": true
   }
 }

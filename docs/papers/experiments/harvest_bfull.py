@@ -3,7 +3,7 @@ P-B7 — B-full харвест Статьи 1: собранный пред-ре�
 со ВСЕЙ физикой (дифф. ГУ статор→рама, Тейлор-зазор, core_losses = сталь+магнит+ротор),
 worst-case d-ось, горячая среда. Режимы: MODE='smoke' (быстрая проверка сборки) / 'full' (свип).
 
-Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_bfull.py [smoke|full]
+Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_bfull.py [smoke|map|full] [steel10|m270] [--picard]
 Выход:   docs/papers/experiments/output_bfull/
 """
 from __future__ import annotations
@@ -32,8 +32,13 @@ from magcore.fem2d.machines.thermal_scenario import run_machine_thermal_demag
 from magcore.fem2d.runaway import runaway_threshold
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
-MODE = sys.argv[1] if len(sys.argv) > 1 else "smoke"
-STEEL_KIND = sys.argv[2] if len(sys.argv) > 2 else "steel10"   # магнитопровод: steel10|m270
+# Магнитная задача шага: Ньютон (по умолчанию с 2026-10-13); `--picard` — эталон-Пикар для сверки
+# (Л-119), сводка — с суффиксом _picard.
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+_ARGS = [a for a in sys.argv[1:] if a != "--picard"]
+MODE = _ARGS[0] if len(_ARGS) > 0 else "smoke"
+STEEL_KIND = _ARGS[1] if len(_ARGS) > 1 else "steel10"   # магнитопровод: steel10|m270
+SUFFIX = "_picard" if METHOD == "picard" else ""
 OUT = Path(__file__).resolve().parent / "output_bfull"
 
 # Оси карты (пред-регистрированы): среда — литературный диапазон (каркас на солнце 55-65°,
@@ -75,7 +80,7 @@ def run_point(material, i_peak, T_amb, gamma_elec):
         core_losses=True, speed_rpm=cfg.N_OPER, sigma_pm=cfg.magnet_conductivity(material, T_amb),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
         loss_mech_span=CONF["mech_span"], loss_n_positions=CONF["loss_np"],
-        **cfg.steel_loss_kwargs(STEEL_KIND),
+        method=METHOD, **cfg.steel_loss_kwargs(STEEL_KIND),
     )
 
 
@@ -93,6 +98,8 @@ def summarize(res):
         T_magnet_max=float(res.T_magnet_max), ke_drop=float(res.torque_constant_drop),
         ret_min=float(res.retention.min()), survived=bool(res.survived),
         runaway=bool(tr.runaway), cascade=bool(tr.magnet_cascade),
+        em_failed=bool(tr.em_failed), method=str(tr.em_method),
+        em_iter_max=int(np.max(tr.em_iterations)), em_res_max=float(np.max(tr.em_residual)),
         n_knee_end=int(tr.n_past_knee[-1]), loss0=float(tr.loss_power[0]),
         loss_end=float(tr.loss_power[-1]), t_end=float(tr.times[-1]), n_steps=int(len(tr.times)),
         eb_err=energy_balance_err(tr), stop=str(tr.stop_reason),
@@ -110,17 +117,17 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     t0 = time.time()
     log("=" * 78)
-    log("P-B7 B-full харвест [MODE=%s, магнитопровод=%s%s]: outrunner 12/14, рабочая точка q-оси"
+    log("P-B7 B-full харвест [MODE=%s, магнитопровод=%s%s, магн. задача: %s]: outrunner 12/14, рабочая точка q-оси"
         % (MODE, STEEL_KIND, ", ротор МАССИВНЫЙ" if cfg.STEEL_KINDS[STEEL_KIND]["rotor_solid"]
-           else ", ротор шихтованный"))
+           else ", ротор шихтованный", METHOD))
     log("  сетка=%.4f (магнит/зазор %.4f/%.4f) dt=%.2f n_steps=%d loss_np=%d"
-        % (CONF["mesh"], cfg.MESH_MAGNET, cfg.MESH_AIR_GAP, CONF["dt"],
+        % (CONF["mesh"], cfg.critical_mesh()["magnet"], cfg.critical_mesh()["air_gap"], CONF["dt"],
            CONF["n_steps"], CONF["loss_np"]))
     log("  среды=%s °C   токи=%s А   (ОДИНАКОВЫ обоим материалам, §12)"
         % (CONF["ambients"], CONF["currents"]))
     log("  ⚠ ОДНА конфигурация = отработка физики; вывод о материале НЕ переносится на класс машин")
     log("=" * 78)
-    report = {"mode": MODE, "steel_kind": STEEL_KIND,
+    report = {"mode": MODE, "steel_kind": STEEL_KIND, "method": METHOD,
               "conf": {k: (v if not isinstance(v, float) else round(v, 5))
                        for k, v in CONF.items()}, "ndfeb": [], "smco": []}
 
@@ -162,13 +169,14 @@ def main():
                 report[key].append(s)
                 done += 1
                 log("  [%2d/%d] %-5s T_ср=%3.0f i=%3.0f: T_mag=%6.1f  K_e-drop=%6.2f%%  ret_min=%.3f"
-                    "  surv=%s run=%s casc=%s  eb=%.0e  [%.0fs]"
+                    "  surv=%s run=%s casc=%s не_сошлась=%s  eb=%.0e  [%.0fs]"
                     % (done, n_pt, tag, Ta, ip, s["T_magnet_max"], 100 * s["ke_drop"], s["ret_min"],
-                       s["survived"], s["runaway"], s["cascade"], s["eb_err"], time.time() - t))
-        (OUT / ("summary_%s_%s.json" % (MODE, STEEL_KIND))).write_text(   # промежуточное по строкам
+                       s["survived"], s["runaway"], s["cascade"], s.get("em_failed"), s["eb_err"],
+                       time.time() - t))
+        (OUT / ("summary_%s_%s%s.json" % (MODE, STEEL_KIND, SUFFIX))).write_text(   # промежуточное по строкам
             json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    tag_out = "summary_%s_%s.json" % (MODE, STEEL_KIND)
+    tag_out = "summary_%s_%s%s.json" % (MODE, STEEL_KIND, SUFFIX)
     (OUT / tag_out).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     log("\n[%s сохранён; всего %.0f с]" % (tag_out, time.time() - t0))
     log("=" * 78)

@@ -29,6 +29,7 @@
 
 Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/ablation_nu_tensor.py [ambient] [i_peak]
          ... --compare   — только пересчитать сравнение по сохранённым историям
+         ... --picard    — все ветви эталоном-Пикаром (исходная абляция, файлы _picard)
 """
 from __future__ import annotations
 
@@ -70,6 +71,15 @@ I_PEAK = 40.0
 GAMMA = 0.0
 N_STEPS = 240                      # горизонт 120 с при dt = 0.5
 OUT = HERE / "output_ablation_nu"
+# Магнитная задача шага (2026-10-13): по умолчанию Ньютон — у ветвей (б) и (в); ветвь (а), скалярная сборка,
+# существует ТОЛЬКО в схеме Пикара (закон Ньютона тензорный по построению) и считается им — это помечено в
+# сравнении. `--picard` — исходная абляция целиком на эталоне-Пикаре (файлы с суффиксом _picard).
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+SUFFIX = "_picard" if METHOD == "picard" else ""
+
+
+def _arm_method(anisotropic: bool) -> str:
+    return "picard" if (METHOD == "picard" or not anisotropic) else "newton"
 ARMS = (("a_scalar", "а) скаляр (было)", False, False),
         ("b_tensor_iso", "б) тензор, mu_perp=mu_rec", True, False),
         ("c_tensor_phys", "в) тензор, mu_perp физ.", True, True))
@@ -92,7 +102,7 @@ def run(material: str, *, anisotropic: bool, physical_perp: bool):
         sigma_pm=cfg.magnet_conductivity(material, AMBIENT),
         magnet_seg_width=magnet_segment_width(params, cfg.N_SEG),
         loss_mech_span=2.0 * math.pi / 12, loss_n_positions=12,
-        anisotropic_magnet=anisotropic,
+        anisotropic_magnet=anisotropic, method=_arm_method(anisotropic),
         **cfg.steel_loss_kwargs("steel10"),
     )
 
@@ -103,13 +113,14 @@ def harvest(material: str = "ndfeb") -> None:
         t0 = time.time()
         res = run(material, anisotropic=aniso, physical_perp=phys)
         tr = res.transient
-        np.savez(OUT / ("%s_%s.npz" % (material, key)),
+        np.savez(OUT / ("%s_%s%s.npz" % (material, key, SUFFIX)),
                  times=tr.times, T_magnet=tr.T_magnet, ret_min=tr.retention_min,
                  ret_mean=tr.retention_mean, n_past_knee=tr.n_past_knee,
                  T_max=tr.T_max, retention=res.retention,
                  ke_drop=np.array([100.0 * res.torque_constant_drop]),
                  cascade=np.array([tr.magnet_cascade]), runaway=np.array([tr.runaway]),
-                 stop=np.array([tr.stop_reason], dtype=object), wall=np.array([time.time() - t0]))
+                 stop=np.array([tr.stop_reason], dtype=object), wall=np.array([time.time() - t0]),
+                 method=np.array([tr.em_method], dtype=object), em_failed=np.array([tr.em_failed]))
         print("%-28s %s  [%.0f с]" % (label, tr.stop_reason[:52], time.time() - t0), flush=True)
 
 
@@ -130,7 +141,7 @@ def _at_temperature(d, T: float, key: str) -> float:
 def compare(material: str = "ndfeb") -> None:
     data = {}
     for key, label, *_ in ARMS:
-        p = OUT / ("%s_%s.npz" % (material, key))
+        p = OUT / ("%s_%s%s.npz" % (material, key, SUFFIX))
         if not p.exists():
             print("нет файла %s — сначала прогон без --compare" % p.name)
             return
@@ -143,11 +154,12 @@ def compare(material: str = "ndfeb") -> None:
     print("=" * 100)
 
     print("\n1. ИСХОД РАСЧЁТА — качественный результат, сравнение корректно как есть")
-    print("%-28s %9s %9s  %s" % ("ветвь", "T_магн", "время,с", "причина остановки"))
+    print("%-28s %9s %9s %8s  %s" % ("ветвь", "T_магн", "время,с", "метод", "причина остановки"))
     for key, label, *_ in ARMS:
         d = data[key]
-        print("%-28s %9.1f %9.1f  %s"
-              % (label, np.nanmax(d["T_magnet"]), d["times"][-1], str(d["stop"][0])[:46]))
+        meth = str(d["method"][0]) if "method" in d else "picard"     # до 2026-10-13 — только Пикар
+        print("%-28s %9.1f %9.1f %8s  %s"
+              % (label, np.nanmax(d["T_magnet"]), d["times"][-1], meth, str(d["stop"][0])[:60]))
 
     t_common = min(float(data[k]["times"][-1]) for k, *_ in ARMS)
     T_common = min(float(np.nanmax(data[k]["T_magnet"])) for k, *_ in ARMS)

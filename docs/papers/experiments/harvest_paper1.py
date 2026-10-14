@@ -10,7 +10,7 @@ Results-harvest для Статьи 1 (ядро К6'): воспроизводи�
 Объект: дефолтный OutrunnerPMSMParams (12/14, Ø58/30 мм). Режим: worst-case d-ось (γ=0).
 Материалы: N42SH (NdFeB) vs КС25ДЦ (представит. Sm2Co17, ориентир ГОСТ 21559-76).
 
-Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_paper1.py
+Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_paper1.py [--picard]
 Выход:   docs/papers/experiments/output/  (summary.json, trajectories.npz, *.png)
 """
 from __future__ import annotations
@@ -55,7 +55,10 @@ KE_DROP_THRESHOLD = 0.05       # 5 % падения K_e = «отказ по ст
 SUBSTEPS_SWEEP = 8
 SUBSTEPS_HEAT = 32
 
-OUT = Path(__file__).resolve().parent / "output"
+# Магнитная задача шага: Ньютон (по умолчанию с 2026-10-13); `--picard` — эталон-Пикар для сверки
+# (Л-119: «каскад» прежних прогонов мог быть его несходимостью), выход — в output_picard/.
+METHOD = "picard" if "--picard" in sys.argv else "newton"
+OUT = Path(__file__).resolve().parent / ("output" if METHOD == "newton" else "output_picard")
 
 
 def build(magnet):
@@ -71,7 +74,7 @@ def run(scenario, i_peak, *, max_substeps, n_steps=N_STEPS):
     return run_machine_thermal_demag(
         scenario, i_peak=i_peak, turns_per_slot=TURNS, gamma_elec=GAMMA,
         slot_fill=SLOT_FILL, h=H_CONV, T_amb=T_AMB, T0=T_AMB, dt=DT, n_steps=n_steps,
-        max_substeps=max_substeps, steady_tol=STEADY_TOL,
+        max_substeps=max_substeps, steady_tol=STEADY_TOL, method=METHOD,
     )
 
 
@@ -90,6 +93,8 @@ def summarize(res):
         t_end=float(tr.times[-1]),
         n_steps=int(len(tr.times)),
         stop_reason=str(tr.stop_reason),
+        em_failed=bool(tr.em_failed), method=str(tr.em_method),
+        em_iter_max=int(np.max(tr.em_iterations)), em_res_max=float(np.max(tr.em_residual)),
         times=[float(x) for x in tr.times],
         T_max=[float(x) for x in tr.T_max],
         T_magnet=[float(x) for x in tr.T_magnet],
@@ -112,8 +117,8 @@ def main():
     t_start = time.time()
 
     log("=" * 78)
-    log("HARVEST Статья 1 (К6'): outrunner 12/14, worst-case d-ось, T_amb=%.0f h=%.0f"
-        % (T_AMB, H_CONV))
+    log("HARVEST Статья 1 (К6'): outrunner 12/14, worst-case d-ось, T_amb=%.0f h=%.0f, магн. задача: %s"
+        % (T_AMB, H_CONV, METHOD))
     log("=" * 78)
 
     t = time.time()
@@ -156,7 +161,7 @@ def main():
     heat_nd_half = run_machine_thermal_demag(
         nd, i_peak=100.0, turns_per_slot=TURNS, gamma_elec=GAMMA, slot_fill=SLOT_FILL,
         h=H_CONV, T_amb=T_AMB, T0=T_AMB, dt=DT / 2, n_steps=N_STEPS * 2,
-        max_substeps=SUBSTEPS_HEAT, steady_tol=STEADY_TOL,
+        max_substeps=SUBSTEPS_HEAT, steady_tol=STEADY_TOL, method=METHOD,
     )
     Sh = summarize(heat_nd_half)
     tt = np.array(S["times"]); Tt = np.array(S["T_max"])
@@ -180,9 +185,10 @@ def main():
             s["i_peak"] = ip
             sweep[key].append(s)
             log("  %-5s i=%3.0f: T_mag=%.0f  K_e-drop=%5.2f%%  ret_min=%.3f  "
-                "surv=%s run=%s casc=%s  [%.0fs]"
+                "surv=%s run=%s casc=%s не_сошлась=%s  [%.0fs]  %s"
                 % (tag, ip, s["T_magnet_max"], 100 * s["ke_drop"], s["ret_min"],
-                   s["survived"], s["runaway"], s["cascade"], time.time() - t))
+                   s["survived"], s["runaway"], s["cascade"], s["em_failed"], time.time() - t,
+                   s["stop_reason"][:70]))
     report["sweep"] = sweep
 
     # crossover: наименьший ток, где NdFeB отказал (каскад/разгон/K_e>порог), а SmCo цел
