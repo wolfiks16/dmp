@@ -1,4 +1,15 @@
 """
+⚠ УСТАРЕЛ — НЕ ИСПОЛЬЗОВАТЬ (решение Sergey, 2026-10-14). Числа этого сбора непубликуемы и в работу не идут.
+Почему: конфигурация до аудита 2026-09-03 — 20 витков на паз, которые не влезают в шину 6S (Л-4), свип
+40–150 А от пика (Л-2), шаг по времени 5 с (сходимость по dt — 51 °C), упрощённая физика (только медь,
+одинаковое h, ось d), выдуманная машина 12/14 (Л-1). Что из него нужно и куда переходит
+(docs/papers/experiments/recompute_newton_2026-10-13.md):
+  * энергобаланс и порог разгона s_crit — уже тесты-оракулы (test_coupled_transient.py) и печать B-full;
+  * сходимость по dt (рис. 2) — проверить на сценарии реального двигателя (dt 0,5 против 0,25 с);
+  * свип и вердикт материала (рис. 7), траектории (рис. 4–5) — из карт B-full (harvest_bfull.py) по режимам
+    реального двигателя, когда он будет куплен и обмерен.
+Запуск — только явно: `--legacy` (для истории и сверки со старыми выходами output/, output_picard/).
+
 Results-harvest для Статьи 1 (ядро К6'): воспроизводимый прогон на outrunner 12/14.
 
 Три блока:
@@ -10,7 +21,7 @@ Results-harvest для Статьи 1 (ядро К6'): воспроизводи�
 Объект: дефолтный OutrunnerPMSMParams (12/14, Ø58/30 мм). Режим: worst-case d-ось (γ=0).
 Материалы: N42SH (NdFeB) vs КС25ДЦ (представит. Sm2Co17, ориентир ГОСТ 21559-76).
 
-Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_paper1.py [--picard]
+Запуск:  PYTHONPATH=<repo> python docs/papers/experiments/harvest_paper1.py --legacy [--picard]
 Выход:   docs/papers/experiments/output/  (summary.json, trajectories.npz, *.png)
 """
 from __future__ import annotations
@@ -305,4 +316,7 @@ def make_figures(report):
 
 
 if __name__ == "__main__":
+    if "--legacy" not in sys.argv:
+        raise SystemExit("harvest_paper1 устарел и не используется (см. шапку файла); "
+                         "запуск для истории — с ключом --legacy.")
     main()
