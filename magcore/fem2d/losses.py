@@ -33,7 +33,8 @@ def copper_loss_density(j_cells, T_cells, *, rho0: float = CU_RHO0,
 def copper_loss_sensitivity(j_cells, *, rho0: float = CU_RHO0, alpha: float = CU_ALPHA) -> np.ndarray:
     """
     Чувствительность потерь dq/dT = ρ0·α·J² [Вт/(м³·K)] по ячейкам — линейная обратная связь
-    для порога runaway (runaway.runaway_threshold сравнивает с s_crit) и линеаризованной связки.
+    для порога runaway (`runaway.runaway_margin`: λ_min по меди, а не сравнение с s_crit всей области)
+    и линеаризованной связки.
     """
     j = np.asarray(j_cells, dtype=float)
     return rho0 * alpha * j * j

@@ -11,7 +11,7 @@ from magcore.fem2d.coupled_transient import (
     CoupledTransientResult,
     solve_coupled_magneto_thermal_transient,
 )
-from magcore.fem2d.losses import copper_loss_density
+from magcore.fem2d.losses import copper_loss_density, copper_loss_sensitivity
 from magcore.fem2d.machines.excitation import slot_areas, winding_current_density
 from magcore.fem2d.machines.iron_loss import stator_iron_loss_density
 from magcore.fem2d.machines.magnet_loss import magnet_rotor_loss_density
@@ -20,6 +20,7 @@ from magcore.fem2d.machines.scenario import MachineScenario
 from magcore.fem2d.machines.bridge import pmsm_to_problem
 from magcore.fem2d.machines.static_solver import machine_reluctivity
 from magcore.fem2d.model.problem import _reluctivity_newton
+from magcore.fem2d.runaway import runaway_margin
 from magcore.fem2d.spaces import LagrangeP1Space2D
 from magcore.fem2d.thermal import assemble_robin_multi, classify_boundary_edges
 
@@ -235,6 +236,47 @@ def precompute_core_loss_density(
     return q_stator + q_rotor
 
 
+def _machine_robin(space, geometry: MachineGeometry, *, h: float, h_in: float | None, T_amb: float,
+                   T_frame: float | None):
+    """
+    P-B1: дифференцированные ГУ. Если задан h_in — внутренняя расточка (статор→рама, T_frame, сильный h_in)
+    отделяется от наружной поверхности (ротор→среда, T_amb, h). Иначе None — однородное h на всей границе.
+    """
+    if h_in is None:
+        return None
+    p = geometry.params
+    inner, outer = classify_boundary_edges(space, p.R_bore, p.R_out)
+    t_frame = T_amb if T_frame is None else T_frame
+    return assemble_robin_multi(space, [(inner, h_in, t_frame), (outer, h, T_amb)])
+
+
+def machine_runaway_margin(
+    scenario: MachineScenario,
+    *,
+    i_peak: float,
+    turns_per_slot: float,
+    slot_fill: float = 0.45,
+    h: float,
+    h_in: float | None = None,
+    thermal: MachineThermalProperties | None = None,
+) -> float:
+    """
+    Запас до теплового разгона машины λ_min (`runaway.runaway_margin`): обратная связь меди s = ρ₀·α·J²
+    ЛОКАЛИЗОВАНА в пазах (тот же СКЗ-ток с поправкой на заполнение, что греет связку), граничные условия —
+    те же, что у `run_machine_thermal_demag` (h_in к раме, h к среде, либо однородное h). λ_min > 1 —
+    стационар существует; ток, при котором λ_min = 1, — порог разгона: I_crit = i_peak·√λ_min (s ∝ I²).
+    Потери ядра от T не зависят и в порог не входят. Температуры отсчёта ГУ на порог не влияют.
+    """
+    geometry = scenario.geometry
+    props = thermal or MachineThermalProperties.representative()
+    k_cells, _ = props.cell_fields(geometry)
+    space = LagrangeP1Space2D(geometry.mesh)
+    j_loss = _slot_rms_loss_current(geometry, i_peak=i_peak, turns_per_slot=turns_per_slot, slot_fill=slot_fill)
+    robin = _machine_robin(space, geometry, h=h, h_in=h_in, T_amb=0.0, T_frame=None)
+    return runaway_margin(space, k_cells, copper_loss_sensitivity(j_loss),
+                          h=(h if robin is None else None), robin=robin)
+
+
 def run_machine_thermal_demag(
     scenario: MachineScenario,
     *,
@@ -321,15 +363,7 @@ def run_machine_thermal_demag(
 
     space = LagrangeP1Space2D(geometry.mesh)
     T_start = None if T0 is None else np.full(space.ndofs, float(T0), dtype=float)
-
-    # P-B1: дифференцированные ГУ. Если задан h_in — внутренняя расточка (статор→рама, T_frame,
-    # сильный h_in) отделяется от наружной поверхности (ротор→среда, T_amb, h). Иначе — однородное h.
-    robin = None
-    if h_in is not None:
-        p = geometry.params
-        inner, outer = classify_boundary_edges(space, p.R_bore, p.R_out)
-        t_frame = T_amb if T_frame is None else T_frame
-        robin = assemble_robin_multi(space, [(inner, h_in, t_frame), (outer, h, T_amb)])
+    robin = _machine_robin(space, geometry, h=h, h_in=h_in, T_amb=T_amb, T_frame=T_frame)
 
     # P-B5: полные потери ядра (сталь статора + ротор-сторона) как замороженный источник тепла.
     if core_losses:

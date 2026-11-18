@@ -19,6 +19,20 @@ from magcore.fem2d.thermal import assemble_robin_boundary, assemble_source_rhs
 #   s < s_crit ⇒ оператор SPD (устойчивый баланс, конечная T);
 #   s > s_crit ⇒ определённость теряется (охлаждение не догоняет потери) ⇒ разгон.
 # Тот же порог управляет сходимостью Picard T_{n+1}=(K+R)⁻¹(f + s·M·T_n).
+#
+# В РЕАЛЬНОЙ МАШИНЕ обратная связь ЛОКАЛИЗОВАНА: s(x) = ρ₀·α·|J(x)|² только в меди (`losses.copper_loss_sensitivity`),
+# в стали, магните и воздухе её нет. Тогда порог — не число s, а множитель запаса λ_min обобщённой задачи
+#   (K + R)·v = λ·M_s·v,   M_s,ij = ∫ s(x)·φ_i·φ_j dx,
+# устойчиво ⟺ λ_min > 1 (`runaway_margin`). R — те же граничные условия Робена, что в транзиенте (для машины —
+# дифференцированные: расточка → рама h_in, ротор → среда h_out; `thermal.assemble_robin_multi`). Однородное s на
+# всю область — частный случай: λ_min = s_crit/s (`runaway_threshold`, верификационная фикстура). Сравнивать s меди
+# с s_crit всей области нельзя: масса там по всей площади, а источник — только в пазах (порог занижен в разы).
+#
+# Связь с транзиентом (`coupled_transient`): шаг неявного Эйлера с ЯВНЫМ источником q^n = q(T^n),
+#   (C/dt + K + R)·T^{n+1} = (C/dt + S)·T^n + …,
+# имеет множитель моды μ из (C/dt + S)v = μ·(C/dt + K + R)v, и μ < 1 ⟺ vᵀSv < vᵀ(K+R)v — то есть ровно λ_min > 1,
+# при ЛЮБОМ dt (дискретный порог совпадает с порогом стационара). S — тот же источник, собранный так, как его
+# применяет шаг (q по средней температуре ячейки, ∫q·φ_i = q·A/3); от M_s он отличается на O(h²).
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,24 +43,72 @@ class RunawayResult:
     norm_history: tuple[float, ...]
 
 
-def thermal_operator(space: LagrangeP1Space2D, k, h: float) -> sp.csr_matrix:
-    """Тепловой оператор с конвекцией: A = K(k) + R_robin(h) (SPD при h>0), разрежённый (CSR)."""
-    K = assemble_stiffness_sparse(space, k)
+def _robin_matrix(space: LagrangeP1Space2D, h, robin) -> sp.csr_matrix:
+    """Краевая матрица Робена: готовая `robin` ((R, rhs) как у `assemble_robin_multi` или сама R) либо однородное h."""
+    if robin is not None:
+        if h is not None:
+            raise ValueError("граничные условия — либо h (однородно), либо robin (готовая краевая матрица).")
+        R = robin[0] if isinstance(robin, tuple) else robin
+        R = sp.csr_matrix(R, dtype=float)
+        if R.shape != (space.ndofs, space.ndofs):
+            raise ValueError("robin: краевая матрица должна быть (ndofs, ndofs).")
+        return R
+    if h is None:
+        raise ValueError("нужны граничные условия: h или robin.")
     R, _ = assemble_robin_boundary(space, float(h))
-    return (K + R).tocsr()
+    return R
 
 
-def runaway_threshold(space: LagrangeP1Space2D, k, h: float) -> float:
+def thermal_operator(space: LagrangeP1Space2D, k, h: float | None = None, *, robin=None) -> sp.csr_matrix:
+    """
+    Тепловой оператор с конвекцией: A = K(k) + R (SPD при h>0), разрежённый (CSR). R — однородная конвекция `h`
+    на всей границе или готовая краевая матрица `robin` (дифференцированные ГУ, как в транзиенте).
+    """
+    K = assemble_stiffness_sparse(space, k)
+    return (K + _robin_matrix(space, h, robin)).tocsr()
+
+
+def runaway_threshold(space: LagrangeP1Space2D, k, h: float | None = None, *, robin=None) -> float:
     """
     Критическая чувствительность потерь s_crit = наименьшее обобщённое собств. значение
-    (K+R)v = s·M·v (M — матрица масс). При s ≥ s_crit система разгоняется.
+    (K+R)v = s·M·v (M — матрица масс) — порог для ОДНОРОДНОЙ обратной связи s ПО ВСЕЙ ОБЛАСТИ.
+    При s ≥ s_crit система разгоняется. Для обратной связи, локализованной в меди (реальная машина), —
+    `runaway_margin`: сравнивать s меди с этим s_crit нельзя.
 
     Ищется ОДНО значение сдвигом-обращением около нуля: A SPD ⇒ все s > 0, и ближайшее к
     нулю — наименьшее. Полный плотный спектр не нужен (на сетке машины это O(n³) и (n,n) в памяти).
     """
-    A = thermal_operator(space, k, h)
+    A = thermal_operator(space, k, h, robin=robin)
     M = assemble_mass_sparse(space)
     w = eigsh(A, k=1, M=M, sigma=0.0, which="LM", return_eigenvectors=False)
+    return float(w[0])
+
+
+def runaway_margin(space: LagrangeP1Space2D, k, loss_sensitivity_cells, *, h: float | None = None,
+                   robin=None) -> float:
+    """
+    Множитель запаса до теплового разгона λ_min — наименьшее собственное значение (K+R)v = λ·M_s·v,
+    M_s,ij = ∫ s(x)·φ_i·φ_j dx, где s(x) ≥ 0 — чувствительность потерь по ячейкам [Вт/(м³·K)] (для меди
+    `copper_loss_sensitivity(j_loss)`: ноль вне пазов). λ_min > 1 ⇒ стационар существует и устойчив;
+    λ_min ≤ 1 ⇒ разгон; обратная связь, умноженная на λ_min, выводит ровно на порог. Граничные условия —
+    те же, что в транзиенте: однородное `h` или готовая краевая матрица `robin` (например, `assemble_robin_multi`
+    с h_in к раме и h_out к среде; температуры отсчёта на порог не влияют). Для однородного s по всей области
+    λ_min = `runaway_threshold`/s.
+
+    M_s вырождена вне источника (полуопределена), поэтому λ ищется сдвигом-обращением около нуля:
+    (K+R)⁻¹M_s v = (1/λ)·v — наибольшее 1/λ даёт наименьшее λ, бесконечные λ (нуль-пространство M_s) не мешают.
+    Без обратной связи (s ≡ 0) разгона нет: λ_min = ∞.
+    """
+    s = np.asarray(loss_sensitivity_cells, dtype=float).reshape(-1)
+    if s.shape != (space.mesh.n_cells,):
+        raise ValueError("loss_sensitivity_cells — по значению на ячейку (n_cells,).")
+    if not np.all(np.isfinite(s)) or np.any(s < 0.0):
+        raise ValueError("чувствительность потерь s(x) должна быть конечной и неотрицательной.")
+    if not np.any(s > 0.0):
+        return float("inf")
+    A = thermal_operator(space, k, h, robin=robin)
+    Ms = assemble_mass_sparse(space, s)
+    w = eigsh(A, k=1, M=Ms, sigma=0.0, which="LM", return_eigenvectors=False)
     return float(w[0])
 
 

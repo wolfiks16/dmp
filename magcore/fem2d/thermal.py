@@ -142,7 +142,9 @@ def assemble_capacity(space: LagrangeP1Space2D, c_cells) -> sp.csr_matrix:
 class ImplicitEulerThermalStepper:
     """
     Один шаг неявного Эйлера для C·∂T/∂t − div(k∇T) = q + конвекция (Robin):
-        (C/dt + K + R)·T^{n+1} = (C/dt)·T^n + f(q^{n+1}) + T_amb·amb_load.
+        (C/dt + K + R)·T^{n+1} = (C/dt)·T^n + f(q) + T_amb·amb_load.
+    Источник q подаёт вызывающий: связка магнит↔тепло — ЯВНО, по состоянию в начале шага q^n = q(T^n)
+    (docs/math/coupled_problem.md §5, (HE)); такая схема устойчива ровно ниже порога разгона при любом dt.
     Матрицы собираются ОДИН раз (k, c, h, dt постоянны) — шаг переиспользуется как
     нестационарным решателем, так и связкой магнит↔тепло (источник q зависит от T).
 

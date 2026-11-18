@@ -212,6 +212,29 @@ def test_newton_solves_the_step_picard_could_not_on_the_machine():
     assert np.array_equal(new.T_hist[:len(pic.times)], pic.T_hist)
 
 
+def test_machine_runaway_margin_is_copper_localized_with_the_transient_bcs():
+    # Порог разгона машины — по МЕДИ (s = ρ₀αJ² только в пазах) и с теми же ГУ, что у связки. Оракулы:
+    # s ∝ I² ⇒ λ_min(2I) = λ_min(I)/4 точно; сток статора в раму (h_in) поднимает запас; λ совпадает с прямым
+    # вызовом `runaway_margin` на том же источнике; однородная масса всей области дала бы другое число.
+    from magcore.fem2d.losses import copper_loss_sensitivity
+    from magcore.fem2d.machines.thermal_scenario import machine_runaway_margin
+    from magcore.fem2d.runaway import runaway_margin, runaway_threshold
+    from magcore.fem2d.spaces import LagrangeP1Space2D
+
+    sc = _scenario()
+    kw = dict(turns_per_slot=20.0, slot_fill=0.45, h=40.0)
+    lam = machine_runaway_margin(sc, i_peak=30.0, **kw)
+    assert machine_runaway_margin(sc, i_peak=60.0, **kw) == pytest.approx(lam / 4.0, rel=1e-8)
+    assert machine_runaway_margin(sc, i_peak=30.0, h_in=2000.0, **kw) > lam
+    g = sc.geometry
+    space = LagrangeP1Space2D(g.mesh)
+    k, _ = MachineThermalProperties.representative().cell_fields(g)
+    s = copper_loss_sensitivity(_slot_rms_loss_current(g, i_peak=30.0, turns_per_slot=20.0, slot_fill=0.45))
+    assert lam == pytest.approx(runaway_margin(space, k, s, h=40.0), rel=1e-10)
+    s_slot = float(s.max())
+    assert abs(runaway_threshold(space, k, 40.0) / s_slot / lam - 1.0) > 0.2     # «вся область» ≠ «медь»
+
+
 def test_unknown_magnetic_method_is_rejected():
     with pytest.raises(ValueError, match="newton"):
         run_machine_thermal_demag(_scenario(), i_peak=10.0, method="что-то", **HOT)
