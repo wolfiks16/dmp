@@ -24,6 +24,18 @@ class AnisotropicBHTMagnet:
     mu_perp и два температурных коэффициента (в %/°C):
       alpha_Br — по индукции (Br, HcB);   gamma_Hc — по коэрцитивности (Hk, HcJ).
 
+    ЗНАК ТЕМПЕРАТУРНЫХ КОЭФФИЦИЕНТОВ (конвенция кода — «модуль падения»): alpha_Br и gamma_Hc хранятся
+    НЕОТРИЦАТЕЛЬНЫМИ числами в %/°C, а минус встроен в формулу:
+        b(T) = 1 − alpha_Br·(T − T0)/100   (B_r, H_cB),      h(T) = 1 − gamma_Hc·(T − T0)/100   (H_k, H_cJ).
+    В постановке (docs/math/coupled_problem.md §3; docs/math/nonlinear_materials.md §4, «Температура (NdFeB)»)
+    та же физика записана со ЗНАКОВЫМ коэффициентом в 1/K: B_r(T) = B_r0·[1 + α_Br·(T − T0)], α_Br ≈ −1,2·10⁻³/K,
+    H_cJ(T) = H_cJ0·[1 + β_Hc·(T − T0)], β_Hc ≈ −6·10⁻³/K. Перевод: α_Br(док) = −alpha_Br(код)/100,
+    β_Hc(док) = −gamma_Hc(код)/100 — обе величины УБЫВАЮТ с ростом T при любой записи (закреплено тестом
+    `test_magnet_temperature_sign_convention`). Отрицательное число в коде означало бы РОСТ B_r или H_cJ с
+    нагревом — так бывает у ферритов (H_cJ растёт), но не у редкоземельных NdFeB/SmCo, для которых модель
+    построена; чаще же это значение даташита «−0,12 %/°C», введённое со знаком. Поэтому `validate()` его
+    отклоняет. Ноль допустим (идеализация без температурной зависимости).
+
     Recoil-проницаемость mu_rec = Br0/(mu0*HcB0) — производная, T-НЕЗАВИСИМА.
 
     Кривая размагничивания строится фабрикой `demag_curve_from_datasheet` (C¹:
@@ -74,6 +86,13 @@ class AnisotropicBHTMagnet:
         for v in (self.alpha_Br, self.gamma_Hc, self.T0):
             if not np.isfinite(v):
                 raise ValueError("Temperature parameters must be finite.")
+        for nm, v in (("alpha_Br", self.alpha_Br), ("gamma_Hc", self.gamma_Hc)):
+            if v < 0.0:
+                raise ValueError(
+                    f"{nm} = {v:g} %/°C < 0: температурный коэффициент задаётся МОДУЛЕМ падения (знак минус "
+                    f"встроен в формулу 1 − коэфф.·ΔT/100). Значение даташита «−0,12 %/°C» вводится как 0,12; "
+                    f"отрицательное означало бы рост B_r/H_cJ с нагревом — вне модели редкоземельного магнита."
+                )
 
     def law_key(self) -> tuple:
         """

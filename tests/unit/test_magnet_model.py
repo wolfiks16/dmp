@@ -26,6 +26,36 @@ def test_easy_axis_normalized_and_validation() -> None:
         AnisotropicBHTMagnet("x", "x", EZ, -1.0, 9.0e5, 1.0e6, 1.8e6, mu_perp=1.05)
 
 
+@pytest.mark.parametrize("factory", ["n42sh_magnet", "sm2co17_magnet", "n35_magnet", "ks25dts240_magnet",
+                                     "excel_reference_magnet"])
+def test_magnet_temperature_sign_convention(factory) -> None:
+    # Конвенция знака (docstring AnisotropicBHTMagnet): в коде коэффициенты — МОДУЛИ падения в %/°C, минус в
+    # формуле; в постановке (coupled_problem.md §3, nonlinear_materials.md §4) — знаковые α, β [1/K] < 0. Проверка
+    # по физике, а не по записи: у каждого реального пресета B_r, H_cB, H_k, H_cJ строго УБЫВАЮТ с ростом T, и
+    # значения совпадают с формой документа B_r0·[1 + α(T − T0)] при α = −alpha_Br/100 (β = −gamma_Hc/100).
+    import magcore.domain.magnet_model as mm
+
+    m = getattr(mm, factory)(EZ)
+    assert m.alpha_Br > 0.0 and m.gamma_Hc > 0.0
+    alpha_doc, beta_doc = -m.alpha_Br / 100.0, -m.gamma_Hc / 100.0
+    T = np.linspace(m.T0, m.temperature_limit() - 1.0, 9)
+    Br = np.array([m.Br(t) for t in T])
+    Hcj = np.array([m.Hcj(t) for t in T])
+    assert np.all(np.diff(Br) < 0.0) and np.all(np.diff(Hcj) < 0.0)
+    assert np.all(np.diff([m.Hcb(t) for t in T]) < 0.0) and np.all(np.diff([m.Hk(t) for t in T]) < 0.0)
+    assert Br == pytest.approx(m.Br0 * (1.0 + alpha_doc * (T - m.T0)), rel=1e-12)
+    assert Hcj == pytest.approx(m.Hcj0 * (1.0 + beta_doc * (T - m.T0)), rel=1e-12)
+
+
+def test_negative_temperature_coefficient_is_rejected() -> None:
+    # Значение даташита «−0,12 %/°C», введённое со знаком, дало бы РОСТ B_r с нагревом — молча неверная физика.
+    for kw in (dict(alpha_Br=-0.12), dict(gamma_Hc=-0.6)):
+        with pytest.raises(ValueError, match="МОДУЛЕМ"):
+            magnet_from_datasheet("x", "x", EZ, 1.2, 9.0e5, 1.0e6, 1.8e6, **kw)
+    m0 = magnet_from_datasheet("x", "x", EZ, 1.2, 9.0e5, 1.0e6, 1.8e6, alpha_Br=0.0, gamma_Hc=0.0)
+    assert m0.Br(150.0) == m0.Br0 and m0.temperature_limit() == float("inf")   # ноль — без T-зависимости
+
+
 def test_mu_rec_derived_from_Br_Hcb() -> None:
     m = excel_reference_magnet(EZ)
     assert m.mu_rec == pytest.approx(m.Br0 / (MU0 * m.Hcb0))
