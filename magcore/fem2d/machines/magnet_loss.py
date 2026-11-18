@@ -20,7 +20,7 @@ from magcore.fem2d.machines.pmsm_outrunner import (
     Region,
     build_outrunner_spm_pmsm,
 )
-from magcore.fem2d.machines.rotor_sweep import _solve_at_angle, sample_B_at_points
+from magcore.fem2d.machines.rotor_sweep import _solve_at_angle, require_converged, sample_B_at_points
 from magcore.fem2d.machines.winding import star_of_slots_layout
 
 # P-B4: вихревые в МАГНИТЕ + потери в стали РОТОРА — источники тепла, греющие магнит НАПРЯМУЮ.
@@ -224,7 +224,8 @@ def rotor_frame_B_series(
     params: OutrunnerPMSMParams, magnet: AnisotropicBHTMagnet, steel: SteelBHCurve, *,
     speed_rpm: float, cell_idx: np.ndarray, i_peak: float = 0.0, gamma_elec: float = 0.0,
     turns_per_slot: float = 0.0, T: float = 20.0, mech_span: float | None = None,
-    n_positions: int = 48, relaxation: float = 0.1, max_iter: int = 300, tol: float = 1.0e-6,
+    n_positions: int = 48, method: str = "newton", relaxation: float = 0.1, max_iter: int = 300,
+    tol: float | None = None,
 ) -> tuple[np.ndarray, float]:
     """
     Волна B в СИСТЕМЕ РОТОРА в заданных ячейках за механический пролёт `mech_span`.
@@ -235,6 +236,8 @@ def rotor_frame_B_series(
     mech_span по умолчанию 2π (полный оборот, все гармоники). f_ref = (2π·n/60)/mech_span.
     Пролёт обязан быть кратен периоду поля в системе ротора (`rotor_field_period`): под нагрузкой — периоду
     обмотки, на холостом ходу — зубцовому делению; иначе — ошибка (Л-34), а не тихо искажённые потери.
+    Магнитная задача на угле — `_solve_at_angle` (`method`: Ньютон по умолчанию, 'picard' — эталон с `relaxation`);
+    не сошлась хоть на одном положении — `ConvergenceError`: волна из приближения не выдаётся.
     """
     span = 2.0 * math.pi if mech_span is None else float(mech_span)
     have_current = i_peak != 0.0 and turns_per_slot != 0.0
@@ -254,6 +257,7 @@ def rotor_frame_B_series(
 
     angles = np.arange(int(n_positions)) * span / int(n_positions)
     B_series = np.empty((int(n_positions), idx.size, 2), dtype=float)
+    conv = np.empty(angles.size, dtype=bool)
     for i, a in enumerate(angles):
         cancel_check()                               # отмена расчёта — между положениями ротора
         geo = build_outrunner_spm_pmsm(replace(params, rotor_angle=float(a)))
@@ -261,10 +265,12 @@ def rotor_frame_B_series(
         jz = (winding_current_density(geo, layout, i_peak=i_peak, gamma_elec=gamma_abs,
                                       turns_per_slot=turns_per_slot) if have_current else None)
         em = _solve_at_angle(geo, magnet, steel, T=T, retention=None, j_cells=jz,
-                             relaxation=relaxation, max_iter=max_iter, tol=tol)
+                             method=method, relaxation=relaxation, max_iter=max_iter, tol=tol)
+        conv[i] = bool(em.converged)
         lab_pts = _rotate(p_rotor, a)                        # ротор → лаб
         B_lab = sample_B_at_points(geo.mesh, em.B_cells, lab_pts)
         B_series[i] = _rotate(B_lab, -a)                     # лаб → ротор (вектор)
+    require_converged(conv, angles, "волна B в системе ротора")
 
     f_ref = (2.0 * math.pi * float(speed_rpm) / 60.0) / span
     return B_series, f_ref
@@ -275,7 +281,7 @@ def magnet_rotor_loss_density(
     speed_rpm: float, sigma_pm: float, magnet_seg_width: float,
     i_peak: float = 0.0, gamma_elec: float = 0.0, turns_per_slot: float = 0.0, T: float = 20.0,
     steinmetz: SteinmetzCoefficients | None = None, mech_span: float | None = None,
-    n_positions: int = 48, relaxation: float = 0.1, max_iter: int = 300,
+    n_positions: int = 48, method: str = "newton", relaxation: float = 0.1, max_iter: int = 300,
     rotor_solid: bool = False, sigma_rotor: float | None = None,
     rotor_thickness: float | None = None, rotor_mu_r: float = 500.0,
 ) -> tuple[np.ndarray, float]:
@@ -294,7 +300,8 @@ def magnet_rotor_loss_density(
     B, f_ref = rotor_frame_B_series(
         params, magnet, steel, speed_rpm=speed_rpm, cell_idx=np.concatenate([mag_idx, ry_idx]),
         i_peak=i_peak, gamma_elec=gamma_elec, turns_per_slot=turns_per_slot, T=T,
-        mech_span=mech_span, n_positions=n_positions, relaxation=relaxation, max_iter=max_iter,
+        mech_span=mech_span, n_positions=n_positions, method=method, relaxation=relaxation,
+        max_iter=max_iter,
     )
     q = rotor_side_loss_density_from_waveform(
         geo0, B, f_ref, sigma_pm=sigma_pm, magnet_seg_width=magnet_seg_width, steinmetz=steinmetz,

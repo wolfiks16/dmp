@@ -198,7 +198,7 @@ def _rotor_wave(sc, turns, *, i_peak, gamma, span, positions) -> np.ndarray:
     mag_idx, ry_idx = rotor_side_cells(sc.geometry)
     idx = np.concatenate([mag_idx, ry_idx])
     loaded = i_peak != 0.0
-    key = "wave|cells=%d|span=%.6f|N=%d|i=%s|g=%s|turns=%s|relax=0.2|iter=300|T=20" % (
+    key = "wave|cells=%d|span=%.6f|N=%d|i=%s|g=%s|turns=%s|newton|iter=300|T=20" % (
         sc.geometry.mesh.n_cells, span, positions, repr(float(i_peak)) if loaded else "0",
         repr(float(gamma)) if loaded else "-", repr(float(turns)) if loaded else "-")
     path = WAVES / ("%s.npz" % hashlib.sha1(key.encode("utf-8")).hexdigest()[:16])
@@ -260,7 +260,7 @@ def core_losses(sc, turns: float) -> dict:
     Ротор здесь не считается: его потери на холостом ходу берутся прямо из волны при каждой
     скорости (`_rotor_wave` + `_rotor_loss`) — волна от скорости не зависит.
     """
-    key = "stator_noload|cells=%d|turns=%.3f|speeds=%s|lam=%.2e" % (
+    key = "stator_noload|newton|cells=%d|turns=%.3f|speeds=%s|lam=%.2e" % (
         sc.geometry.mesh.n_cells, turns, SPEEDS_FIT, LAMINATION)
     cached = _load_cache().get(key)
     if cached:
@@ -315,7 +315,7 @@ def loaded_core_losses(sc, turns: float, gamma: float, ops, kt: float) -> dict:
     чисел: их формулы не менялись. Ротор — из кэша ВОЛН на периоде обмотки (90°), потери
     считаются заново при каждом запуске.
     """
-    key = "stator_loaded|cells=%d|turns=%.3f|g=%.4f|ops=%s|ns=%d" % (
+    key = "stator_loaded|newton|cells=%d|turns=%.3f|g=%.4f|ops=%s|ns=%d" % (
         sc.geometry.mesh.n_cells, turns, gamma, [round(n) for n, _ in ops], N_STATOR_POS)
     st = _load_cache().get(key)
     params = sc.geometry.params

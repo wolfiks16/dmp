@@ -40,6 +40,7 @@ from magcore.fem2d.machines.pmsm_outrunner import (
 from magcore.fem2d.machines.winding import WindingLayout, star_of_slots_layout
 from magcore.fem2d.model.postproc import torque_arkkio
 from magcore.fem2d.model.problem import steel_nu_and_dnu
+from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
@@ -358,8 +359,9 @@ class MachineSolution:
     K_t: float                          # Н·м/А — коэффициент момента
     converged: bool
     n_iterations: int
-    residual: float
+    residual: float                     # Ньютон: ‖R‖/R₀ решения под нагрузкой; Пикар: изменение B на последней итерации
     winding_kind: str = "three_phase"   # определяет ПЕРЕВОД K_e → kV (см. ниже)
+    method: str = "newton"              # чем решалась магнитная задача: 'newton' | 'picard'
 
     def kv(self, convention: str = "bus_sixstep") -> float:
         """
@@ -387,21 +389,31 @@ class MachineSolution:
 
 def solve_machine(
     definition: MachineDefinition, *, T: float = 20.0, i_peak: float = 0.0,
-    gamma_elec: float = 0.0, retention=None,
-    relaxation: float = 0.05, max_iter: int = 600, tol: float = 1.0e-6,
+    gamma_elec: float = 0.0, retention=None, method: str = "newton",
+    relaxation: float = 0.05, max_iter: int = 600, tol: float | None = None,
 ) -> MachineSolution:
     """
     Уровень Р1: магнитостатика + K_e/K_t. Работает для ЛЮБОГО типа из библиотеки —
     формула K_e выбирается обмоткой, поле считается одним и тем же ядром.
 
     `retention` — доля сохранённой ремнантности по ячейкам магнита (None = магнит цел):
-    позволяет снять характеристики ПОСЛЕ размагничивания.
-    ⚠ `relaxation=0.05` по умолчанию: при насыщенном железе большие значения не сходятся
-    (проверено на ДП25; см. `solver_spec.md §5`).
+    позволяет снять характеристики ПОСЛЕ размагничивания. Магнит — на линии возврата r·B_r(T)
+    (замороженный источник), нелинейна только сталь.
+
+    `method='newton'` (по умолчанию с 2026-11-18) — касательная Ньютона по КАЖДОЙ стали своей кривой
+    (`reluctivity_newton`: ν та же, что у Пикара, бит в бит), «сошлось» — по относительной невязке
+    (допуск по умолчанию 1e-9); `max_iter` — лишь предел. `method='picard'` — прежний хордовый Пикар (эталон):
+    `relaxation=0.05` (при насыщенном железе большие значения не сходятся, `solver_spec.md §5`), допуск
+    по изменению B (по умолчанию 1e-6) — при ω = 0,05 он не гарантирует близости к решению.
     """
     geo = definition.build_geometry()
     space = LagrangeP1Space2D(geo.mesh)
-    nu_of_B, nu_init, mask = definition.reluctivity(geo)
+    if method == "newton":
+        nu_and_dnu, nu_init, mask = definition.reluctivity_newton(geo)
+    elif method == "picard":
+        nu_of_B, nu_init, mask = definition.reluctivity(geo)
+    else:
+        raise ValueError("method должен быть 'newton' | 'picard'.")
     idx = np.where(mask)[0]
 
     magnet = definition.materials.magnet
@@ -415,25 +427,33 @@ def solve_machine(
     nu_br[idx] = (br / magnet.mu_rec)[:, None] * geo.magnet_easy_axis[idx]
 
     jz = definition.winding.current_density(geo, i_peak=i_peak, gamma_elec=gamma_elec)
-    em = solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init,
-        j_cells=(None if jz is None else MU0 * jz), magnetization=nu_br,
-        relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
 
+    def solve(j):
+        if method == "newton":
+            return solve_nonlinear_2d_newton(
+                space, nu_and_dnu, nu_init=nu_init, j_cells=j, magnetization=nu_br,
+                max_iter=max_iter, tol=1.0e-9 if tol is None else tol,
+            )
+        return solve_nonlinear_2d_picard(
+            space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j, magnetization=nu_br,
+            relaxation=relaxation, max_iter=max_iter, tol=1.0e-6 if tol is None else tol,
+        )
+
+    em = solve(None if jz is None else MU0 * jz)
     # K_e снимается на ХОЛОСТОМ ХОДУ (без тока): это свойство магнитной системы.
-    em_nl = em if jz is None else solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init, magnetization=nu_br,
-        relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
+    em_nl = em if jz is None else solve(None)
     ke = definition.winding.emf_constant(geo, em_nl.a)
     kt = definition.winding.torque_constant(geo, em_nl.a)
+    hist = em.rel_change_history
+    if method == "newton":
+        residual = float(hist[-1] / hist[0]) if hist and hist[0] > 0.0 else 0.0
+    else:
+        residual = float(hist[-1] if hist else 0.0)
     return MachineSolution(
         geometry=geo, field=em, K_e=ke, K_t=kt,
         converged=bool(em.converged and em_nl.converged),
-        n_iterations=int(em.n_iterations),
-        residual=float(em.rel_change_history[-1] if em.rel_change_history else 0.0),
-        winding_kind=str(getattr(definition.winding, "kind", "three_phase")),
+        n_iterations=int(em.n_iterations), residual=residual,
+        winding_kind=str(getattr(definition.winding, "kind", "three_phase")), method=method,
     )
 
 
@@ -503,8 +523,8 @@ class MachinePerformance:
 def evaluate_performance(
     definition: MachineDefinition, *, i_peak: float, speed_rpm: float,
     T: float = 20.0, gamma_elec: float | None = None, retention=None,
-    core_losses_w: float = 0.0, relaxation: float = 0.05, max_iter: int = 600,
-    tol: float = 1.0e-6,
+    core_losses_w: float = 0.0, method: str = "newton", relaxation: float = 0.05, max_iter: int = 600,
+    tol: float | None = None,
 ) -> MachinePerformance:
     """
     Уровень Р2 для ЛЮБОГО типа из библиотеки: момент, потери, КПД, тяга.
@@ -513,13 +533,14 @@ def evaluate_performance(
     трёхфазной и 0 (нейтраль) для коллекторной. Для расчёта РАЗМАГНИЧИВАНИЯ берут γ=0
     (ось d, worst-case) — тогда момент близок к нулю, и это нормально.
     `core_losses_w` — потери в стали и магните [Вт], если считались отдельно (уровень Р3);
-    при 0 КПД учитывает только медь и является ВЕРХНЕЙ оценкой.
+    при 0 КПД учитывает только медь и является ВЕРХНЕЙ оценкой. `method`, `relaxation`, `tol` — как у
+    `solve_machine` (Ньютон по умолчанию).
     """
     if gamma_elec is None:
         gamma_elec = math.pi / 2.0 if definition.winding.kind == "three_phase" else 0.0
 
-    sol = solve_machine(definition, T=T, i_peak=i_peak, gamma_elec=gamma_elec,
-                        retention=retention, relaxation=relaxation, max_iter=max_iter, tol=tol)
+    sol = solve_machine(definition, T=T, i_peak=i_peak, gamma_elec=gamma_elec, retention=retention,
+                        method=method, relaxation=relaxation, max_iter=max_iter, tol=tol)
     geo = sol.geometry
     p = geo.params
     torque = abs(float(torque_arkkio(
@@ -676,7 +697,7 @@ def run_thermal_demag(
             raise ValueError("auto_core_losses=True требует speed_rpm (задаёт частоту потерь).")
         core_loss_density = compute_core_losses(
             definition, speed_rpm=speed_rpm, i_peak=i_peak, T=T_amb,
-            gamma_elec=gamma_elec).density
+            gamma_elec=gamma_elec, method=method).density
     if core_loss_density is not None:
         q_core = np.asarray(core_loss_density, dtype=float)
         transient_kwargs["extra_loss"] = lambda Tc, em, _q=q_core: _q
@@ -718,7 +739,7 @@ class CoreLosses:
 def compute_core_losses(
     definition: MachineDefinition, *, speed_rpm: float, i_peak: float = 0.0,
     T: float = 20.0, gamma_elec: float = 0.0, n_positions: int = 12,
-    short_span: bool = True, relaxation: float = 0.05, max_iter: int = 300,
+    short_span: bool = True, method: str = "newton", relaxation: float = 0.05, max_iter: int = 300,
 ) -> CoreLosses:
     """
     Потери ядра ТРЁХФАЗНОЙ машины (обе топологии — магниты на роторе/статоре):
@@ -747,6 +768,9 @@ def compute_core_losses(
     любом токе — под нагрузкой волна на нём не периодична). `n_positions` — положений статорного свипа на
     электрический период и роторного — на зубцовое деление: на длинном пролёте их пропорционально больше.
     `short_span=False` — полный оборот на `n_positions` положений.
+
+    Свипы решаются `method` (Ньютон по умолчанию; 'picard' с `relaxation` — эталон); несходимость на любом
+    положении — `ConvergenceError` (прежде флаг сходимости свипов не читался).
     """
     from magcore.fem2d.machines.iron_loss import electrical_frequency, stator_iron_loss_density
     from magcore.fem2d.machines.magnet_loss import (
@@ -776,14 +800,14 @@ def compute_core_losses(
     q_stator, _ = stator_iron_loss_density(
         p, m.magnet, m.steel_armature, speed_rpm=speed_rpm, i_peak=i_peak,
         gamma_elec=gamma_elec, turns_per_slot=turns, T=T, coeffs=m.steinmetz_armature,
-        n_positions=n_positions, relaxation=relaxation, max_iter=max_iter)
+        n_positions=n_positions, method=method, relaxation=relaxation, max_iter=max_iter)
 
     sigma = float(m.magnet_sigma_20) * float(m.pwm_factor)     # ШИМ ≈ ×2 к вихревым магнита
     q_rotor, f_ripple = magnet_rotor_loss_density(
         p, m.magnet, m.steel_armature, speed_rpm=speed_rpm, sigma_pm=sigma,
         magnet_seg_width=magnet_segment_width(p, m.magnet_segments), i_peak=i_peak,
         gamma_elec=gamma_elec, turns_per_slot=turns, T=T, steinmetz=m.yoke_steinmetz,
-        mech_span=span, n_positions=n_rotor, relaxation=relaxation, max_iter=max_iter,
+        mech_span=span, n_positions=n_rotor, method=method, relaxation=relaxation, max_iter=max_iter,
         rotor_solid=m.yoke_solid,
         sigma_rotor=(None if not m.yoke_solid else
                      (1.0 / m.yoke_resistivity if m.yoke_resistivity else None)),

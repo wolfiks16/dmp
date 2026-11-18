@@ -16,6 +16,7 @@ from magcore.fem2d.machines.rotor_sweep import (
     RotorDamage,
     RotorSweepResult,
     electrical_period_angles,
+    require_converged,
     sweep_rotor,
 )
 
@@ -386,6 +387,7 @@ def stator_iron_loss_density(
     coeffs: SteinmetzCoefficients | None = None,
     n_positions: int = 24,
     geometries=None,
+    method: str = "newton",
     relaxation: float = 0.1,
     max_iter: int = 300,
 ) -> tuple[np.ndarray, RotorSweepResult]:
@@ -396,6 +398,9 @@ def stator_iron_loss_density(
 
     Ротор в СВОЕЙ системе видит поле квазипостоянным ⇒ его потери от зубцовых гармоник
     считаются в системе ротора вместе с вихревыми магнита (P-B4), здесь НЕ включаются.
+
+    Магнитная задача на угле — Ньютоном по стали (`method`, по умолчанию 'newton'; 'picard' с `relaxation` —
+    эталон). Не сошлась хоть на одном положении — `ConvergenceError`, а не карта потерь из приближения.
     """
     cf = coeffs or SteinmetzCoefficients.m270_35a_cogent()
     geo = build_outrunner_spm_pmsm(params)
@@ -405,8 +410,9 @@ def stator_iron_loss_density(
     sweep = sweep_rotor(
         params, magnet, steel, angles=angles, i_peak=i_peak, gamma_elec=gamma_elec,
         turns_per_slot=turns_per_slot, T=T, damage=damage, no_load=False,
-        probe_points=pts, geometries=geometries, relaxation=relaxation, max_iter=max_iter,
+        probe_points=pts, geometries=geometries, method=method, relaxation=relaxation, max_iter=max_iter,
     )
+    require_converged(sweep.converged, sweep.angles, "потери в стали статора")
     freq = electrical_frequency(params, speed_rpm)
     q = iron_loss_density_from_waveform(sweep.probe_B, idx, geo.mesh.n_cells, freq=freq, coeffs=cf)
     return q, sweep
@@ -445,6 +451,7 @@ def stator_iron_loss(
     coeffs: SteinmetzCoefficients | None = None,
     n_positions: int = 24,
     geometries=None,
+    method: str = "newton",
     relaxation: float = 0.1,
     max_iter: int = 300,
 ) -> tuple[IronLossResult, RotorSweepResult]:
@@ -457,6 +464,7 @@ def stator_iron_loss(
     считаем машину ПОСЛЕ перегрузки. Один электрический период достаточен для СИММЕТРИЧНОЙ
     (целой) машины; при несимметричном повреждении картина ротора всё равно p-периодична по
     механике, а частота поля в статоре = электрическая, поэтому период тот же.
+    Метод и отказ при несходимости — как у `stator_iron_loss_density`.
     """
     cf = coeffs or SteinmetzCoefficients.m270_35a()
     pts, areas = stator_iron_probes(params)
@@ -465,8 +473,9 @@ def stator_iron_loss(
     sweep = sweep_rotor(
         params, magnet, steel, angles=angles, i_peak=i_peak, gamma_elec=gamma_elec,
         turns_per_slot=turns_per_slot, T=T, damage=damage, no_load=False,
-        probe_points=pts, geometries=geometries, relaxation=relaxation, max_iter=max_iter,
+        probe_points=pts, geometries=geometries, method=method, relaxation=relaxation, max_iter=max_iter,
     )
+    require_converged(sweep.converged, sweep.angles, "потери в стали статора")
     freq = electrical_frequency(params, speed_rpm)
     loss = iron_loss_from_probe_waveform(
         sweep.probe_B, areas, freq=freq, axial_length=params.axial_length, coeffs=cf

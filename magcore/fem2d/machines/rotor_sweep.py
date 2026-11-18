@@ -21,8 +21,10 @@ from magcore.fem2d.machines.pmsm_outrunner import (
 from magcore.fem2d.machines.scenario import MachineScenario
 from magcore.fem2d.machines.static_solver import machine_reluctivity
 from magcore.fem2d.machines.winding import star_of_slots_layout
+from magcore.exceptions import ConvergenceError
 from magcore.fem2d.model.postproc import _bary, torque_arkkio
-from magcore.fem2d.model.problem import Solution2D
+from magcore.fem2d.model.problem import Solution2D, _reluctivity_newton
+from magcore.fem2d.newton import solve_nonlinear_2d_newton
 from magcore.fem2d.nonlinear import solve_nonlinear_2d_picard
 from magcore.fem2d.spaces import LagrangeP1Space2D
 
@@ -138,9 +140,17 @@ def _to_rotor_frame(points: np.ndarray, rotor_angle: float) -> np.ndarray:
 def _solve_at_angle(
     geometry: MachineGeometry, magnet: AnisotropicBHTMagnet, steel: SteelBHCurve,
     *, T: float, retention: np.ndarray | None, j_cells: np.ndarray | None,
-    relaxation: float, max_iter: int, tol: float,
+    method: str = "newton", relaxation: float = 0.1, max_iter: int = 300, tol: float | None = None,
 ):
-    """Магнитостатика при замороженном состоянии магнита (источник ν·B_r = ν·r·B_r(T))."""
+    """
+    Магнитостатика при замороженном состоянии магнита (источник ν·B_r = ν·r·B_r(T)); нелинейна только сталь.
+
+    `method='newton'` (по умолчанию, 2026-11-18) — касательная Ньютона по стали, «сошлось» по относительной
+    невязке (допуск по умолчанию 1e-9), как у характеристик (`characteristics._solve_with_retention`);
+    `method='picard'` — прежний хордовый Пикар с релаксацией `relaxation` (эталон; допуск — по изменению B,
+    по умолчанию 1e-6: при ω = 0,1 он не гарантирует близости к решению). Физика одна: ν `_reluctivity_newton`
+    совпадает с `machine_reluctivity` бит в бит, источник тот же. Флаг `converged` проверяет вызывающий.
+    """
     space = LagrangeP1Space2D(geometry.mesh)
     nu_of_B, nu_init, magnet_mask, _ = machine_reluctivity(geometry, magnet, steel)
     idx = np.where(magnet_mask)[0]
@@ -150,12 +160,38 @@ def _solve_at_angle(
         br = br * np.asarray(retention, dtype=float).reshape(-1)
     nu_br = np.zeros((geometry.mesh.n_cells, 2), dtype=float)
     nu_br[idx] = (br / magnet.mu_rec)[:, None] * geometry.magnet_easy_axis[idx]
+    j = None if j_cells is None else MU0 * j_cells
 
-    return solve_nonlinear_2d_picard(
-        space, nu_of_B=nu_of_B, nu_init=nu_init,
-        j_cells=(None if j_cells is None else MU0 * j_cells),
-        magnetization=nu_br, relaxation=relaxation, max_iter=max_iter, tol=tol,
-    )
+    if method == "newton":
+        nu_and_dnu, nu0 = _reluctivity_newton(pmsm_to_problem(geometry, magnet, steel, T=T))
+        return solve_nonlinear_2d_newton(
+            space, nu_and_dnu, nu_init=nu0, j_cells=j, magnetization=nu_br,
+            max_iter=max_iter, tol=1.0e-9 if tol is None else tol,
+        )
+    if method == "picard":
+        return solve_nonlinear_2d_picard(
+            space, nu_of_B=nu_of_B, nu_init=nu_init, j_cells=j,
+            magnetization=nu_br, relaxation=relaxation, max_iter=max_iter,
+            tol=1.0e-6 if tol is None else tol,
+        )
+    raise ValueError("method должен быть 'newton' | 'picard'.")
+
+
+def require_converged(converged, angles, what: str) -> None:
+    """
+    Отказ, если хоть на одном положении ротора магнитная задача не сошлась: несошедшееся приближение —
+    не поле, и волна B из него (потери, момент) была бы числом без гарантии. Прежде флаг сходимости свипов
+    потерь не читался вовсе (аудит 2026-11-16, п. 9 плана).
+    """
+    conv = np.asarray(converged, dtype=bool).reshape(-1)
+    bad = np.flatnonzero(~conv)
+    if bad.size:
+        ang = np.degrees(np.asarray(angles, dtype=float).reshape(-1)[bad])
+        raise ConvergenceError(
+            "%s: магнитная задача не сошлась на %d из %d положений ротора (углы %s°) — волна B не является "
+            "решением, результат не выдаётся." % (what, bad.size, conv.size,
+                                                   ", ".join("%.2f" % a for a in ang[:8])
+                                                   + (" …" if bad.size > 8 else "")))
 
 
 def cogging_period_angles(params: OutrunnerPMSMParams, n: int) -> np.ndarray:
@@ -194,9 +230,10 @@ def sweep_rotor(
     no_load: bool = True,
     probe_points=None,
     geometries=None,
+    method: str = "newton",
     relaxation: float = 0.1,
     max_iter: int = 300,
-    tol: float = 1.0e-6,
+    tol: float | None = None,
 ) -> RotorSweepResult:
     """
     Прогнать машину по положениям ротора и снять момент и потокосцепления фаз.
@@ -218,6 +255,9 @@ def sweep_rotor(
     Именно это нужно потерям в железе: размах ΔB и dB/dθ за электрический период по элементу.
     `geometries` — заранее построенные (по одному на угол) сетки: gmsh-перестроение делается
     ОДИН раз, а не в каждой прогонке (у прогонок «до»/«после» углы совпадают ⇒ и сетки те же).
+    `method`, `relaxation`, `max_iter`, `tol` — магнитная задача на угле (`_solve_at_angle`: Ньютон по умолчанию,
+    `relaxation` — только эталону-Пикару). Сходимость по углам — в `converged`/`all_converged`; потребители,
+    которым нужно решение, проверяют её (`require_converged`).
     """
     angles = np.asarray(angles, dtype=float).reshape(-1)
     if geometries is not None and len(geometries) != angles.size:
@@ -243,7 +283,7 @@ def sweep_rotor(
                                       turns_per_slot=turns_per_slot)
               if have_current else None)
 
-        kw = dict(T=T, retention=ret, relaxation=relaxation, max_iter=max_iter, tol=tol)
+        kw = dict(T=T, retention=ret, method=method, relaxation=relaxation, max_iter=max_iter, tol=tol)
         em = _solve_at_angle(geo, magnet, steel, j_cells=jz, **kw)
         problem = pmsm_to_problem(geo, magnet, steel, T=T, j_cells=jz)
         torque[i] = torque_arkkio(

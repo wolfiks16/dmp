@@ -25,6 +25,13 @@ class SolveError(MagcoreError):
     """Raised during linear system solve."""
 
 
+class ConvergenceError(SolveError):
+    """
+    Нелинейная задача не сошлась до допуска: приближение нельзя выдавать за решение (например, как
+    волну B для потерь). Бросается там, где результат иначе молча ушёл бы дальше по цепочке расчёта.
+    """
+
+
 class EvaluationError(MagcoreError):
     """Raised during field/potential evaluation."""
 
