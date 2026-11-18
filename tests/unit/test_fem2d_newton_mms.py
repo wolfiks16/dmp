@@ -97,6 +97,25 @@ def test_warm_start_measures_the_residual_against_the_cold_start_scale():
     assert ev.rel_change_history[1] / ev.rel_change_history[0] == warm.rel_change_history[-1] / warm.rel_change_history[0]
 
 
+def test_failed_line_search_rejects_the_step(monkeypatch):
+    # ЗАСТОЙ (Л-108): если ни один шаг линейного поиска (α = 1 … 2⁻¹¹) не уменьшил невязку, шаг ОТКЛОНЯЕТСЯ —
+    # возвращается последнее принятое A, а не A + 2⁻¹²·ΔA (такой шаг не проверялся и делал невязку хуже уже
+    # найденной). Застой воспроизводится подменой линейного решателя: направление «в гору» (−ΔA вместо ΔA)
+    # невязку при малом α только увеличивает. Холодный старт ⇒ A = 0 внутри; ответ — ровно он же.
+    import magcore.fem2d.newton as newton_mod
+
+    real = newton_mod.solve_scalar
+    monkeypatch.setattr(newton_mod, "solve_scalar", lambda K, rhs: -real(K, rhs))
+    mesh = build_structured_rectangle_tri_mesh(10, 10)
+    space = LagrangeP1Space2D(mesh)
+    mms = manufactured_nonlinear_sine(1.2, 0.4)
+    res = solve_nonlinear_2d_newton(space, _nu_and_dnu(1.2, 0.4), nu_init=np.full(mesh.n_cells, 1.2),
+                                    j_fn=mms.J_fn, max_iter=30, tol=1e-10)
+    assert not res.converged and res.n_iterations == 1          # застой с первой итерации — выход
+    assert np.all(res.a == 0.0)                                 # шаг отклонён: выдан старт
+    assert res.rel_change_history[-1] == res.rel_change_history[0]   # невязка выданного — не хуже найденной
+
+
 def test_warm_start_is_refused_with_a_stateful_magnet_source_or_a_wrong_shape():
     space, mms, cold = _solve(8)
     with pytest.raises(ValueError, match="a_init"):

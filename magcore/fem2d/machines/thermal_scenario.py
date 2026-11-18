@@ -101,8 +101,9 @@ class MachineThermalDemagResult:
     transient: CoupledTransientResult
     retention: np.ndarray         # (n_magnet_cells,) итоговая доля сохранённой ремнантности
     fundamental_ratio: float      # доля сохранившейся 1-й гармоники ремнантности ротора
-    loss_power_initial: float     # потери в меди в начале [Вт/м] (на единицу осевой длины)
-    loss_power_final: float       # потери в конце (выросли из-за ρ(T))
+    loss_power_initial: float     # полные потери в начале [Вт/м] (на единицу осевой длины): медь + `extra_loss`
+                                  # (ядро, если включено) — до 2026-11-18 здесь стояла одна медь, а в конце — всё
+    loss_power_final: float       # потери последнего шага (медь выросла из-за ρ(T))
 
     @property
     def torque_constant_drop(self) -> float:

@@ -197,13 +197,15 @@ def test_newton_steel_tangent_keeps_the_machine_reluctivity_bit_for_bit():
 
 
 def test_newton_solves_the_step_picard_could_not_on_the_machine():
-    # Третий шаг NdFeB в горячем режиме эталон-Пикар не решает и с 32 подшагами — расчёт останавливается без
-    # вердикта. Ньютон решает все три шага до допуска, без дробления. Тепло от метода не зависит: потери меди
-    # от поля не зависят, поэтому история T совпадает бит в бит, пока Пикар шёл.
+    # Магнит NdFeB при T² (после второго шага нагрева) в горячем режиме эталон-Пикар не решает и с 32 подшагами —
+    # расчёт останавливается без вердикта, запись 2 не добавляется (поле остановки — в T_stop). Ньютон решает магнит
+    # во всех записях 0…3 до допуска, без дробления. Тепло от метода не зависит: потери меди от поля не зависят,
+    # поэтому история T совпадает бит в бит, пока Пикар шёл.
     sc = _scenario()
     pic = run_machine_thermal_demag(sc, i_peak=60.0, method="picard", **HOT).transient
     new = run_machine_thermal_demag(sc, i_peak=60.0, **HOT).transient
-    assert pic.em_failed and len(pic.times) == HOT["n_steps"]          # предпосылка: шаг 3 Пикару не по силам
+    assert pic.em_failed and len(pic.times) == HOT["n_steps"] - 1      # предпосылка: магнит при T² Пикару не по силам
+    assert pic.T_stop is not None
     assert not new.em_failed and new.em_converged and new.em_method == "newton"
     assert len(new.times) == HOT["n_steps"] + 1
     assert np.all(new.em_substeps[1:] == 1) and new.em_residual.max() <= 1.0e-9

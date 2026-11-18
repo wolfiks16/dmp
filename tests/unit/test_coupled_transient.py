@@ -321,7 +321,8 @@ def test_where_picard_stopped_the_equilibrium_exists():
     space, magnet_mask, copper_mask, magnet, res = _deep_damage_run(method="picard")
     assert res.em_failed                                   # предпосылка: Пикар остановился
     mesh = space.mesh
-    T_cells = res.T_hist[-1][mesh.cells].mean(axis=1)
+    assert res.T_stop is not None                          # поле остановки — вне истории (запись не принята)
+    T_cells = res.T_stop[mesh.cells].mean(axis=1)
     T_stop = float(T_cells[magnet_mask].max())             # та же T, что в причине остановки
     assert ("T=%.1f C" % T_stop) in res.stop_reason
     retention = np.ones(mesh.n_cells)
@@ -472,14 +473,15 @@ def test_final_attempt_completes_the_heating_path_after_a_near_miss():
     # принимается — и путь досчитывается до T шага. Прежде цикл на таком подшаге обрывался, и шаг входил в
     # историю с магнитом при ПРОМЕЖУТОЧНОЙ температуре и недосчитанной потерей. Чтобы путь был виден, порог
     # приёма нарочно широкий (1), бюджет — одна итерация, дробление — до двух подшагов: за коленом подшаги не
-    # дожимаются, но принимаются. Проверка: магнит в конце каждого шага — ровно при температуре шага.
+    # дожимаются, но принимаются. Проверка: магнит в каждой записи — ровно при температуре ЭТОЙ ЖЕ записи
+    # (запись n — состояние в момент t_n: поле T^n и магнит, принятый при T^n; без сдвига на шаг).
     space, magnet_mask, _, _, res = _deep_damage_run(em_max_iter=1, max_substeps=2, em_abort_residual=1.0)
     assert not res.em_failed and not res.em_converged         # промахи были и приняты
     assert np.any(res.em_substeps == 2)                         # последняя попытка — из двух подшагов
-    T_cells = res.T_hist[:-1][:, space.mesh.cells].mean(axis=2)
-    T_step = T_cells[:, magnet_mask].max(axis=1)                # T магнита, при которой решался шаг n
+    T_cells = res.T_hist[:, space.mesh.cells].mean(axis=2)
+    T_rec = T_cells[:, magnet_mask].max(axis=1)                 # T магнита в поле записи n
     # подшаг i из n кончается в T_пред + (i/n)·(T_шага − T_пред): на последнем — та же T до округления
-    assert np.allclose(res.T_magnet[1:], T_step, rtol=0.0, atol=1e-9)
+    assert np.allclose(res.T_magnet, T_rec, rtol=0.0, atol=1e-9)
 
 
 def test_cascade_is_read_from_the_accepted_newton_solution():
@@ -510,6 +512,46 @@ def test_cascade_is_read_from_the_accepted_newton_solution():
     assert sol.field.converged
     n_static = int(np.count_nonzero(sol.risk.beyond_hcj))
     assert n_static > 0 and ("%d ячеек ниже H_cJ" % n_static) in res.stop_reason
+
+
+def test_cascade_on_an_intermediate_substep_stops_the_run(monkeypatch):
+    # Выход за −H_cJ проверяется на КАЖДОМ подшаге, а не только на последнем: потеря подшага уже защёлкнута
+    # (`commit`), и r = 0 там взята из доопределения закона за пределом модели, даже если к концу шага поле
+    # вернулось выше −H_cJ. Управляющая логика проверяется подменой (спокойный SmCo сам за −H_cJ не уходит):
+    # первая попытка шага 1 объявляется несошедшейся ⇒ шаг дробится на 2 подшага; на ПЕРВОМ из них одна ячейка
+    # помечается «ниже H_cJ», на последнем — нет. Ожидается остановка «каскад» без записи шага 1.
+    import magcore.fem2d.coupled_transient as ct
+
+    calls = {"solve": 0, "accept": 0}
+    real_solve, real_accept = ct.solve_nonlinear_2d_newton, ct.MagnetLawState.accept
+
+    def solve(*a, **kw):
+        calls["solve"] += 1
+        res = real_solve(*a, **kw)
+        if calls["solve"] == 2:                          # вызов 1 — состояние t_0, вызов 2 — шаг 1 целиком
+            return dataclasses.replace(res, converged=False, rel_change_history=(1.0, 1.0))
+        return res
+
+    def accept(self, law):
+        calls["accept"] += 1
+        real_accept(self, law)
+        if calls["accept"] == 3:                         # первый из двух подшагов шага 1
+            self.beyond_hcj = self.beyond_hcj.copy()
+            self.beyond_hcj[0] = True
+
+    monkeypatch.setattr(ct, "solve_nonlinear_2d_newton", solve)
+    monkeypatch.setattr(ct.MagnetLawState, "accept", accept)
+    space, magnet_mask, copper_mask = _segment()
+    magnet = sm2co17_magnet((1.0, 0.0, 0.0))
+    nu, k, cap = _materials(magnet, magnet_mask, copper_mask)
+    res = solve_coupled_magneto_thermal_transient(
+        space, k_cells=k, capacity_cells=cap, h=25.0, T_amb=20.0, dt=10.0, n_steps=3,
+        j_cells=np.where(copper_mask, 1.2e7, 0.0), magnet=magnet, magnet_mask=magnet_mask, nu_init=nu,
+    )
+    assert calls["accept"] == 4                          # t_0 + неудачная попытка + два подшага
+    assert res.magnet_cascade and "1 ячеек ниже H_cJ" in res.stop_reason
+    assert len(res.times) == 1 and res.T_stop is not None   # шаг 1 не принят, его поле — вне истории
+    assert np.all(res.state.retention == 1.0)            # состояние откачено к принятому (t_0)
 
 
 @pytest.mark.parametrize("method", ["newton", "picard"])
