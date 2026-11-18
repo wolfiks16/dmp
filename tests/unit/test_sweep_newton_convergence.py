@@ -87,7 +87,7 @@ def test_loss_sweep_by_newton_matches_tight_picard():
 
 
 def test_solve_machine_is_newton_by_default_and_agrees_with_picard():
-    d = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    d = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     new = solve_machine(d, T=20.0, i_peak=40.0, gamma_elec=math.pi / 2)
     assert new.method == "newton" and new.converged and new.residual <= 1e-9 and new.n_iterations <= 12
     pic = solve_machine(d, T=20.0, i_peak=40.0, gamma_elec=math.pi / 2, method="picard", relaxation=0.1,

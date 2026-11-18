@@ -101,7 +101,7 @@ def test_commutator_skew_factor_and_ke_formula():
 
 def test_three_phase_kt_is_1_5_times_ke():
     # Частая путаница: для трёхфазной K_t = 1.5·K_e, для коллекторной K_t = K_e.
-    pmsm = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    pmsm = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     geo = pmsm.build_geometry()
     a = np.zeros(geo.mesh.n_vertices)           # формулы проверяем структурно
     w = pmsm.winding
@@ -170,7 +170,7 @@ def test_winding_resistance_matches_dp25_nameplate():
 
 def test_copper_loss_formulas_differ_by_winding_type():
     # трёхфазная: P = 3·I_скз²·R (I_скз = i/√2) ⇒ P = 1.5·i²·R
-    p = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    p = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     gp = p.build_geometry()
     Rp = p.winding.resistance(gp, 20.0)
     assert p.winding.copper_loss(gp, i_peak=10.0, T=20.0) == pytest.approx(1.5 * 100.0 * Rp)
@@ -232,7 +232,7 @@ def test_thrust_is_proportional_to_torque():
 def test_performance_end_to_end_pmsm():
     """Р2 целиком на PMSM: момент, потери, КПД — величины физичны и согласованы."""
     from magcore.fem2d.machines.library import evaluate_performance
-    perf = evaluate_performance(outrunner_pmsm_uav(mesh_size=4.0e-3),
+    perf = evaluate_performance(outrunner_pmsm_uav(mesh_size=4.0e-3, critical_mesh=False),
                                 i_peak=40.0, speed_rpm=7000.0, T=20.0)
     assert perf.converged
     assert perf.torque > 0.0
@@ -249,7 +249,7 @@ def test_loss_current_differs_from_magnetic_current():
     Трёхфазная: нагрев по СКЗ (1/√2) и не зависит от угла γ; магнитный — мгновенный,
     от γ зависит. Плюс поправка на заполнение паза (1/√k_зап).
     """
-    p = outrunner_pmsm_uav(mesh_size=5.0e-3)
+    p = outrunner_pmsm_uav(mesh_size=5.0e-3, critical_mesh=False)
     geo = p.build_geometry()
     j_loss = p.winding.loss_current_density(geo, i_peak=40.0)
     j_mag0 = p.winding.current_density(geo, i_peak=40.0, gamma_elec=0.0)
@@ -311,7 +311,7 @@ def test_thermal_demag_runs_for_both_machine_types():
     from magcore.fem2d.machines.library import run_thermal_demag
 
     common = dict(h_out=50.0, T_amb=60.0, T0=60.0, dt=0.5, n_steps=4, T_cap=200.0)
-    for definition, i_peak in ((outrunner_pmsm_uav(mesh_size=5.0e-3), 40.0),
+    for definition, i_peak in ((outrunner_pmsm_uav(mesh_size=5.0e-3, critical_mesh=False), 40.0),
                                (dp25_brushed_dc(mesh_size=0.8e-3), 1.35)):
         res = run_thermal_demag(definition, i_peak=i_peak, **common)
         assert res.transient.em_method == "newton" and res.transient.em_converged
@@ -346,7 +346,7 @@ def test_loss_data_presence_is_explicit():
     Берём ТРЁХФАЗНУЮ машину: для неё потери ядра поддержаны, поэтому проверка доходит именно
     до отсутствия коэффициентов (у коллекторной сработал бы более ранний отказ по типу)."""
     from magcore.fem2d.machines.library import MachineMaterials, compute_core_losses
-    d = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    d = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     assert d.materials.has_loss_data()
     bare = MachineMaterials(magnet=d.materials.magnet,
                             steel_armature=d.materials.steel_armature)
@@ -367,7 +367,7 @@ def test_catalog_declares_solid_yoke_where_real():
 def test_core_losses_computed_for_three_phase():
     """Потери ядра трёхфазной машины считаются автоматически; разбивка физична."""
     from magcore.fem2d.machines.library import compute_core_losses
-    d = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    d = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     cl = compute_core_losses(d, speed_rpm=7000.0, i_peak=40.0, n_positions=6)
     assert cl.stator_iron_w > 0.0 and cl.rotor_side_w >= 0.0
     assert cl.total_w == pytest.approx(cl.stator_iron_w + cl.rotor_side_w)
@@ -386,7 +386,7 @@ def test_core_losses_rotor_sweep_span_follows_the_load(monkeypatch):
     import magcore.fem2d.machines.magnet_loss as magnet_loss
     from magcore.fem2d.machines.library import compute_core_losses
 
-    d = outrunner_pmsm_uav(mesh_size=8.0e-3)
+    d = outrunner_pmsm_uav(mesh_size=8.0e-3, critical_mesh=False)
     nc = d.build_geometry().mesh.n_cells
     calls = {}
 
@@ -427,7 +427,7 @@ def test_core_losses_refused_for_commutator():
 def test_auto_core_losses_heats_more_than_copper_alone():
     """auto_core_losses=True добавляет сталь+магнит к меди ⇒ суммарный нагрев выше."""
     from magcore.fem2d.machines.library import run_thermal_demag
-    d = outrunner_pmsm_uav(mesh_size=6.0e-3)
+    d = outrunner_pmsm_uav(mesh_size=6.0e-3, critical_mesh=False)
     common = dict(i_peak=40.0, h_out=50.0, T_amb=60.0, T0=60.0, dt=0.5, n_steps=3, T_cap=200.0)
     cu_only = run_thermal_demag(d, **common)
     with_core = run_thermal_demag(d, auto_core_losses=True, speed_rpm=7000.0, **common)

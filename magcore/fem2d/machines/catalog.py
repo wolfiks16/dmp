@@ -31,6 +31,7 @@ from magcore.fem2d.machines.iron_loss import (
     STEEL10_RESISTIVITY,
     SteinmetzCoefficients,
 )
+from magcore.fem2d.machines.mesh_policy import with_critical_mesh
 from magcore.fem2d.machines.pmsm_outrunner import OutrunnerPMSMParams
 
 # Электропроводность магнитов при 20 °C [См/м] (sources_registry.md §2):
@@ -107,17 +108,24 @@ DP25_NAMEPLATE_R = 3.9           # Ом ± 0.4
 
 def outrunner_pmsm_uav(magnet: AnisotropicBHTMagnet | None = None,
                        steel: str = "steel10",
-                       mesh_size: float = 3.0e-3) -> MachineDefinition:
+                       mesh_size: float = 3.0e-3,
+                       critical_mesh: bool = True) -> MachineDefinition:
     """
     Представительный **outrunner SPM PMSM** для БПЛА: 12 пазов / 14 полюсов, Ø58×30 мм,
     kV 350, 6S (22.2 В), номинал 40 А, пик 2 кВт, ХХ ≈ 7000 об/мин (f ≈ 817 Гц).
 
     `steel`: 'steel10' (магнитопровод изделия) | 'm270' (электротехническая, эталон сравнения).
     Магниты на РОТОРЕ (вращаются) ⇒ вихревые потери считаются в системе ротора.
+
+    `critical_mesh=True` (по умолчанию, с 2026-11-18) — политика сетки: магнит и зазор мельчайшие
+    (`mesh_policy.with_critical_mesh`), `mesh_size` — только для остальных регионов. `False` — равномерная
+    `mesh_size` везде: ТОЛЬКО осознанно (быстрые проверки структуры), выводам о размагничивании на ней не верить.
     """
     _mag_pm = magnet or n42sh_magnet(EASY_AXIS)
     curve = steel10_bh_curve() if steel == "steel10" else m270_35a_cogent_bh_curve()
     params = OutrunnerPMSMParams(n_slots=12, n_poles=14, mesh_size=mesh_size)
+    if critical_mesh:
+        params = with_critical_mesh(params)
     return MachineDefinition(
         name="outrunner PMSM 12/14 (БПЛА)",
         params=params,
