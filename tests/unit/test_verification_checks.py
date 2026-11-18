@@ -77,6 +77,11 @@ def test_time_step_and_runaway_and_magnet_range():
     assert check_runaway_margin(1.0, 0.0).status == SKIP
     assert check_magnet_model_range(150.0, 200.0).status == PASS
     assert check_magnet_model_range(210.0, 200.0).status == FAIL
+    # с границей данных марки — три уровня: данные / экстраполяция (не для выводов) / вне модели
+    assert check_magnet_model_range(150.0, 200.0, T_data_max=150.0).status == PASS
+    extra = check_magnet_model_range(170.0, 200.0, T_data_max=150.0)
+    assert extra.status == FAIL and "экстраполяция" in extra.value and extra.hint
+    assert check_magnet_model_range(210.0, 200.0, T_data_max=150.0).status == FAIL
 
 
 def test_report_aggregates_and_serializes():

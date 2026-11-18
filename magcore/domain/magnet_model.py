@@ -12,6 +12,11 @@ from magcore.domain.magnet_curves import (
     demag_curve_from_datasheet,
 )
 
+# Статус температуры магнита относительно его данных и модели (`AnisotropicBHTMagnet.temperature_validity`).
+VALIDITY_DATA = "в пределах данных"
+VALIDITY_EXTRAPOLATION = "экстраполяция"
+VALIDITY_OUT_OF_MODEL = "вне модели"
+
 
 @dataclass(frozen=True, slots=True)
 class AnisotropicBHTMagnet:
@@ -49,6 +54,16 @@ class AnisotropicBHTMagnet:
 
     Чистый NumPy; методы по T/H_min/B векторизуемы (при скалярной T). Данные марок —
     представительные, сверить с datasheet.
+
+    ДВА ПРЕДЕЛА ПО ТЕМПЕРАТУРЕ (не путать):
+      * `temperature_limit()` — предел самой МОДЕЛИ: где линейный множитель b(T) или h(T) обращается в 0
+        (у представительного N42SH 20 + 100/0,55 ≈ 201,8 °C). Это математическое продолжение прямой, а не
+        данные: настоящая H_cJ(T) выше измеренного диапазона не линейна (выпукла).
+      * `T_data_max` — верхняя граница ДОСТОВЕРНЫХ ДАННЫХ (последняя температура, при которой кривая/коэффициенты
+        марки измерены или даны в датащите; для марки SH обычно ≈ 150 °C). None — не задана (как было до
+        2026-11-18): различие «данные / экстраполяция» неизвестно, и `temperature_validity` даёт прежние два уровня.
+    Статус температуры — `temperature_validity(T)`: в пределах данных / экстраполяция / вне модели. Результаты
+    со статусом «экстраполяция» в выводах (статьи) как есть не использовать — только с оговоркой.
     """
 
     material_id: str
@@ -62,6 +77,7 @@ class AnisotropicBHTMagnet:
     alpha_Br: float = 0.12  # темп. коэфф. по индукции [%/°C] (Br, HcB)
     gamma_Hc: float = 0.6   # темп. коэфф. по коэрцитивности [%/°C] (Hk, HcJ)
     T0: float = 20.0        # опорная температура [°C]
+    T_data_max: float | None = None   # верхняя граница достоверных данных марки [°C]; None — не задана
 
     def __post_init__(self) -> None:
         e = np.asarray(self.easy_axis, dtype=float).reshape(-1)
@@ -93,6 +109,15 @@ class AnisotropicBHTMagnet:
                     f"встроен в формулу 1 − коэфф.·ΔT/100). Значение даташита «−0,12 %/°C» вводится как 0,12; "
                     f"отрицательное означало бы рост B_r/H_cJ с нагревом — вне модели редкоземельного магнита."
                 )
+        if self.T_data_max is not None:
+            t = float(self.T_data_max)
+            if not np.isfinite(t) or t <= self.T0:
+                raise ValueError("T_data_max (граница данных марки) должна быть конечной и выше T0.")
+            if t >= self.temperature_limit():
+                raise ValueError(
+                    "T_data_max = %g °C не ниже предела линейной модели %g °C: там множитель b(T) или h(T) уже "
+                    "≤ 0, и модель с такими данными не согласуется — проверьте коэффициенты марки."
+                    % (t, self.temperature_limit()))
 
     def law_key(self) -> tuple:
         """
@@ -151,11 +176,34 @@ class AnisotropicBHTMagnet:
         Верхняя температура валидности модели [°C]: где множитель _b(T) или _h(T)
         обращается в 0 (Br или Hc масштабируется в ≤0). Выше неё магнит вне диапазона
         модели (перегрет/разрушен) — `curve_at` бросит исключение. = T0 + 100/max(коэфф.).
+        ⚠ Это продолжение линейной модели, а не граница данных: между `T_data_max` и этим
+        пределом — экстраполяция (`temperature_validity`).
         """
         slopes = [s for s in (self.alpha_Br, self.gamma_Hc) if s > 0.0]
         if not slopes:
             return float("inf")
         return self.T0 + 100.0 / max(slopes)
+
+    def data_temperature_limit(self) -> float:
+        """Верхняя температура, до которой выводам можно верить без оговорок: `T_data_max`, если задана, иначе предел модели."""
+        return float(self.T_data_max) if self.T_data_max is not None else self.temperature_limit()
+
+    def temperature_validity(self, T) -> str:
+        """
+        Честный статус температуры T [°C] для этой марки — один из трёх уровней:
+          * `VALIDITY_DATA` («в пределах данных») — T ≤ `T_data_max` (или граница данных не задана, а T ниже
+            предела модели — прежнее поведение, различить данные и экстраполяцию нечем);
+          * `VALIDITY_EXTRAPOLATION` («экстраполяция») — `T_data_max` < T < `temperature_limit()`: модель считает,
+            но коэффициенты продолжены за измеренный диапазон; для выводов — только с оговоркой;
+          * `VALIDITY_OUT_OF_MODEL` («вне модели») — T ≥ `temperature_limit()`: кривой нет вообще.
+        Нижняя граница данных не проверяется (обычно датащит начинается с 20 °C).
+        """
+        t = float(T)
+        if not np.isfinite(t) or t >= self.temperature_limit():
+            return VALIDITY_OUT_OF_MODEL
+        if self.T_data_max is not None and t > float(self.T_data_max):
+            return VALIDITY_EXTRAPOLATION
+        return VALIDITY_DATA
 
     # --- кривая при температуре ---
     def curve_at(self, T) -> DemagnetizationCurveBH:

@@ -56,6 +56,33 @@ def test_negative_temperature_coefficient_is_rejected() -> None:
     assert m0.Br(150.0) == m0.Br0 and m0.temperature_limit() == float("inf")   # ноль — без T-зависимости
 
 
+def test_temperature_validity_has_three_levels() -> None:
+    # Предел модели (линейная H_cJ(T) → 0) — не граница данных: у N42SH это ≈ 201,8 °C при данных марки SH обычно
+    # до ~150 °C. С границей данных статус трёхуровневый; без неё (по умолчанию) — прежнее поведение.
+    import dataclasses
+
+    from magcore.domain.magnet_model import VALIDITY_DATA, VALIDITY_EXTRAPOLATION, VALIDITY_OUT_OF_MODEL
+
+    old = n42sh_magnet(EZ)
+    limit = old.temperature_limit()
+    assert limit == pytest.approx(20.0 + 100.0 / 0.55)
+    assert old.T_data_max is None and old.data_temperature_limit() == limit
+    assert old.temperature_validity(180.0) == VALIDITY_DATA                  # граница не задана — как было
+    assert old.temperature_validity(limit) == VALIDITY_OUT_OF_MODEL
+    m = dataclasses.replace(old, T_data_max=150.0)
+    assert m.law_key() == old.law_key()                                      # закон тот же — это метаданные
+    assert m.data_temperature_limit() == 150.0
+    assert m.temperature_validity(150.0) == VALIDITY_DATA
+    assert m.temperature_validity(150.5) == VALIDITY_EXTRAPOLATION
+    assert m.temperature_validity(201.0) == VALIDITY_EXTRAPOLATION
+    assert m.temperature_validity(limit + 0.1) == VALIDITY_OUT_OF_MODEL
+    assert m.temperature_validity(float("nan")) == VALIDITY_OUT_OF_MODEL
+    assert m.Br(180.0) == old.Br(180.0)                                      # на сам расчёт не влияет
+    for bad in (10.0, 20.0, limit, float("inf")):                            # ниже T0, на пределе модели и выше
+        with pytest.raises(ValueError, match="T_data_max"):
+            dataclasses.replace(old, T_data_max=bad)
+
+
 def test_mu_rec_derived_from_Br_Hcb() -> None:
     m = excel_reference_magnet(EZ)
     assert m.mu_rec == pytest.approx(m.Br0 / (MU0 * m.Hcb0))

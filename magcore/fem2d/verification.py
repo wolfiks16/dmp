@@ -292,11 +292,23 @@ def check_permeance_coefficient(pc: float, pc_min: float = 3.0) -> Check:
                  "материале — и сравнение SmCo/NdFeB надо вести при ОДИНАКОВОМ P_c.")
 
 
-def check_magnet_model_range(T_magnet_max: float, T_limit: float) -> Check:
-    """Не вышла ли температура магнита за область достоверности его модели."""
-    if T_magnet_max < T_limit:
-        return Check("Магнит в области достоверности модели", PASS,
-                     "T_max %.0f °C < предела %.0f °C" % (T_magnet_max, T_limit))
-    return Check("Магнит в области достоверности модели", FAIL,
-                 "T_max %.0f °C ≥ предела модели %.0f °C" % (T_magnet_max, T_limit),
-                 "За пределом кривая B(H,T) не определена — числам верить нельзя.")
+def check_magnet_model_range(T_magnet_max: float, T_limit: float, T_data_max: float | None = None) -> Check:
+    """
+    Не вышла ли температура магнита за область достоверности его модели — три уровня
+    (`AnisotropicBHTMagnet.temperature_validity`): в пределах данных марки (PASS); выше границы данных
+    `T_data_max`, но ниже предела линейной модели — экстраполяция коэффициентов (FAIL: для выводов только с
+    оговоркой); за пределом модели (FAIL). `T_data_max=None` — граница данных не задана, проверка прежняя.
+    """
+    name = "Магнит в области достоверности модели"
+    if T_magnet_max >= T_limit:
+        return Check(name, FAIL, "T_max %.0f °C ≥ предела модели %.0f °C" % (T_magnet_max, T_limit),
+                     "За пределом кривая B(H,T) не определена — числам верить нельзя.")
+    if T_data_max is not None and T_magnet_max > T_data_max:
+        return Check(name, FAIL,
+                     "T_max %.0f °C > границы данных марки %.0f °C (предел модели %.0f °C) — экстраполяция"
+                     % (T_magnet_max, T_data_max, T_limit),
+                     "Выше границы данных коэффициенты продолжены прямой, а H_cJ(T) там не линейна: "
+                     "результат — оценка, в выводы как есть не брать.")
+    if T_data_max is None:
+        return Check(name, PASS, "T_max %.0f °C < предела %.0f °C" % (T_magnet_max, T_limit))
+    return Check(name, PASS, "T_max %.0f °C ≤ границы данных марки %.0f °C" % (T_magnet_max, T_data_max))

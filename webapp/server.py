@@ -764,7 +764,8 @@ def _do_scenario(body: dict) -> dict:
     ]
     if np.isfinite(res.T_magnet_max):
         checks.append(check_magnet_model_range(float(res.T_magnet_max),
-                                               float(magnet.temperature_limit())))
+                                               float(magnet.temperature_limit()),
+                                               getattr(magnet, "T_data_max", None)))
     report = VerificationReport(checks)
 
     out = {
